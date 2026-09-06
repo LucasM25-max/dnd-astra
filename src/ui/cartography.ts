@@ -62,19 +62,25 @@ export class Cartography {
       label('Neverwinter Wood', -8, -10, 21, '#9dba8b');
       label('Triboar Trail', -9.5, 3.4, 21, '#342c20');
       label('To Phandalin →', 12.6, 9.1, 19);
-      label('The ambush clearing', 9, -.8, 16);
-      const [cx, cy] = point(6.3, 1.9);
+      label('The ambush clearing', 10, -.8, 16);
+      const [cx, cy] = point(9.7, 2.0);
       ctx.strokeStyle = '#d7ba77'; ctx.lineWidth = 1; ctx.setLineDash([2, 4]); ctx.beginPath(); ctx.ellipse(cx, cy, 26, 32, .6, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
-      for (const [x, z, a] of [[5.9, .7, -.7], [6.9, 3.2, 1.1]]) {
-        const [px, py] = point(x, z); ctx.save(); ctx.translate(px, py); ctx.rotate(a); ctx.fillStyle = '#3b3c2a'; ctx.beginPath(); ctx.ellipse(0, 0, 4, 9, 0, 0, 6.28); ctx.fill(); ctx.restore();
+      for (const horse of state.horses) {
+        const [px, py] = point(horse.x, horse.z); ctx.save(); ctx.translate(px, py); ctx.rotate(-horse.yaw);
+        ctx.fillStyle = '#3b3c2a'; ctx.beginPath(); ctx.ellipse(0, 0, 3, 7, 0, 0, 6.28); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(0, -7.2, 2, 3, 0, 0, 6.28); ctx.fill(); ctx.restore();
       }
       this.compass(ctx, width - 42, 53, 24);
       ctx.strokeStyle = '#c7bd94'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(25, height - 28); ctx.lineTo(25 + 5 / (bounds.maxX - bounds.minX) * width, height - 28); ctx.stroke();
       ctx.font = '9px Manrope, sans-serif'; ctx.fillStyle = '#c7bd94'; ctx.textAlign = 'left'; ctx.fillText('5 METRES', 25, height - 36);
     } else {
       this.compass(ctx, width - 15, 20, 7);
-      const [cx, cy] = point(6.3, 1.9); ctx.save(); ctx.translate(cx, cy); ctx.rotate(Math.PI / 4); ctx.fillStyle = '#c8b17b'; ctx.fillRect(-3, -3, 6, 6); ctx.restore();
+      const [cx, cy] = point(9.7, 2.0); ctx.save(); ctx.translate(cx, cy); ctx.rotate(Math.PI / 4); ctx.fillStyle = '#c8b17b'; ctx.fillRect(-3, -3, 6, 6); ctx.restore();
     }
+    const [wx, wy] = point(state.wagon.x, state.wagon.z);
+    ctx.save(); ctx.translate(wx, wy); ctx.rotate(-state.wagon.yaw);
+    ctx.fillStyle = '#bdb18b'; ctx.strokeStyle = '#25362b'; ctx.lineWidth = 1;
+    ctx.fillRect(-3.7, -4.5, 7.4, 9); ctx.strokeRect(-3.7, -4.5, 7.4, 9); ctx.restore();
     let [x, y] = point(state.x, state.z);
     x = Math.max(11, Math.min(width - 11, x)); y = Math.max(11, Math.min(height - 11, y));
     ctx.save(); ctx.translate(x, y);

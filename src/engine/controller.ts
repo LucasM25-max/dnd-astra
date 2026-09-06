@@ -11,6 +11,10 @@ export class PlayerController {
   yaw = SPAWN.yaw;
   pitch = .17;
   mode: CameraMode = 'third';
+  controlMode: 'foot' | 'wagon' | 'cinematic' = 'foot';
+  cameraOverride = false;
+  private vehicleYaw = 0;
+  private arms = new THREE.Group();
   started = false;
   paused = false;
   grounded = true;
@@ -41,6 +45,13 @@ export class PlayerController {
     const bean = new THREE.Mesh(new THREE.CapsuleGeometry(.305, .82, 9, 20), beanMat);
     bean.position.y = .745; bean.castShadow = true; bean.receiveShadow = true;
     this.rig.add(bean);
+    for (const side of [-1, 1]) {
+      const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(side * .265, .95, -.02), new THREE.Vector3(side * .365, .77, -.17), new THREE.Vector3(side * .24, .90, -.33)]);
+      const arm = new THREE.Mesh(new THREE.TubeGeometry(curve, 12, .067, 8, false), beanMat); arm.castShadow = true;
+      const hand = new THREE.Mesh(new THREE.SphereGeometry(.071, 10, 8), beanMat); hand.position.set(side * .24, .90, -.33); hand.castShadow = true;
+      this.arms.add(arm, hand);
+    }
+    this.arms.visible = false; this.rig.add(this.arms);
     const shadowCanvas = document.createElement('canvas'); shadowCanvas.width = shadowCanvas.height = 64;
     const shadowCtx = shadowCanvas.getContext('2d')!;
     const gradient = shadowCtx.createRadialGradient(32, 32, 2, 32, 32, 31);
@@ -67,10 +78,12 @@ export class PlayerController {
   private bindInput() {
     const opts = { signal: this.disposed.signal };
     window.addEventListener('keydown', e => {
-      if (this.paused || isFormControl(e.target) || (e.code === 'Space' && e.target instanceof HTMLButtonElement)) return;
+      if (this.paused || (this.controlMode === 'cinematic' && this.started) || isFormControl(e.target) || (e.code === 'Space' && e.target instanceof HTMLButtonElement)) return;
       if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight'].includes(e.code)) {
         e.preventDefault();
         if (!this.started) this.onStart();
+        if (this.controlMode === 'cinematic') return;
+        if (e.code !== 'Space') this.canvas.focus({ preventScroll: true });
         this.keys.add(e.code);
         if (e.code === 'Space' && !e.repeat) this.jumpQueued = true;
       }
@@ -81,6 +94,7 @@ export class PlayerController {
     this.canvas.addEventListener('pointerdown', e => {
       if (this.paused) return;
       if (!this.started) this.onStart();
+      if (this.controlMode === 'cinematic') return;
       this.canvas.focus({ preventScroll: true });
       this.dragging = true; this.lastPointer = { x: e.clientX, y: e.clientY };
       if (e.pointerType === 'mouse' && e.button === 0) this.capturePointer();
@@ -89,7 +103,7 @@ export class PlayerController {
     window.addEventListener('pointerup', () => { this.dragging = false; }, opts);
     window.addEventListener('pointercancel', () => { this.dragging = false; }, opts);
     window.addEventListener('pointermove', e => {
-      if (this.paused || !this.started) return;
+      if (this.paused || !this.started || this.controlMode === 'cinematic') return;
       const locked = document.pointerLockElement === this.canvas;
       if (!locked && !this.dragging) return;
       if (locked && this.ignoreNextLook) { this.ignoreNextLook = false; this.lastPointer = { x: e.clientX, y: e.clientY }; return; }
@@ -100,8 +114,8 @@ export class PlayerController {
       this.pitch = clamp(this.pitch + dy * .0019 * this.sensitivity * (this.invertY ? -1 : 1), this.mode === 'first' ? -1.35 : -.42, this.mode === 'first' ? 1.35 : 1.12);
     }, opts);
     this.canvas.addEventListener('wheel', e => {
-      if (this.paused || this.mode === 'first') return;
-      e.preventDefault(); this.zoom = clamp(this.zoom + e.deltaY * .006, 2.2, 8.2);
+      if (this.paused || this.mode === 'first' || this.controlMode === 'cinematic') return;
+      e.preventDefault(); this.zoom = clamp(this.zoom + e.deltaY * .006, this.controlMode === 'wagon' ? 4.5 : 2.2, this.controlMode === 'wagon' ? 11.5 : 8.2);
     }, { ...opts, passive: false });
     document.addEventListener('pointerlockchange', () => {
       if (document.pointerLockElement === this.canvas) { this.ignoreNextLook = true; this.suppressUnlock = false; }
@@ -113,7 +127,7 @@ export class PlayerController {
     }, opts);
   }
   capturePointer() {
-    if (!this.lockAvailable || !this.started || this.paused || document.pointerLockElement === this.canvas) return;
+    if (this.controlMode === 'cinematic' || !this.lockAvailable || !this.started || this.paused || document.pointerLockElement === this.canvas) return;
     try {
       const result = this.canvas.requestPointerLock?.();
       Promise.resolve(result).catch(() => { this.lockAvailable = false; this.onPointerFallback(); });
@@ -126,14 +140,30 @@ export class PlayerController {
   }
   clearInput() { this.keys.clear(); this.touchMove.x = this.touchMove.y = 0; this.velocity.set(0, 0, 0); this.jumpQueued = false; }
   setMode(mode: CameraMode) { this.mode = mode; this.pitch = clamp(this.pitch, -.42, 1.12); this.updateCamera(1); }
-  jump() { if (!this.paused && this.started) this.jumpQueued = true; }
+  jump() { if (!this.paused && this.started && this.controlMode === 'foot') this.jumpQueued = true; }
+  setControlMode(mode: 'foot' | 'wagon' | 'cinematic') {
+    this.controlMode = mode; this.clearInput(); this.cameraOverride = mode === 'cinematic';
+    this.arms.visible = mode !== 'foot'; this.rig.scale.y = mode === 'foot' ? 1 : .78;
+    this.rig.position.y = 0; this.rig.rotation.set(0, 0, 0); this.zoom = mode === 'foot' ? 5.4 : 8.2;
+  }
+  attachToSeat(position: THREE.Vector3, yaw: number) {
+    if (this.controlMode === 'wagon') this.yaw += Math.atan2(Math.sin(yaw - this.vehicleYaw), Math.cos(yaw - this.vehicleYaw));
+    else this.yaw = yaw;
+    this.vehicleYaw = yaw; this.position.copy(position); this.avatar.position.copy(position); this.avatar.rotation.y = yaw;
+    this.grounded = true; this.verticalVelocity = 0;
+  }
+  placeOnFoot(position: THREE.Vector3, yaw: number) {
+    this.setControlMode('foot'); this.position.copy(position); this.position.y = terrainHeight(position.x, position.z);
+    this.yaw = yaw; this.avatar.rotation.y = yaw; this.avatar.position.copy(this.position); this.pitch = .16;
+    this.grounded = true; this.verticalVelocity = 0;
+  }
   reset() {
     this.position.set(SPAWN.x, terrainHeight(SPAWN.x, SPAWN.z), SPAWN.z); this.yaw = SPAWN.yaw; this.pitch = .17;
     this.verticalVelocity = 0; this.grounded = true; this.clearInput(); this.avatar.position.copy(this.position); this.updateCamera(1);
   }
   update(dt: number) {
-    this.elapsed += dt;
-    if (this.started && !this.paused) {
+    dt = Math.max(0, Math.min(.1, dt)); this.elapsed += dt;
+    if (this.started && !this.paused && this.controlMode === 'foot') {
       let forward = +(this.keys.has('KeyW') || this.keys.has('ArrowUp')) - +(this.keys.has('KeyS') || this.keys.has('ArrowDown')) + this.touchMove.y;
       let strafe = +(this.keys.has('KeyD') || this.keys.has('ArrowRight')) - +(this.keys.has('KeyA') || this.keys.has('ArrowLeft')) + this.touchMove.x;
       const len = Math.hypot(forward, strafe);
@@ -164,7 +194,7 @@ export class PlayerController {
     const floor = terrainHeight(this.position.x, this.position.z);
     this.contactShadow.position.set(this.position.x, floor + .016, this.position.z);
     (this.contactShadow.material as THREE.MeshBasicMaterial).opacity = .62 / (1 + Math.max(0, this.position.y - floor) * 3);
-    this.contactShadow.visible = this.mode === 'third';
+    this.contactShadow.visible = this.mode === 'third' && this.controlMode === 'foot';
     this.updateCamera(dt);
   }
   private physicsStep(dt: number) {
@@ -189,18 +219,22 @@ export class PlayerController {
     }
   }
   private updateCamera(dt: number) {
+    if (this.cameraOverride) { this.avatar.visible = true; this.rig.children.forEach(o => { o.visible = true; }); return; }
+    const seated = this.controlMode === 'wagon';
     const breathing = this.paused ? 0 : Math.sin(this.elapsed * 1.4) * .004;
     if (this.mode === 'first') {
-      this.avatar.visible = false;
+      this.avatar.visible = seated;
+      this.rig.children.forEach(o => { o.visible = seated && o === this.arms; });
       const bob = this.grounded && this.started && !this.paused ? Math.sin(this.walkDistance * 9.6) * .012 * Math.min(1, this.velocity.length()) : 0;
-      this.camera.position.copy(this.position).add(new THREE.Vector3(0, 1.35 + bob + breathing, 0));
+      this.camera.position.copy(this.position).add(new THREE.Vector3(0, (seated ? 1.02 : 1.35) + bob + breathing, 0));
       this.look.set(-Math.sin(this.yaw) * Math.cos(this.pitch), -Math.sin(this.pitch), -Math.cos(this.yaw) * Math.cos(this.pitch)).add(this.camera.position);
       this.camera.lookAt(this.look);
     } else {
+      this.rig.children.forEach(o => { o.visible = o !== this.arms || seated; });
       const yaw = this.started ? this.yaw : this.yaw + Math.sin(this.elapsed * .055) * .022;
       const pitch = this.started ? this.pitch : .19;
       const distance = this.started ? this.zoom : 7.7;
-      this.look.copy(this.position).add(new THREE.Vector3(0, 1.02 + breathing, 0));
+      this.look.copy(this.position).add(new THREE.Vector3(0, (seated ? .86 : 1.02) + breathing, 0));
       const offset = new THREE.Vector3(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
       this.desiredCamera.copy(this.look).addScaledVector(offset, distance);
       // Lift a low orbit above the floor BEFORE testing the sight line. Otherwise
@@ -211,7 +245,7 @@ export class PlayerController {
       let safeDistance = orbitDistance;
       for (let d = .3; d < orbitDistance; d += .22) {
         const p = this.desiredCamera.copy(this.look).addScaledVector(offset, d);
-        if (this.collision.cameraBlocked(p.x, p.y, p.z)) { safeDistance = Math.max(.42, d - .22); break; }
+        if (this.collision.cameraBlocked(p.x, p.y, p.z, seated ? 'wagon' : undefined)) { safeDistance = Math.max(.42, d - .22); break; }
       }
       this.desiredCamera.copy(this.look).addScaledVector(offset, safeDistance);
       this.desiredCamera.y = Math.max(this.desiredCamera.y, terrainHeight(this.desiredCamera.x, this.desiredCamera.z) + .28);

@@ -11,10 +11,11 @@ import { loadMaterials, type Materials } from './materials';
 import { createTerrain, createForest, type Nature } from './nature';
 import { createAmbush } from './props';
 import { PlayerController, type CameraMode } from './controller';
+import { Adventure, type AdventureState } from './adventure';
 
 export type Quality = 'performance' | 'balanced' | 'high';
 export type Atmosphere = 'golden' | 'overcast' | 'blue';
-export interface WorldState {
+export interface WorldState extends AdventureState {
   x: number; y: number; z: number; yaw: number; mode: CameraMode; moving: boolean; grounded: boolean;
   started: boolean; paused: boolean; fps: number; landmark: string | null; distanceWalked: number;
 }
@@ -24,6 +25,10 @@ export class WoodlandWorld {
   readonly camera = new THREE.PerspectiveCamera(59, 1, .08, 260);
   readonly collision = new CollisionField();
   controller!: PlayerController;
+  adventure!: Adventure;
+  private lastActorShadow = 0;
+  onNotice: (message: string) => void = () => {};
+  onControlHandoff = () => {};
   private material!: Materials;
   private nature!: Nature;
   private composer!: EffectComposer;
@@ -109,6 +114,11 @@ export class WoodlandWorld {
     this.scene.environmentRotation.y = 1.6;
     environment.dispose(); pmrem.dispose(); this.cleanups.push(() => envTarget.dispose());
     this.controller = new PlayerController(this.camera, this.renderer.domElement, this.collision, this.scene);
+    progress(85, 'Harnessing the oxen and loading the wagon');
+    await yieldToBrowser();
+    this.adventure = await Adventure.create(this.scene, this.camera, this.controller, this.collision, this.renderer);
+    this.adventure.onNotice = message => this.onNotice(message);
+    this.adventure.onHandoff = () => { this.renderer.shadowMap.needsUpdate = true; this.renderDirty = true; this.onControlHandoff(); };
     this.addAtmosphere(); this.setupPostprocessing(); this.setQuality(this.quality); this.resize();
     progress(92, 'Opening your window to the wild');
     await yieldToBrowser();
@@ -229,18 +239,22 @@ export class WoodlandWorld {
     (this.scene.background as THREE.Color).copy(fog.color);
   }
   setMode(mode: CameraMode) {
+    if (this.adventure?.narrator.state.phase === 'journey') return;
     this.renderDirty = true; this.renderer.shadowMap.needsUpdate = true;
     this.controller.setMode(mode); this.camera.fov = mode === 'first' ? 72 : 59; this.camera.updateProjectionMatrix();
   }
   getState(): WorldState {
     const c = this.controller, p = c.position;
     const place = LANDMARKS.find(l => Math.hypot(p.x - l.x, p.z - l.z) < l.radius);
-    return { x: p.x, y: p.y, z: p.z, yaw: c.yaw, mode: c.mode, moving: c.velocity.length() > .3, grounded: c.grounded, started: c.started, paused: c.paused, fps: this.fps, landmark: place?.id ?? null, distanceWalked: c.walkDistance };
+    return { ...this.adventure.state, x: p.x, y: p.y, z: p.z, yaw: c.yaw, mode: c.mode, moving: this.adventure.mounted ? Math.abs(this.adventure.wagon.speed) > .02 : c.velocity.length() > .3, grounded: c.grounded, started: c.started, paused: c.paused, fps: this.fps, landmark: place?.id ?? null, distanceWalked: c.walkDistance };
   }
+  beginAdventure() { this.adventure.begin(); this.renderDirty = true; }
+  setPaused(paused: boolean) { this.adventure.setPaused(paused); if (!paused) this.renderDirty = true; }
   private frame = (now: number) => {
     if (!this.running) return;
-    const realDelta = (now - this.lastFrame) / 1000;
+    const realDelta = Math.max(0, (now - this.lastFrame) / 1000);
     const dt = Math.min(realDelta, .1); this.lastFrame = now; this.elapsed += dt;
+    this.adventure.update(dt, realDelta);
     this.controller.update(dt);
     this.material.wind.value = this.elapsed;
     const particleMat = this.particles.material as THREE.ShaderMaterial;
@@ -252,18 +266,21 @@ export class WoodlandWorld {
       const vertices = [shaft.start.clone().addScaledVector(side, -shaft.width * .28), shaft.start.clone().addScaledVector(side, shaft.width * .28), shaft.end.clone().addScaledVector(side, -shaft.width), shaft.end.clone().addScaledVector(side, shaft.width)];
       vertices.forEach((v, i) => a.setXYZ(i, v.x, v.y, v.z)); a.needsUpdate = true;
     }
+    if (!this.controller.paused && this.elapsed - this.lastActorShadow > (this.quality === 'performance' ? .30 : .10)) {
+      this.renderer.shadowMap.needsUpdate = true; this.lastActorShadow = this.elapsed;
+    }
     // Keep the high-resolution shadow region around the traveller.
     const targetX = Math.round(this.controller.position.x / 4) * 4, targetZ = Math.round(this.controller.position.z / 4) * 4;
     if (this.controller.velocity.lengthSq() > .0004 || !this.controller.grounded || this.sun.target.position.x !== targetX || this.sun.target.position.z !== targetZ) this.renderer.shadowMap.needsUpdate = true;
     this.sun.target.position.set(targetX, terrainHeight(targetX, targetZ), targetZ);
     this.sun.position.copy(this.sun.target.position).add(new THREE.Vector3(-22, 32, -20));
     this.renderer.info.reset();
-    if (!this.controller.paused || this.renderDirty) { this.composer.render(); this.renderDirty = false; }
+    if (!this.controller.paused || this.renderDirty || this.adventure.needsRender) { this.composer.render(); this.renderDirty = false; }
     this.frameCount++; this.fpsTimer += realDelta;
     if (this.fpsTimer > 1) { this.fps = Math.round(this.frameCount / this.fpsTimer); this.frameCount = 0; this.fpsTimer = 0; }
     if (this.frameCount % 3 === 0) {
       const state = this.getState(); this.onUpdate(state);
-      if (state.started && state.landmark && !this.visited.has(state.landmark)) {
+      if (state.started && state.story.phase !== 'journey' && state.landmark && !this.visited.has(state.landmark)) {
         this.visited.add(state.landmark); this.onDiscovery(LANDMARKS.find(l => l.id === state.landmark)!.name);
       }
     }
@@ -284,9 +301,9 @@ export class WoodlandWorld {
     window.setTimeout(() => URL.revokeObjectURL(url), 2000);
   }
   get diagnostics() { return { ...this.renderer.info.render, quality: this.quality, trees: this.nature?.trees ?? 0 }; }
-  stop() { this.running = false; cancelAnimationFrame(this.raf); this.controller?.setPaused(true); }
+  stop() { this.running = false; cancelAnimationFrame(this.raf); this.controller?.setPaused(true); this.adventure?.narrator.setPaused(true); }
   dispose() {
-    this.stop(); this.observer.disconnect(); this.controller?.dispose(); this.cleanups.forEach(fn => fn());
+    this.stop(); this.observer.disconnect(); this.adventure?.dispose(); this.controller?.dispose(); this.cleanups.forEach(fn => fn());
     const geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>(), textures = new Set<THREE.Texture>();
     this.scene.traverse(o => {
       if (o instanceof THREE.Mesh || o instanceof THREE.Points) {

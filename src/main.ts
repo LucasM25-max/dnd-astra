@@ -1,4 +1,5 @@
 import './styles.css';
+import './adventure.css';
 import { WoodlandWorld } from './engine/world';
 import { WorldInterface, refreshIcons } from './ui/interface';
 import { renderShell } from './ui/shell';
@@ -9,6 +10,9 @@ document.body.dataset.view = 'third';
 document.body.dataset.playing = 'false';
 document.body.dataset.photo = 'false';
 document.body.dataset.locked = 'false';
+document.body.dataset.story = 'title';
+document.body.dataset.mounted = 'true';
+document.body.dataset.narrating = 'false';
 let world: WoodlandWorld | undefined;
 let ui: WorldInterface | undefined;
 function showError(contextLost = false, loadingFailed = false) {
@@ -33,7 +37,7 @@ async function boot() {
     setTimeout(() => loading.remove(), 900);
     if (import.meta.env.DEV) {
       // Read-only diagnostics for local browser smoke tests; omitted from production.
-      Object.defineProperty(window, '__astra', { configurable: true, value: { getState: () => world!.getState(), getDiagnostics: () => world!.diagnostics } });
+      Object.defineProperty(window, '__astra', { configurable: true, value: { getState: () => world!.getState(), getDiagnostics: () => world!.diagnostics, getInventory: () => world!.adventure.inventory.snapshot() } });
     }
   } catch (error) {
     console.error('The woodland could not initialize:', error);

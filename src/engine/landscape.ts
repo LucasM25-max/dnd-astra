@@ -98,10 +98,13 @@ export function terrainSlope(x: number, z: number) {
   const e = .16;
   return Math.hypot((terrainHeight(x + e, z) - terrainHeight(x - e, z)) / (2 * e), (terrainHeight(x, z + e) - terrainHeight(x, z - e)) / (2 * e));
 }
-export interface Collider { x: number; z: number; radius: number; bottom: number; top: number }
+export interface Collider { x: number; z: number; radius: number; bottom: number; top: number; group?: string }
 export class CollisionField {
   private cells = new Map<string, Collider[]>();
   private cellSize = 4;
+  private dynamic = new Map<string, Collider[]>();
+  setDynamic(id: string, colliders: Collider[]) { this.dynamic.set(id, colliders); }
+  removeDynamic(id: string) { this.dynamic.delete(id); }
   add(c: Collider) {
     const s = this.cellSize;
     for (let x = Math.floor((c.x - c.radius) / s); x <= Math.floor((c.x + c.radius) / s); x++)
@@ -116,6 +119,9 @@ export class CollisionField {
     for (let a = Math.floor((x - radius) / s); a <= Math.floor((x + radius) / s); a++)
       for (let b = Math.floor((z - radius) / s); b <= Math.floor((z + radius) / s); b++)
         for (const c of this.cells.get(`${a},${b}`) ?? []) found.add(c);
+    for (const group of this.dynamic.values()) for (const c of group) {
+      if (Math.abs(c.x - x) <= c.radius + radius && Math.abs(c.z - z) <= c.radius + radius) found.add(c);
+    }
     return found;
   }
   resolve(x: number, z: number, feet: number, radius = .32): Point2 {
@@ -131,9 +137,10 @@ export class CollisionField {
     }
     return { x: clamp(x, -WORLD_LIMIT, WORLD_LIMIT), z: clamp(z, -WORLD_LIMIT, WORLD_LIMIT) };
   }
-  cameraBlocked(x: number, y: number, z: number) {
+  cameraBlocked(x: number, y: number, z: number, ignoreGroup?: string) {
     if (y < terrainHeight(x, z) + .24) return true;
     for (const c of this.query(x, z, .18)) {
+      if (ignoreGroup && c.group === ignoreGroup) continue;
       if (y > c.bottom && y < c.top && Math.hypot(x - c.x, z - c.z) < c.radius + .2) return true;
     }
     return false;

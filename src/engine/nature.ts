@@ -144,8 +144,9 @@ export function createForest(scene: THREE.Scene, mat: Materials, collisions: Col
         trunks.setMatrixAt(i, dummy.matrix); leaves.setMatrixAt(i, dummy.matrix);
         collisions.add({ x: p.x, z: p.z, radius: geo.radius * p.scale * 1.17, bottom: y, top: y + geo.h * p.scale });
       });
-      trunks.castShadow = near; trunks.receiveShadow = true;
-      leaves.castShadow = near; leaves.receiveShadow = true; leaves.customDepthMaterial = mat.leafDepth;
+      const roadShadows = near || pts.some(p => Math.abs(p.x) < 49 && pathDistance(p.x, p.z) < 6);
+      trunks.castShadow = roadShadows; trunks.receiveShadow = true;
+      leaves.castShadow = roadShadows; leaves.receiveShadow = true; leaves.customDepthMaterial = mat.leafDepth;
       trunks.name = `Old-growth oak trunks ${type}`; leaves.name = `Wind-stirred oak canopy ${type}`;
       for (const mesh of [trunks, leaves]) mesh.userData.density = { total: pts.length, performance: near ? .42 : .18, balanced: near ? .85 : .7 };
       trunks.computeBoundingSphere(); leaves.computeBoundingSphere();
@@ -247,7 +248,7 @@ function createGrass(scene: THREE.Scene, mat: Materials, rng: Rng) {
     if (rng() > (.46 + noise(x * .4, z * .4) * .45) * (d > 6 ? .55 : 1)) continue;
     points.push({ x, z, s: .55 + rng() * 1.3 });
   }
-  points.sort((a, b) => Math.hypot(a.x - SPAWN.x, a.z - SPAWN.z) - Math.hypot(b.x - SPAWN.x, b.z - SPAWN.z));
+  points.sort((a, b) => pathDistance(a.x, a.z) - pathDistance(b.x, b.z));
   const mesh = new THREE.InstancedMesh(grassGeometry(), mat.grass, points.length), dummy = new THREE.Object3D();
   points.forEach((p, i) => {
     dummy.position.set(p.x, terrainHeight(p.x, p.z) - .025, p.z); dummy.rotation.set(0, rng() * 6.28, 0); dummy.scale.setScalar(p.s); dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix);
@@ -281,7 +282,7 @@ function createFerns(scene: THREE.Scene, mat: Materials, rng: Rng) {
     if (d < .25 || d > 6 || terrainSlope(x, z) > 1.25) continue;
     points.push({ x, z, s: .42 + rng() * .68 });
   }
-  points.sort((a, b) => Math.hypot(a.x - SPAWN.x, a.z - SPAWN.z) - Math.hypot(b.x - SPAWN.x, b.z - SPAWN.z));
+  points.sort((a, b) => pathDistance(a.x, a.z) - pathDistance(b.x, b.z));
   const mesh = new THREE.InstancedMesh(fernGeometry(), mat.fern, points.length), dummy = new THREE.Object3D();
   points.forEach((p, i) => {
     dummy.position.set(p.x, terrainHeight(p.x, p.z) - .025, p.z); dummy.rotation.set(0, rng() * 6.28, 0); dummy.scale.setScalar(p.s); dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix);

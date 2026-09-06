@@ -1,0 +1,12 @@
+{
+  "title": "A delivery for Gundren",
+  "direction": "You are the Narrator of a grounded fantasy RPG. Use a warm, mature, natural British storyteller's voice, with measured pacing, quiet authority, and restrained curiosity. Not an announcer, not a movie trailer. Read only the story text. Bracketed audio tags are delivery directions and must never be spoken. Preserve every word, name, and quotation. Let the final lines become subtly watchful, not melodramatic.",
+  "lines": [
+    { "id": "01-neverwinter", "stage": "introduction", "heading": "An honest commission", "tag": "storytelling", "text": "You began your adventuring career in the city of Neverwinter. A dwarf named Gundren Rockseeker hired you to bring a wagonload of provisions to the rough-and-tumble settlement of Phandalin, a couple of days' travel south of the city." },
+    { "id": "02-gundren", "stage": "introduction", "heading": "Something big", "tag": "thoughtful", "text": "Gundren was clearly excited and more than a little secretive about his reasons for the trip, saying only that he and his brothers had found \"something big,\" and that he'd pay you ten gold pieces each for escorting his supplies safely to Barthen's Provisions, a trading post in Phandalin." },
+    { "id": "03-ahead", "stage": "introduction", "heading": "A head start", "tag": "storytelling", "text": "He then set out ahead of you on horse, along with a warrior escort named Sildar Hallwinter, claiming he needed to arrive early to \"take care of business.\"" },
+    { "id": "04-high-road", "stage": "introduction", "heading": "The High Road", "tag": "serious", "text": "You've spent the last few days following the High Road south from Neverwinter, and you've just recently veered east along the Triboar Trail. You've had no trouble so far, but you know this territory can be dangerous. Bandits and outlaws have been known to lurk along this road." },
+    { "id": "05-the-bend", "stage": "arrival", "heading": "Around the bend", "tag": "measured", "text": "You've been on the Triboar Trail for about half a day and are nearing a side road leading south toward Phandalin. As you come around a bend, you stumble upon the scene of a recent battle." },
+    { "id": "06-the-horses", "stage": "arrival", "heading": "An uneasy quiet", "tag": "hushed", "text": "The woods press close to the trail here, with a steep embankment and dense thickets on either side. Two horses wander the road, sniffing at ransacked personal effects." }
+  ]
+}
