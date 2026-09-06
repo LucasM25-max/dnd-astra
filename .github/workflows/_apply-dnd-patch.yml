@@ -1,13 +1,1 @@
-name: Apply DND patch helper
-on:
-  issues:
-    types: [opened]
-permissions:
-  contents: write
-  issues: write
-jobs:
-  apply:
-    if: github.event.issue.title == '[apply dnd patch]'
-    runs-on: ubuntu-latest
-    steps:
-      - run: true
+name: disabled
