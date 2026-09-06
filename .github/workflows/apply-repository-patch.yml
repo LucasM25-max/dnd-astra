@@ -10,7 +10,7 @@ jobs:
     if: github.event.issue.title == '[apply patch v2-final]'
     runs-on: ubuntu-latest
     env:
-      TARGET_BRANCH: patch/chapter-i-complete
+      TARGET_BRANCH: patch/chapter-i-final-20260906
       PATCH_PATH: 01a075c4-5a21-7c2a-9742-e1ca6a97a8d2.patch
     steps:
       - name: Checkout main
