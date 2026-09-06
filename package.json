@@ -17,8 +17,7 @@
     "@fontsource/cormorant-garamond": "^5.2.8",
     "@fontsource/manrope": "^5.2.8",
     "lucide": "^0.468.0",
-    "three": "^0.180.0",
-    "three-subdivide": "^1.1.5"
+    "three": "^0.180.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",

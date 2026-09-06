@@ -3,10 +3,12 @@
 // The reference footprint is extended with woodland beyond its edges, not tiled.
 export type Point2 = { x: number; z: number };
 export const SPAWN = { x: -12.8, z: 4.02, yaw: -1.68 };
-export const WORLD_LIMIT = 47;
+export const WORLD_LIMIT = 70;
 export const MAP_BOUNDS = { minX: -17, maxX: 19, minZ: -22, maxZ: 16 };
 export const ROAD_WIDTH = 2.35;
 export const TRAIL_WIDTH = 0.82;
+// Keep a clear drivable corridor: nothing obstructive inside this pathDistance.
+export const ROAD_CORRIDOR = 3.0;
 
 export const ROAD_POINTS: Point2[] = [
   { x: -80, z: 1 }, { x: -29, z: 2 }, { x: -17, z: 3.1 },
