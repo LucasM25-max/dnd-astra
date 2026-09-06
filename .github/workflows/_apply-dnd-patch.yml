@@ -2,21 +2,18 @@ name: Apply DND patch helper
 on:
   issue_comment:
     types: [created]
-
 permissions:
   contents: write
   issues: write
-
 jobs:
   apply:
-    if: github.event.comment.body == '/apply-dnd-patch' && github.event.issue.number == 5
+    if: github.event.comment.body == '/apply-dnd-patch' && github.event.issue.number == 6
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Materialize text changes from patch
+      - name: Reconstruct and apply patch
         shell: bash
         env:
           TARGET_BRANCH: patch/chapter-i-dnd-astra
@@ -24,52 +21,37 @@ jobs:
           set -euo pipefail
           git fetch origin
           git checkout -B "$TARGET_BRANCH" "origin/$TARGET_BRANCH"
-          git show origin/main:01a075c4-5a21-7c2a-9742-e1ca6a97a8d2.patch > /tmp/changes.patch
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/issues/6/comments" --jq '.[] | select(.body | startswith("PATCH_CHUNK ")) | .body' > /tmp/comments.txt
           python3 - <<'PY'
           from pathlib import Path
-          import re
-          patch = Path('/tmp/changes.patch').read_text(encoding='utf-8', errors='replace')
-          blocks = patch.split('diff --git ')[1:]
-          changed = []
-          for block in blocks:
-              lines = block.splitlines()
-              if not lines or 'Binary files' in block:
-                  continue
-              m = re.match(r'a/(.*?) b/(.*)$', lines[0])
-              if not m:
-                  raise SystemExit(f'Unparseable patch header: {lines[0]}')
-              path = m.group(2)
-              content = []
-              in_hunk = False
-              for line in lines[1:]:
-                  if line.startswith('@@ '):
-                      in_hunk = True
-                      continue
-                  if in_hunk and (line.startswith('+') or line.startswith(' ')):
-                      content.append(line[1:])
-              Path(path).parent.mkdir(parents=True, exist_ok=True)
-              Path(path).write_text('\n'.join(content) + '\n', encoding='utf-8')
-              changed.append(path)
-          print(f'Materialized {len(changed)} text files from patch.')
+          import base64,gzip,re
+          text=Path('/tmp/comments.txt').read_text()
+          chunks={}
+          total=None
+          for m in re.finditer(r'PATCH_CHUNK (\d+)/(\d+)\n([A-Za-z0-9+/=]+)', text):
+              i=int(m.group(1)); total=int(m.group(2)); chunks[i]=m.group(3)
+          if total is None or len(chunks)!=total or set(chunks)!=set(range(1,total+1)):
+              raise SystemExit(f'Expected {total} chunks, got {sorted(chunks)}')
+          raw=gzip.decompress(base64.b64decode(''.join(chunks[i] for i in range(1,total+1))))
+          Path('/tmp/changes.patch').write_bytes(raw)
+          print('Reconstructed',len(raw),'bytes')
           PY
-          rm -f .github/workflows/apply-patch.yml 01a075c4-5a21-7c2a-9742-e1ca6a97a8d2.patch
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('/tmp/changes.patch').read_text(encoding='utf-8',errors='replace')
+          blocks=[]
+          for block in p.split('diff --git ')[1:]:
+              if 'Binary files' not in block: blocks.append('diff --git '+block)
+          Path('/tmp/text.patch').write_text(''.join(blocks),encoding='utf-8')
+          PY
+          git apply --index --3way --whitespace=nowarn /tmp/text.patch || git apply --index --whitespace=nowarn /tmp/text.patch
+          rm -f .github/workflows/apply-patch.yml .github/workflows/_apply-dnd-patch.yml 01a075c4-5a21-7c2a-9742-e1ca6a97a8d2.patch
           git add -A
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'Apply patch text changes'
+          git commit -m 'Apply uploaded patch changes'
           git push origin HEAD:"$TARGET_BRANCH"
-      - name: Verify PR branch
-        shell: bash
-        env:
-          TARGET_BRANCH: patch/chapter-i-dnd-astra
-        run: |
-          set -euo pipefail
-          git fetch origin
-          for required in src/adventure.css src/engine/adventure.ts src/engine/actors/wagon.ts src/game/narrator.ts src/ui/adventure-interface.ts tests/inventory.test.ts; do
-            git cat-file -e "origin/$TARGET_BRANCH:$required"
-          done
-          echo 'Required patch files are present on the PR branch.'
-      - name: Remove temporary helper from main
+      - name: Remove helper from main
         if: success()
         shell: bash
         run: |
@@ -81,9 +63,8 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m 'Remove temporary patch applicator'
           git push origin main
-      - name: Close trigger issue
+      - name: Close issue
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-        run: gh issue close "$ISSUE_NUMBER" --repo "${GITHUB_REPOSITORY}"
+        run: gh issue close 6 --repo "${GITHUB_REPOSITORY}"
