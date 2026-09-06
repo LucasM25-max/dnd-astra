@@ -7,10 +7,10 @@ permissions:
   issues: write
 jobs:
   apply:
-    if: github.event.issue.title == '[apply patch v3-final]'
+    if: github.event.issue.title == '[apply patch v4-final]'
     runs-on: ubuntu-latest
     env:
-      TARGET_BRANCH: patch/chapter-i-final-20260906
+      TARGET_BRANCH: patch/chapter-i-final-v4
       PATCH_PATH: 01a075c4-5a21-7c2a-9742-e1ca6a97a8d2.patch
     steps:
       - name: Checkout main
@@ -52,11 +52,14 @@ jobs:
               if 'new file mode' in block:
                   p = Path(path)
                   if p.exists():
+                      subprocess = __import__('subprocess')
+                      subprocess.run(['git','rm','-f','--cached','--',path], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                       p.unlink()
               apply_blocks.append('diff --git ' + block)
           Path('/tmp/text.patch').write_text(''.join(apply_blocks), encoding='utf-8')
           PY
           git apply --index --whitespace=nowarn /tmp/text.patch
+          git add README.md
           rm -f "$PATCH_PATH" .github/workflows/apply-repository-patch.yml
           git add -A
           git config user.name 'github-actions[bot]'
