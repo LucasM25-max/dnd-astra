@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   apply:
-    if: github.event.comment.body == '/apply-dnd-patch' && github.event.issue.number == 4
+    if: github.event.comment.body == '/diag' && github.event.issue.number == 4
     runs-on: ubuntu-latest
     steps:
       - name: Checkout main
@@ -17,16 +17,31 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Apply uploaded patch to PR branch
+      - name: Diagnose and apply patch
         shell: bash
         env:
           TARGET_BRANCH: patch/chapter-i-dnd-astra
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
-          set -euo pipefail
-          git fetch origin
-          git checkout -B "$TARGET_BRANCH" "origin/$TARGET_BRANCH"
+          set +e
+          LOG=/tmp/apply.log
+          : > "$LOG"
+          run_cmd() {
+            echo "" >> "$LOG"
+            echo "\$ $*" >> "$LOG"
+            "$@" >> "$LOG" 2>&1
+            rc=$?
+            echo "RC=$rc" >> "$LOG"
+            return $rc
+          }
+          run_cmd git fetch origin
+          if [ $? -ne 0 ]; then false; fi
+          run_cmd git checkout -B "$TARGET_BRANCH" "origin/$TARGET_BRANCH"
+          if [ $? -ne 0 ]; then false; fi
+          run_cmd git show origin/main:01a075c4-5a21-7c2a-9742-e1ca6a97a8d2.patch
+          if [ $? -ne 0 ]; then false; fi
           git show origin/main:01a075c4-5a21-7c2a-9742-e1ca6a97a8d2.patch > /tmp/changes.patch
-          python3 - <<'PY'
+          python3 - <<'PY' >> "$LOG" 2>&1
           from pathlib import Path
           patch = Path('/tmp/changes.patch').read_text(encoding='utf-8', errors='replace')
           blocks = patch.split('diff --git ')[1:]
@@ -55,34 +70,21 @@ jobs:
               if in_hunk and (line.startswith('+') or line.startswith(' ')):
                   readme.append(line[1:])
           Path('README.md').write_text('\n'.join(readme) + '\n', encoding='utf-8')
+          print('Prepared text patch:', len(text_blocks), 'blocks; README rebuilt:', len(readme), 'lines')
           PY
-          git apply --index --whitespace=nowarn /tmp/text.patch
-          rm -f .github/workflows/apply-patch.yml 01a075c4-5a21-7c2a-9742-e1ca6a97a8d2.patch
+          run_cmd git apply --index --whitespace=nowarn /tmp/text.patch
+          if [ $? -ne 0 ]; then
+            tail -c 9000 "$LOG" | gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file -
+            false
+          fi
+          echo 'PATCH APPLY SUCCEEDED' >> "$LOG"
           git add -A
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm -f .github/workflows/apply-patch.yml 01a075c4-5a21-7c2a-9742-e1ca6a97a8d2.patch
           git commit -m 'Apply uploaded patch changes'
           git push origin HEAD:"$TARGET_BRANCH"
-
-      - name: Report failure
-        if: failure()
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-        run: gh issue comment "$ISSUE_NUMBER" --repo "${GITHUB_REPOSITORY}" --body 'Patch application failed during the helper run. The repository was not changed by the failed application step.'
-
-      - name: Remove helper from main
-        if: success()
-        shell: bash
-        run: |
-          set -euo pipefail
-          git checkout main
-          git pull --ff-only origin main
-          git rm -f .github/workflows/_apply-dnd-patch.yml
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'Remove temporary patch applicator'
-          git push origin main
+          tail -c 9000 "$LOG" | gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file -
 
       - name: Close trigger issue
         if: always()
