@@ -1,7 +1,7 @@
 name: Apply DND patch helper
 on:
-  issues:
-    types: [opened]
+  issue_comment:
+    types: [created]
 
 permissions:
   contents: write
@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   apply:
-    if: github.event.issue.title == '[apply dnd patch]'
+    if: github.event.comment.body == '/apply-dnd-patch' && github.event.issue.number == 4
     runs-on: ubuntu-latest
     steps:
       - name: Checkout main
@@ -18,14 +18,13 @@ jobs:
           fetch-depth: 0
 
       - name: Apply uploaded patch to PR branch
-        id: patch
         shell: bash
         env:
           TARGET_BRANCH: patch/chapter-i-dnd-astra
         run: |
           set -euo pipefail
-          git fetch origin main "refs/heads/${TARGET_BRANCH}:refs/remotes/origin/${TARGET_BRANCH}"
-          git switch --detach "refs/remotes/origin/${TARGET_BRANCH}"
+          git fetch origin
+          git checkout -B "$TARGET_BRANCH" "origin/$TARGET_BRANCH"
           git show origin/main:01a075c4-5a21-7c2a-9742-e1ca6a97a8d2.patch > /tmp/changes.patch
           python3 - <<'PY'
           from pathlib import Path
@@ -63,21 +62,22 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m 'Apply uploaded patch changes'
-          git push origin HEAD:${TARGET_BRANCH}
+          git push origin HEAD:"$TARGET_BRANCH"
 
-      - name: Report patch failure
+      - name: Report failure
         if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
-        run: gh issue comment "$ISSUE_NUMBER" --repo "${GITHUB_REPOSITORY}" --body 'The patch application failed. Inspect workflow step logs for the exact failing command.'
+        run: gh issue comment "$ISSUE_NUMBER" --repo "${GITHUB_REPOSITORY}" --body 'Patch application failed during the helper run. The repository was not changed by the failed application step.'
 
       - name: Remove helper from main
         if: success()
         shell: bash
         run: |
           set -euo pipefail
-          git switch --detach origin/main
+          git checkout main
+          git pull --ff-only origin main
           git rm -f .github/workflows/_apply-dnd-patch.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
