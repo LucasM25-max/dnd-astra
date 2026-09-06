@@ -7,7 +7,7 @@ permissions:
   issues: write
 jobs:
   apply:
-    if: github.event.issue.title == '[apply patch v2-final]'
+    if: github.event.issue.title == '[apply patch v3-final]'
     runs-on: ubuntu-latest
     env:
       TARGET_BRANCH: patch/chapter-i-final-20260906
@@ -19,7 +19,7 @@ jobs:
           fetch-depth: 0
           ref: main
 
-      - name: Apply patch to clean branch
+      - name: Apply patch targets
         shell: bash
         run: |
           set -euo pipefail
@@ -30,24 +30,37 @@ jobs:
           from pathlib import Path
           patch = Path('/tmp/changes.patch').read_text(encoding='utf-8', errors='replace')
           blocks = patch.split('diff --git ')[1:]
-          kept = []
+          apply_blocks = []
           for block in blocks:
               lines = block.splitlines()
               if not lines:
                   continue
               path = lines[0].split(' b/', 1)[1]
-              if path == 'package-lock.json':
+              if path == 'package-lock.json' or 'Binary files' in block:
                   continue
-              if 'Binary files' in block:
+              if path == 'README.md':
+                  out = []
+                  in_hunk = False
+                  for line in lines:
+                      if line.startswith('@@ '):
+                          in_hunk = True
+                          continue
+                      if in_hunk and (line.startswith('+') or line.startswith(' ')):
+                          out.append(line[1:])
+                  Path(path).write_text('\n'.join(out) + '\n', encoding='utf-8')
                   continue
-              kept.append('diff --git ' + block)
-          Path('/tmp/text.patch').write_text(''.join(kept), encoding='utf-8')
+              if 'new file mode' in block:
+                  p = Path(path)
+                  if p.exists():
+                      p.unlink()
+              apply_blocks.append('diff --git ' + block)
+          Path('/tmp/text.patch').write_text(''.join(apply_blocks), encoding='utf-8')
           PY
           git apply --index --whitespace=nowarn /tmp/text.patch
-          git rm -f "$PATCH_PATH" .github/workflows/apply-repository-patch.yml || true
+          rm -f "$PATCH_PATH" .github/workflows/apply-repository-patch.yml
+          git add -A
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
           git commit -m 'Apply Chapter I changes from uploaded patch'
           git push origin HEAD:"$TARGET_BRANCH"
 
@@ -58,14 +71,11 @@ jobs:
           set -euo pipefail
           git switch main
           git pull --ff-only origin main
-          git rm -f "$PATCH_PATH" .github/workflows/apply-repository-patch.yml || true
+          git rm -f "$PATCH_PATH" .github/workflows/apply-repository-patch.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          if ! git diff --cached --quiet; then
-            git commit -m 'Remove temporary patch and applicator'
-            git push origin main
-          fi
+          git commit -m 'Remove temporary patch and applicator'
+          git push origin main
 
       - name: Close trigger issue
         if: always()
