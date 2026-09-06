@@ -146,8 +146,8 @@ src/engine/controller.ts          Foot movement, seated bean/hands, camera and i
 src/engine/world.ts               Renderer, atmosphere, quality, world update, capture
 src/ui/                          HUD, Narrator panel, inventory/cargo, dialogs, cartography
 assets-source/                   Original generated texture sources (not served in production)
-
-The supplied reference map’s image is not redistributed, and no grid is drawn in the world or maps. Cragmaw Hideout and Phandalin remain destinations beyond this scene, not built settlements. This is an unofficial D&D-inspired prototype. Review setting and asset rights before a public commercial release.
 public/audio/narration/           Bundled voice clips and duration/source manifest
 public/credits.txt               Asset/library provenance and license references
 ```
+
+The supplied reference map’s image is not redistributed, and no grid is drawn in the world or maps. Cragmaw Hideout and Phandalin remain destinations beyond this scene, not built settlements. This is an unofficial D&D-inspired prototype. Review setting and asset rights before a public commercial release.

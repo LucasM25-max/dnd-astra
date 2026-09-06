@@ -1,33 +1,10 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { CollisionField, terrainHeight } from './landscape';
 import type { Materials } from './materials';
 
 export async function createAmbush(scene: THREE.Scene, materials: Materials, collision: CollisionField) {
-  const gltf = await new GLTFLoader().loadAsync('/models/horse.glb');
-  const original = gltf.scene;
-  for (const [x, z, angle, color] of [[5.9, .7, -.7, '#82796b'], [6.9, 3.2, 1.1, '#514536']] as const) {
-    const group = new THREE.Group(), horse = original.clone(true);
-    horse.scale.setScalar(.0088);
-    horse.rotation.z = Math.PI / 2;
-    horse.traverse(obj => {
-      if (!(obj instanceof THREE.Mesh)) return;
-      const geometry = obj.geometry.clone();
-      geometry.computeVertexNormals();
-      obj.geometry = geometry;
-      obj.material = new THREE.MeshStandardMaterial({ color, roughness: .96, vertexColors: false });
-      obj.castShadow = true; obj.receiveShadow = true;
-    });
-    group.add(horse);
-    const bounds = new THREE.Box3().setFromObject(horse);
-    horse.position.y -= bounds.min.y;
-    horse.position.x -= (bounds.max.x + bounds.min.x) * .5;
-    horse.position.z -= (bounds.max.z + bounds.min.z) * .5;
-    group.rotation.y = angle;
-    group.position.set(x, terrainHeight(x, z) - .01, z);
-    scene.add(group);
-    collision.add({ x, z, radius: .58, bottom: group.position.y, top: group.position.y + .56 });
-    // A worn pack beside each horse; no combat or graphic effects.
+  for (const [x, z, angle] of [[9.07, 1.47, -.7], [10.20, 1.64, 1.1]] as const) {
+    // Ransacked belongings beside the living horses; no gore or combat.
     const leather = new THREE.MeshStandardMaterial({ color: '#514b39', roughness: .95 });
     const bag = new THREE.Mesh(new THREE.BoxGeometry(.40, .22, .35, 2, 2, 2), leather);
     bag.position.set(x - .72, terrainHeight(x - .72, z + .32) + .12, z + .32); bag.rotation.set(.06, angle + .4, -.1); bag.castShadow = true; bag.receiveShadow = true; scene.add(bag);
@@ -37,7 +14,7 @@ export async function createAmbush(scene: THREE.Scene, materials: Materials, col
   const arrowWood = new THREE.MeshStandardMaterial({ color: '#62543b', roughness: .95 });
   const feather = new THREE.MeshStandardMaterial({ color: '#222923', side: THREE.DoubleSide, roughness: 1 });
   for (let i = 0; i < 6; i++) {
-    const group = new THREE.Group(), x = 5 + Math.sin(i * 4.2) * 1.4, z = 2.0 + Math.cos(i * 2.8) * 1.3;
+    const group = new THREE.Group(), x = 9.7 + Math.sin(i * 4.2) * 1.4, z = 2.0 + Math.cos(i * 2.8) * 1.3;
     const shaft = new THREE.Mesh(new THREE.CylinderGeometry(.009, .009, .7, 5), arrowWood);
     group.add(shaft);
     for (const a of [0, Math.PI / 2]) {
