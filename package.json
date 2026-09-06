@@ -1,6 +1,6 @@
 {
   "name": "astra-woodland",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,18 +9,22 @@
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest run",
     "test:browser": "node scripts/browser-smoke.mjs",
-    "assets:prepare": "node scripts/prepare-textures.mjs"
+    "assets:prepare": "node scripts/prepare-textures.mjs",
+    "assets:adventure": "node scripts/prepare-adventure-assets.mjs",
+    "narration:gemini": "node --env-file-if-exists=.env.local scripts/generate-narration-gemini.mjs"
   },
   "dependencies": {
     "@fontsource/cormorant-garamond": "^5.2.8",
     "@fontsource/manrope": "^5.2.8",
     "lucide": "^0.468.0",
-    "three": "^0.180.0"
+    "three": "^0.180.0",
+    "three-subdivide": "^1.1.5"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",
     "@sparticuz/chromium": "^149.0.0",
     "@types/three": "^0.180.0",
+    "music-metadata": "^11.15.0",
     "sharp": "^0.35.4",
     "typescript": "~5.9.2",
     "vite": "^7.1.7",
