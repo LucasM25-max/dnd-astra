@@ -29,7 +29,7 @@ export class WorldInterface {
   constructor(private world: WoodlandWorld) {
     this.state = world.getState();
     this.loadPreferences(); this.applyPreferences();
-    this.adventureUI = new AdventureInterface(world, { open: kind => this.openDialog(kind), close: () => this.closeDialog(), current: () => this.dialog, toast: message => this.toast(message), icons: refreshIcons });
+    this.adventureUI = new AdventureInterface(world, { open: (kind, nonBlocking) => this.openDialog(kind, nonBlocking), close: () => this.closeDialog(), current: () => this.dialog, toast: message => this.toast(message), icons: refreshIcons });
     this.bind(); refreshIcons();
     world.controller.onStart = () => this.start();
     world.controller.onUnlock = () => { if (!this.dialog) this.openDialog('pause'); };
@@ -79,7 +79,7 @@ export class WorldInterface {
     $('#dialog').addEventListener('input', e => {
       const input = e.target as HTMLInputElement;
       if (!input.dataset.setting) return;
-      if (input.dataset.setting === 'volume') { this.config.volume = Number(input.value) / 100; this.audio.setVolume(this.config.volume); $('#volume-value').textContent = `${input.value}%`; }
+      if (input.dataset.setting === 'volume') { this.config.volume = Number(input.value) / 100; this.audio.setVolume(this.config.volume); this.world.adventure.animalAudio.setVolume(this.config.volume); $('#volume-value').textContent = `${input.value}%`; }
       if (input.dataset.setting === 'sensitivity') { this.config.sensitivity = Number(input.value); this.world.controller.sensitivity = this.config.sensitivity; $('#sensitivity-value').textContent = `${this.config.sensitivity.toFixed(1)}×`; }
       if (input.dataset.setting === 'invert') { this.config.invertY = input.checked; this.world.controller.invertY = input.checked; }
       this.savePreferences();
@@ -157,19 +157,23 @@ export class WorldInterface {
       if (this.dialog === 'map' && largeMap) this.map.render(largeMap, state, true);
     }
     this.adventureUI.update(state);
+    if (this.dialog === 'cargo' && !this.world.adventure.canReach(this.adventureUI.activeCargo)) this.closeDialog();
     document.body.dataset.locked = String(!!document.pointerLockElement);
     $('#region-name').textContent = state.landmark === 'cragmaw' ? 'Cragmaw Trail' : state.landmark === 'ambush' ? 'The Ambush Clearing' : 'Triboar Trail';
     this.audio.update(state.distanceWalked, state.moving, state.grounded);
+    this.world.adventure.animalAudio.setListener(state.x, 0, state.z);
   }
   private updateTime() {
     const [name, detail, glyph] = atmosphereNames[this.config.atmosphere];
     $('#time-label').textContent = name; $('#time-detail').textContent = detail;
     const button = $('#time-toggle'); button.querySelector('svg')?.remove(); button.insertAdjacentHTML('afterbegin', icon(glyph)); refreshIcons();
   }
-  openDialog(kind: DialogKind) {
-    this.dialog = kind; $('.hud').inert = true; this.world.setPaused(true); this.audio.setPaused(true);
+  openDialog(kind: DialogKind, nonBlocking = false) {
+    this.dialog = kind;
+    if (!nonBlocking) { $('.hud').inert = true; this.world.setPaused(true); this.audio.setPaused(true); this.world.adventure.animalAudio.setPaused(true); }
     const backdrop = $('#dialog-backdrop'), dialog = $('#dialog');
-    dialog.dataset.kind = kind; backdrop.dataset.mode = kind === 'cargo' ? 'side' : 'center'; dialog.innerHTML = this.dialogHTML(kind); backdrop.hidden = false; document.body.dataset.modal = 'true';
+    dialog.dataset.kind = kind; backdrop.dataset.mode = kind === 'cargo' ? 'side' : 'center'; dialog.innerHTML = this.dialogHTML(kind); backdrop.hidden = false;
+    document.body.dataset.modal = nonBlocking ? 'false' : 'true';
     refreshIcons();
     if (kind === 'map') {
       const mapCanvas = dialog.querySelector<HTMLCanvasElement>('#world-map-canvas');
@@ -178,8 +182,9 @@ export class WorldInterface {
     requestAnimationFrame(() => { if (this.dialog === kind) (dialog.querySelector<HTMLElement>('[data-action="close"]') ?? dialog).focus(); });
   }
   closeDialog() {
+    if (this.dialog === 'cargo' && document.pointerLockElement === this.world.renderer.domElement) this.world.controller.capturePointer();
     this.dialog = null; $('.hud').inert = false; $('#dialog-backdrop').hidden = true; document.body.dataset.modal = 'false';
-    this.world.setPaused(false); this.audio.setPaused(false);
+    this.world.setPaused(false); this.audio.setPaused(false); this.world.adventure.animalAudio.setPaused(false);
     this.world.renderer.domElement.focus({ preventScroll: true });
   }
   private dialogHTML(kind: DialogKind) {
@@ -214,6 +219,7 @@ export class WorldInterface {
   private async toggleAudio() {
     try {
       await this.audio.toggle();
+      await this.world.adventure.animalAudio.setEnabled(this.audio.enabled);
       const button = $('#sound-toggle'); button.innerHTML = icon(this.audio.enabled ? 'volume-2' : 'volume-x');
       button.setAttribute('aria-label', this.audio.enabled ? 'Mute forest ambience' : 'Enable forest ambience'); button.title = this.audio.enabled ? 'Mute forest ambience' : 'Enable forest ambience';
       document.querySelectorAll<HTMLElement>('[data-action="audio"]').forEach(b => { b.classList.toggle('on', this.audio.enabled); b.setAttribute('aria-checked', String(this.audio.enabled)); }); refreshIcons();
@@ -236,6 +242,6 @@ export class WorldInterface {
     } catch { /* Storage may be blocked in private/embedded browsing. */ }
   }
   private savePreferences() { try { localStorage.setItem('astra-preferences-v1', JSON.stringify(this.config)); } catch { /* Settings still work for this session. */ } }
-  private applyPreferences() { this.world.setQuality(this.config.quality); this.world.setAtmosphere(this.config.atmosphere); this.world.controller.sensitivity = this.config.sensitivity; this.world.controller.invertY = this.config.invertY; this.audio.setVolume(this.config.volume); this.updateTime(); }
-  dispose() { this.abort.abort(); this.adventureUI.dispose(); this.audio.dispose(); clearTimeout(this.toastTimer); clearTimeout(this.discoveryTimer); }
+  private applyPreferences() { this.world.setQuality(this.config.quality); this.world.setAtmosphere(this.config.atmosphere); this.world.controller.sensitivity = this.config.sensitivity; this.world.controller.invertY = this.config.invertY; this.audio.setVolume(this.config.volume); this.world.adventure.animalAudio.setVolume(this.config.volume); this.updateTime(); }
+  dispose() { this.abort.abort(); this.adventureUI.dispose(); this.audio.dispose(); this.world.adventure.animalAudio.dispose(); clearTimeout(this.toastTimer); clearTimeout(this.discoveryTimer); }
 }

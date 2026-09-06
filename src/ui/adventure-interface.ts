@@ -5,7 +5,7 @@ import { NARRATION } from '../game/narrator';
 
 export type AdventureDialog = 'inventory' | 'cargo' | 'manifest' | 'journal';
 interface Hooks {
-  open: (kind: AdventureDialog) => void; close: () => void; current: () => string | null;
+  open: (kind: AdventureDialog, nonBlocking?: boolean) => void; close: () => void; current: () => string | null;
   toast: (message: string) => void; icons: () => void;
 }
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
@@ -59,6 +59,7 @@ export class AdventureInterface {
         this.renderContents();
       }
       if (button.dataset.takeItem) this.take(button.dataset.takeItem as ItemId);
+      if (action === 'close-cargo') { this.world.adventure.toggleCargo(this.activeCargo); if (this.hooks.current() === 'cargo') hooks.close(); this.update(world.getState()); }
       if (action === 'take-all') {
         const moved = world.adventure.takeAll(this.activeCargo), count = countOf(moved);
         if (count) hooks.toast(`${count} cargo items added to your inventory · ${formatGp(valueOf(moved))} in goods`);
@@ -81,7 +82,7 @@ export class AdventureInterface {
       const current = hooks.current();
       if (e.code === 'KeyI') { e.preventDefault(); current === 'inventory' ? hooks.close() : hooks.open('inventory'); return; }
       if (e.code === 'KeyN') { e.preventDefault(); current === 'journal' ? hooks.close() : hooks.open('journal'); return; }
-      if (current) return;
+      if (current && current !== 'cargo') return;
       if (e.code === 'KeyR') { e.preventDefault(); this.toggleMounted(); }
       if (e.code === 'KeyE') { e.preventDefault(); this.interact(); }
       if (world.adventure.narrator.state.phase === 'journey') {
@@ -100,9 +101,14 @@ export class AdventureInterface {
   interact() {
     const interaction = this.world.adventure.interaction();
     if (!interaction) return;
-    if (interaction.kind === 'manifest') this.hooks.open('manifest');
-    else if (interaction.kind === 'cargo') this.openCargo(interaction.id as ContainerId);
-    else { $('#inspect-prompt').dispatchEvent(new CustomEvent('inspect-horses')); }
+    if (interaction.kind === 'manifest') { this.hooks.open('manifest'); return; }
+    if (interaction.kind === 'cargo') {
+      const result = this.world.adventure.toggleCargo(interaction.id as ContainerId);
+      if (result === 'opened') { this.activeCargo = interaction.id as ContainerId; this.quantities = Object.fromEntries(ITEM_IDS.map(item => [item, 1])) as Record<ItemId, number>; this.hooks.open('cargo', true); }
+      else if (result === 'closed' && this.hooks.current() === 'cargo') this.hooks.close();
+      return;
+    }
+    $('#inspect-prompt').dispatchEvent(new CustomEvent('inspect-horses'));
   }
   openCargo(id: ContainerId) {
     if (!CONTAINERS.some(c => c.id === id)) return;
@@ -110,7 +116,7 @@ export class AdventureInterface {
       this.hooks.toast(this.world.adventure.mounted ? 'Press R to step down, then walk beside the cargo you want to open.' : 'Move closer to that container, then press E to open it.'); return;
     }
     this.activeCargo = id; this.quantities = Object.fromEntries(ITEM_IDS.map(item => [item, 1])) as Record<ItemId, number>;
-    this.hooks.open('cargo');
+    this.hooks.open('cargo', true);
   }
   private take(id: ItemId) {
     if (!ITEM_IDS.includes(id)) return;
@@ -136,6 +142,7 @@ export class AdventureInterface {
     if (this.lastMounted !== state.mounted) {
       this.lastMounted = state.mounted; $('#touch-jump').innerHTML = icon(state.mounted ? 'log-out' : 'arrow-up');
       $('#touch-jump').setAttribute('aria-label', state.mounted ? 'Dismount the wagon' : 'Jump'); this.hooks.icons();
+      if (this.hooks.current() === 'cargo') this.hooks.close();
     }
     $('#travel-mode').textContent = state.mounted ? 'AT THE REINS' : 'THE WANDERER';
     $('#travel-flavour').textContent = state.mounted ? 'A promise to keep.' : 'Make your own way.';
@@ -195,7 +202,7 @@ export class AdventureInterface {
     return `${close}<div class="dialog-eyebrow">GUNDREN’S CONSIGNMENT</div><h2 id="dialog-title">${definition.name}</h2><p class="dialog-description">${definition.subtitle}</p><div class="cargo-summary"><span>${icon('package-open')} ${countOf(stock) ? 'OPEN · READY TO UNLOAD' : 'EMPTY · ALL ITEMS COLLECTED'}</span><strong>${formatGp(valueOf(stock))}</strong></div><div class="loot-list">${ids.map(id => {
       const amount = Math.min(this.quantities[id], Math.max(1, stock[id]));
       return `<div class="loot-row ${stock[id] === 0 ? 'depleted' : ''}"><div class="loot-item-header"><span class="item-icon ${ITEMS[id].category}">${icon(ITEMS[id].icon)}</span><div><strong>${ITEMS[id].name}</strong><span>${stock[id]} available · ${formatGp(ITEMS[id].unitValue)} each</span></div></div><p>${ITEMS[id].description}</p><div class="loot-actions"><div class="quantity-control"><button data-qty-item="${id}" data-delta="-1" aria-label="Take fewer ${ITEMS[id].plural}" ${!stock[id] ? 'disabled' : ''}>−</button><input type="number" inputmode="numeric" min="1" max="${Math.max(1, stock[id])}" value="${amount}" data-loot-quantity="${id}" aria-label="Quantity of ${ITEMS[id].plural} to take" ${!stock[id] ? 'disabled' : ''}><button data-qty-item="${id}" data-delta="1" aria-label="Take more ${ITEMS[id].plural}" ${!stock[id] ? 'disabled' : ''}>+</button></div><button class="take-button" data-take-item="${id}" ${!stock[id] ? 'disabled' : ''}>${stock[id] ? 'Take' : 'Collected'} ${icon(stock[id] ? 'arrow-right' : 'check')}</button></div></div>`;
-    }).join('')}</div><button class="primary-action cargo-take-all" data-action="take-all" ${!countOf(stock) ? 'disabled' : ''}>${icon('backpack')} ${countOf(stock) ? 'Take everything in this container' : 'This container is empty'} ${icon('arrow-right')}</button><div class="cargo-pack-status"><span>Your pack</span><strong>${countOf(store.inventory)} items · ${formatGp(store.inventoryValue)}</strong></div><div class="cargo-bottom-actions"><button data-action="inventory">${icon('backpack')} Open inventory <kbd>I</kbd></button><button data-action="manifest">Cargo manifest ${icon('arrow-up-right')}</button></div><p class="cargo-value-note">Taking supplies adds goods to your inventory, not gold to your purse.</p>`;
+    }).join('')}</div><button class="primary-action cargo-take-all" data-action="take-all" ${!countOf(stock) ? 'disabled' : ''}>${icon('backpack')} ${countOf(stock) ? 'Take everything in this container' : 'This container is empty'} ${icon('arrow-right')}</button><div class="cargo-pack-status"><span>Your pack</span><strong>${countOf(store.inventory)} items · ${formatGp(store.inventoryValue)}</strong></div><div class="cargo-bottom-actions"><button data-action="close-cargo">${icon('package')} Close the container <kbd>E</kbd></button><button data-action="inventory">${icon('backpack')} Open inventory <kbd>I</kbd></button><button data-action="manifest">Cargo manifest ${icon('arrow-up-right')}</button></div><p class="cargo-value-note">Taking supplies adds goods to your inventory, not gold to your purse.</p>`;
   }
   private manifestHTML() {
     const store = this.world.adventure.inventory;

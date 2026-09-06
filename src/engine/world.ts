@@ -8,7 +8,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { CollisionField, LANDMARKS, seededRandom, terrainHeight } from './landscape';
 import { loadMaterials, type Materials } from './materials';
-import { createTerrain, createForest, type Nature } from './nature';
+import { createTerrain, createForest, createForestLife, type Nature, type ForestLife } from './nature';
 import { createAmbush } from './props';
 import { PlayerController, type CameraMode } from './controller';
 import { Adventure, type AdventureState } from './adventure';
@@ -31,6 +31,7 @@ export class WoodlandWorld {
   onControlHandoff = () => {};
   private material!: Materials;
   private nature!: Nature;
+  private life!: ForestLife;
   private composer!: EffectComposer;
   private bloom!: UnrealBloomPass;
   private film!: ShaderPass;
@@ -103,6 +104,7 @@ export class WoodlandWorld {
     progress(52, 'Growing the ancient woodland');
     await yieldToBrowser();
     this.nature = createForest(this.scene, this.material, this.collision);
+    this.life = createForestLife(this.scene, seededRandom(4242));
     progress(72, 'Leaving a story on the trail');
     await yieldToBrowser();
     await createAmbush(this.scene, this.material, this.collision);
@@ -116,7 +118,7 @@ export class WoodlandWorld {
     this.controller = new PlayerController(this.camera, this.renderer.domElement, this.collision, this.scene);
     progress(85, 'Harnessing the oxen and loading the wagon');
     await yieldToBrowser();
-    this.adventure = await Adventure.create(this.scene, this.camera, this.controller, this.collision, this.renderer);
+    this.adventure = await Adventure.create(this.scene, this.camera, this.controller, this.collision, this.renderer, this.quality);
     this.adventure.onNotice = message => this.onNotice(message);
     this.adventure.onHandoff = () => { this.renderer.shadowMap.needsUpdate = true; this.renderDirty = true; this.onControlHandoff(); };
     this.addAtmosphere(); this.setupPostprocessing(); this.setQuality(this.quality); this.resize();
@@ -153,12 +155,12 @@ export class WoodlandWorld {
     for (let i = 0; i < 450; i++) { positions.push((rng() - .5) * 62, .8 + rng() * 14, (rng() - .5) * 55); seeds.push(rng()); }
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3)); g.setAttribute('aSeed', new THREE.Float32BufferAttribute(seeds, 1));
     const m = new THREE.ShaderMaterial({
-      uniforms: { time: { value: 0 }, tint: { value: new THREE.Color('#e4d9a9') }, opacity: { value: .48 }, pixelRatio: { value: this.renderer.getPixelRatio() } },
-      vertexShader: `uniform float time,pixelRatio;attribute float aSeed;varying float vFade;
+      uniforms: { time: { value: 0 }, tint: { value: new THREE.Color('#e4d9a9') }, opacity: { value: .48 }, uPulse: { value: 0 }, pixelRatio: { value: this.renderer.getPixelRatio() } },
+      vertexShader: `uniform float time,pixelRatio;attribute float aSeed;varying float vFade;varying float vSeed;
         void main(){vec3 p=position;p.x+=sin(time*.18+aSeed*60.)*.65;p.z+=cos(time*.13+aSeed*30.)*.7;p.y+=sin(time*.2+aSeed*50.)*.6;
         vec4 mv=modelViewMatrix*vec4(p,1.); gl_Position=projectionMatrix*mv; gl_PointSize=clamp((10.+aSeed*14.)/(-mv.z),.8,3.0)*pixelRatio;
-        vFade=(.4+aSeed*.6)*(1.-smoothstep(8.,42.,-mv.z));}`,
-      fragmentShader: 'uniform vec3 tint;uniform float opacity;varying float vFade;void main(){float a=(1.-smoothstep(.05,.5,length(gl_PointCoord-.5)));gl_FragColor=vec4(tint,a*vFade*opacity);}',
+        vFade=(.4+aSeed*.6)*(1.-smoothstep(8.,42.,-mv.z)); vSeed=aSeed;}`,
+      fragmentShader: 'uniform vec3 tint;uniform float opacity,uPulse,time;varying float vFade;varying float vSeed;void main(){float a=(1.-smoothstep(.05,.5,length(gl_PointCoord-.5)));a*=1.-uPulse+uPulse*pow(.5+.5*sin(time*2.6+vSeed*41.0),3.0);gl_FragColor=vec4(tint,a*vFade*opacity);}',
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     });
     this.particles = new THREE.Points(g, m); this.particles.frustumCulled = false; this.scene.add(this.particles);
@@ -234,6 +236,7 @@ export class WoodlandWorld {
       this.shaftMaterial.uniforms.opacity.value = .023; this.shaftMaterial.uniforms.tint.value.set('#94bedb');
       particleMat.uniforms.tint.value.set('#d3e896'); particleMat.uniforms.opacity.value = .8;
     }
+    particleMat.uniforms.uPulse.value = atmosphere === 'blue' ? 1 : 0;
     if (atmosphere !== 'blue') this.shaftMaterial.uniforms.tint.value.set('#f9e9b5');
     this.sky.visible = atmosphere === 'golden';
     (this.scene.background as THREE.Color).copy(fog.color);
@@ -257,6 +260,7 @@ export class WoodlandWorld {
     this.adventure.update(dt, realDelta);
     this.controller.update(dt);
     this.material.wind.value = this.elapsed;
+    this.life.update(dt, this.elapsed);
     const particleMat = this.particles.material as THREE.ShaderMaterial;
     particleMat.uniforms.time.value = this.elapsed; this.shaftMaterial.uniforms.time.value = this.elapsed;
     this.film.uniforms.time.value = this.elapsed;

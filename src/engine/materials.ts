@@ -9,6 +9,7 @@ export interface Materials {
   grass: THREE.MeshStandardMaterial;
   fern: THREE.MeshStandardMaterial;
   wood: THREE.MeshStandardMaterial;
+  coniferDark: THREE.MeshStandardMaterial;
   wind: { value: number };
   textures: THREE.Texture[];
 }
@@ -36,13 +37,16 @@ export async function loadMaterials(renderer: THREE.WebGLRenderer, progress: (s:
     Object.assign(shader.uniforms, { uRoad: { value: path }, uRoadN: { value: pathN }, uStone: { value: rock }, uStoneN: { value: rockN } });
     shader.vertexShader = shader.vertexShader.replace('#include <common>', `#include <common>\nattribute vec2 aBlend; varying vec2 vBlend;`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>\nvBlend = aBlend;`);
-    shader.fragmentShader = shader.fragmentShader.replace('#include <common>', `#include <common>\nuniform sampler2D uRoad, uRoadN, uStone, uStoneN; varying vec2 vBlend;`)
+    shader.fragmentShader = shader.fragmentShader.replace('#include <common>', `#include <common>\nuniform sampler2D uRoad, uRoadN, uStone, uStoneN; varying vec2 vBlend;\nfloat groundHash(vec2 p){return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453);}`)
       .replace('#include <map_fragment>', `
+        // Dither the per-vertex blend at fragment scale so path/bank edges stay organic, not checkered.
+        vec2 gb = vBlend + (vec2(groundHash(vMapUv * 317.7), groundHash(vMapUv * 281.3)) - .5) * .22;
+        gb.x = clamp(gb.x, 0., 1.); gb.y = clamp(gb.y, 0., .8);
         vec4 earth = texture2D(map, vMapUv);
         vec4 road = texture2D(uRoad, vMapUv * 1.25) * vec4(.92, .79, .61, 1.);
         vec4 stone = texture2D(uStone, vMapUv * .84);
-        vec4 blended = mix(earth, stone * vec4(.72,.84,.51,1.), vBlend.y * .55);
-        diffuseColor *= mix(blended, road, vBlend.x);
+        vec4 blended = mix(earth, stone * vec4(.72,.84,.51,1.), gb.y * .55);
+        diffuseColor *= mix(blended, road, gb.x);
       `)
       .replace('vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;', `
         vec3 forestNormal = texture2D(normalMap, vNormalMapUv).xyz;
@@ -86,6 +90,8 @@ export async function loadMaterials(renderer: THREE.WebGLRenderer, progress: (s:
       `);
   };
   const fern = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .85, side: THREE.DoubleSide });
+  // Distant-ring conifers: dark, no wind, no shadow cost.
+  const coniferDark = new THREE.MeshStandardMaterial({ map: leaf, alphaTest: .46, side: THREE.DoubleSide, roughness: .95, vertexColors: true, color: '#5c7355' });
   const wood = new THREE.MeshStandardMaterial({ color: '#74634c', map: bark, roughness: .95 });
-  return { ground, bark: barkMat, leaves, leafDepth, stone, grass, fern, wood, wind, textures: [forest, forestN, path, pathN, bark, barkN, rock, rockN, leaf] };
+  return { ground, bark: barkMat, leaves, leafDepth, stone, grass, fern, wood, coniferDark, wind, textures: [forest, forestN, path, pathN, bark, barkN, rock, rockN, leaf] };
 }
