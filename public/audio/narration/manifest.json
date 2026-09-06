@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "provider": "auditioned-local-narrator",
+  "clips": {
+    "01-neverwinter": {
+      "file": "/audio/narration/01-neverwinter.mp3",
+      "duration": 14.376
+    },
+    "02-gundren": {
+      "file": "/audio/narration/02-gundren.mp3",
+      "duration": 17.256
+    },
+    "03-ahead": {
+      "file": "/audio/narration/03-ahead.mp3",
+      "duration": 10.944
+    },
+    "04-high-road": {
+      "file": "/audio/narration/04-high-road.mp3",
+      "duration": 18.336
+    },
+    "05-the-bend": {
+      "file": "/audio/narration/05-the-bend.mp3",
+      "duration": 13.344
+    },
+    "06-the-horses": {
+      "file": "/audio/narration/06-the-horses.mp3",
+      "duration": 12.288
+    }
+  }
+}
