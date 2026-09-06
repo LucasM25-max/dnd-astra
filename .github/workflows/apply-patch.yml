@@ -1,0 +1,72 @@
+name: Apply uploaded patch
+on:
+  push:
+    branches: [patch/chapter-i-dnd-astra]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+
+      - name: Apply text-only patch and remove staging files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main:refs/remotes/origin/main
+          git show origin/main:01a075c4-5a21-7c2a-9742-e1ca6a97a8d2.patch > /tmp/changes.patch
+          python3 - <<'PY'
+          from pathlib import Path
+          patch = Path('/tmp/changes.patch').read_text(encoding='utf-8', errors='replace')
+          blocks = patch.split('diff --git ')[1:]
+          text_blocks = []
+          readme_blocks = []
+          for block in blocks:
+              lines = block.splitlines()
+              header = lines[0]
+              path = header.split(' b/', 1)[1]
+              if 'Binary files' in block:
+                  continue
+              if 'README.md' == path:
+                  readme_blocks.append(block)
+                  continue
+              text_blocks.append('diff --git ' + block)
+              if 'new file mode' in block:
+                  p = Path(path)
+                  if p.exists():
+                      p.unlink()
+          Path('/tmp/text.patch').write_text(''.join(text_blocks), encoding='utf-8')
+          if len(readme_blocks) != 1:
+              raise SystemExit(f'Expected exactly one README patch block, found {len(readme_blocks)}')
+          # The README patch replaces the original one-line README with the complete file.
+          # Reconstruct the exact post-image from hunk context/addition lines.
+          readme = []
+          in_hunk = False
+          for line in readme_blocks[0].splitlines():
+              if line.startswith('@@ '):
+                  in_hunk = True
+                  continue
+              if not in_hunk:
+                  continue
+              if line.startswith('+') or line.startswith(' '):
+                  readme.append(line[1:])
+          Path('README.md').write_text('\n'.join(readme) + '\n', encoding='utf-8')
+          PY
+          git apply --index --whitespace=nowarn /tmp/text.patch
+          rm -f README.md.tmp .github/workflows/apply-patch.yml 01a075c4-5a21-7c2a-9742-e1ca6a97a8d2.patch
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No changes to commit.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Apply uploaded patch changes'
+          git push origin HEAD:${{ github.ref_name }}
