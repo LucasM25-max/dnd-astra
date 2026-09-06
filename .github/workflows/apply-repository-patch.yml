@@ -1,0 +1,75 @@
+name: Apply repository patch
+on:
+  issues:
+    types: [opened]
+permissions:
+  contents: write
+  issues: write
+jobs:
+  apply:
+    if: github.event.issue.title == '[apply patch v2-final]'
+    runs-on: ubuntu-latest
+    env:
+      TARGET_BRANCH: patch/chapter-i-complete
+      PATCH_PATH: 01a075c4-5a21-7c2a-9742-e1ca6a97a8d2.patch
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Apply patch to clean branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git switch -c "$TARGET_BRANCH" origin/main
+          git show "origin/main:$PATCH_PATH" > /tmp/changes.patch
+          python3 - <<'PY'
+          from pathlib import Path
+          patch = Path('/tmp/changes.patch').read_text(encoding='utf-8', errors='replace')
+          blocks = patch.split('diff --git ')[1:]
+          kept = []
+          for block in blocks:
+              lines = block.splitlines()
+              if not lines:
+                  continue
+              path = lines[0].split(' b/', 1)[1]
+              if path == 'package-lock.json':
+                  continue
+              if 'Binary files' in block:
+                  continue
+              kept.append('diff --git ' + block)
+          Path('/tmp/text.patch').write_text(''.join(kept), encoding='utf-8')
+          PY
+          git apply --index --whitespace=nowarn /tmp/text.patch
+          git rm -f "$PATCH_PATH" .github/workflows/apply-repository-patch.yml || true
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Apply Chapter I changes from uploaded patch'
+          git push origin HEAD:"$TARGET_BRANCH"
+
+      - name: Delete patch and workflow from main
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git switch main
+          git pull --ff-only origin main
+          git rm -f "$PATCH_PATH" .github/workflows/apply-repository-patch.yml || true
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m 'Remove temporary patch and applicator'
+            git push origin main
+          fi
+
+      - name: Close trigger issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: gh issue close "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY"
