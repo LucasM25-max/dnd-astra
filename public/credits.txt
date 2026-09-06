@@ -1,31 +1,27 @@
 ASTRA — THE TRIBOAR TRAIL / ASSET & LIBRARY CREDITS
-
 This is an unofficial Dungeons & Dragons-inspired environment prototype.
 Dungeons & Dragons, Forgotten Realms, Phandalin, and related setting names
 belong to their respective rights holders. No official affiliation is claimed.
 The user supplied a Goblin Ambush reference map. Its image is not bundled;
 the continuous environment and in-game cartography are recreated in code.
-
 ORIGINAL ENVIRONMENT MATERIALS
 The earth, forest-floor, bark, rock, and oak-branch source images in
 assets-source/ were AI-generated for this prototype. Optimized WebP textures,
 alpha masks, and image-derived normal maps were prepared locally with Sharp.
 These are not claimed to be scanned/photogrammetry materials.
 Terrain, plants, rocks, character proxy, UI, and map graphics are procedural.
-
 HDR ENVIRONMENT
 Forest Slope, from the Poly Haven / HDRI Haven CC0 environment collection.
 Mirrored by pmndrs/drei-assets:
 https://github.com/pmndrs/drei-assets/blob/master/hdri/forest_slope_1k.hdr
 https://polyhaven.com/a/forest_slope
 https://polyhaven.com/license
-
 HORSE MESH
-Horse.glb from the Three.js examples, reused as non-animated scene props:
+Horse.glb from the Three.js examples, used as a rest-surface reference for
+new subdivided, textured, skeletally animated horse and ox actors:
 https://github.com/mrdoob/three.js/blob/dev/examples/models/gltf/Horse.glb
 The upstream repository's MIT license is included in licenses/three-MIT.txt.
 Review upstream asset provenance/terms before a commercial distribution.
-
 LIBRARIES & TYPEFACES
 Three.js — three.js authors — MIT (licenses/three-MIT.txt)
 Lucide / Feather icons — their contributors — ISC/MIT (licenses/lucide-ISC.txt)
@@ -33,6 +29,21 @@ Manrope — Manrope Project Authors — SIL OFL 1.1 (licenses/manrope-OFL.txt)
 Cormorant Garamond — Cormorant Project Authors — SIL OFL 1.1
 (licenses/cormorant-garamond-OFL.txt)
 Fonts are self-hosted through @fontsource; no Google Fonts runtime request.
-
 Audio is locally synthesized with the Web Audio API. No third-party audio
 recordings, music, or speech are included.
+CHAPTER I ADDITIONS
+The Narrator is an AI-generated spoken performance in the voice auditioned
+and selected for this session. All six local MP3 passages use the user's
+provided story text. No API key is required for playback.
+The optional Gemini regeneration script uses gemini-3.1-flash-tts-preview,
+a private environment key, natural-language direction, and inline audio tags.
+It is not run automatically or called from browser code.
+Additional original AI-generated texture sources: wagon oak, flax sackcloth,
+and short animal coat. Normal maps are derived, not photogrammetry scans.
+The wagon, cargo containers, casks, sacks, tools, lanterns, yoke, reins, and
+hinged lids are procedural models created for this chapter.
+The animal surfaces are derived from the credited Horse.glb, reshaped into
+standing horse/ox bodies, subdivided, textured, and given new skeletal rigs
+for walking, breathing, head lowering, looking, and tail movement.
+Loop subdivision uses three-subdivide — Stevinz — MIT:
+licenses/three-subdivide-MIT.txt
