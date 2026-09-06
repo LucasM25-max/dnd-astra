@@ -1,0 +1,91 @@
+import * as THREE from 'three';
+
+export interface Materials {
+  ground: THREE.MeshStandardMaterial;
+  bark: THREE.MeshStandardMaterial;
+  leaves: THREE.MeshStandardMaterial;
+  leafDepth: THREE.MeshDepthMaterial;
+  stone: THREE.MeshStandardMaterial;
+  grass: THREE.MeshStandardMaterial;
+  fern: THREE.MeshStandardMaterial;
+  wood: THREE.MeshStandardMaterial;
+  wind: { value: number };
+  textures: THREE.Texture[];
+}
+export async function loadMaterials(renderer: THREE.WebGLRenderer, progress: (s: string) => void): Promise<Materials> {
+  const loader = new THREE.TextureLoader();
+  const anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  const tex = async (name: string, normal = false) => {
+    const t = await loader.loadAsync(`/textures/${name}`);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.anisotropy = anisotropy;
+    if (!normal) t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  };
+  progress('Unfolding the forest floor');
+  const [forest, forestN, path, pathN, bark, barkN, rock, rockN, leaf] = await Promise.all([
+    tex('forest-floor.webp'), tex('forest-floor-normal.webp', true), tex('earth-path.webp'),
+    tex('earth-path-normal.webp', true), tex('bark.webp'), tex('bark-normal.webp', true),
+    tex('rock.webp'), tex('rock-normal.webp', true), tex('oak-leaves.webp'),
+  ]);
+  bark.repeat.set(2, 3.5); barkN.repeat.copy(bark.repeat);
+  leaf.wrapS = leaf.wrapT = THREE.ClampToEdgeWrapping;
+  const wind = { value: 0 };
+  const ground = new THREE.MeshStandardMaterial({ map: forest, normalMap: forestN, normalScale: new THREE.Vector2(.68, .68), roughness: .97, vertexColors: true });
+  ground.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, { uRoad: { value: path }, uRoadN: { value: pathN }, uStone: { value: rock }, uStoneN: { value: rockN } });
+    shader.vertexShader = shader.vertexShader.replace('#include <common>', `#include <common>\nattribute vec2 aBlend; varying vec2 vBlend;`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>\nvBlend = aBlend;`);
+    shader.fragmentShader = shader.fragmentShader.replace('#include <common>', `#include <common>\nuniform sampler2D uRoad, uRoadN, uStone, uStoneN; varying vec2 vBlend;`)
+      .replace('#include <map_fragment>', `
+        vec4 earth = texture2D(map, vMapUv);
+        vec4 road = texture2D(uRoad, vMapUv * 1.25) * vec4(.92, .79, .61, 1.);
+        vec4 stone = texture2D(uStone, vMapUv * .84);
+        vec4 blended = mix(earth, stone * vec4(.72,.84,.51,1.), vBlend.y * .55);
+        diffuseColor *= mix(blended, road, vBlend.x);
+      `)
+      .replace('vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;', `
+        vec3 forestNormal = texture2D(normalMap, vNormalMapUv).xyz;
+        vec3 stoneNormal = texture2D(uStoneN, vNormalMapUv * .84).xyz;
+        vec3 roadNormal = texture2D(uRoadN, vNormalMapUv * 1.25).xyz;
+        vec3 mapN = mix(mix(forestNormal, stoneNormal, vBlend.y), roadNormal, vBlend.x) * 2.0 - 1.0;
+      `);
+  };
+  const barkMat = new THREE.MeshStandardMaterial({ map: bark, normalMap: barkN, normalScale: new THREE.Vector2(.95, .95), color: '#d6cdb9', roughness: .98 });
+  const leaves = new THREE.MeshStandardMaterial({ map: leaf, alphaTest: .46, side: THREE.DoubleSide, roughness: .83, vertexColors: true, color: '#b6c88f' });
+  leaves.shadowSide = THREE.DoubleSide;
+  const leafDepth = new THREE.MeshDepthMaterial({ map: leaf, alphaTest: .46, side: THREE.DoubleSide, depthPacking: THREE.RGBADepthPacking });
+  leaves.onBeforeCompile = (shader) => {
+    shader.uniforms.uWindTime = wind;
+    shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nuniform float uWindTime;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        vec4 wpos = vec4(position,1.);
+        #ifdef USE_INSTANCING
+          wpos = instanceMatrix * wpos;
+        #endif
+        float sway = sin(uWindTime * .75 + wpos.x * .62 + wpos.z * .44);
+        transformed.x += sway * .052 * smoothstep(2.,9.,position.y);
+        transformed.z += cos(uWindTime * .64 + wpos.z * .5) * .028;
+      `);
+    shader.fragmentShader = shader.fragmentShader.replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+      reflectedLight.indirectDiffuse += diffuseColor.rgb * vec3(.11, .13, .055);
+    `);
+  };
+  const stone = new THREE.MeshStandardMaterial({ map: rock, normalMap: rockN, normalScale: new THREE.Vector2(.62, .62), roughness: .95, vertexColors: true });
+  const grass = new THREE.MeshStandardMaterial({ color: '#d4dcb4', side: THREE.DoubleSide, roughness: 1, vertexColors: true });
+  grass.onBeforeCompile = (shader) => {
+    shader.uniforms.uWindTime = wind;
+    shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nuniform float uWindTime;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        vec4 wpos = vec4(position,1.);
+        #ifdef USE_INSTANCING
+          wpos = instanceMatrix * wpos;
+        #endif
+        transformed.x += sin(uWindTime * 1.3 + wpos.x * .75 + wpos.z * .61) * position.y * .15;
+        transformed.z += cos(uWindTime + wpos.z * .8) * position.y * .07;
+      `);
+  };
+  const fern = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .85, side: THREE.DoubleSide });
+  const wood = new THREE.MeshStandardMaterial({ color: '#74634c', map: bark, roughness: .95 });
+  return { ground, bark: barkMat, leaves, leafDepth, stone, grass, fern, wood, wind, textures: [forest, forestN, path, pathN, bark, barkN, rock, rockN, leaf] };
+}
