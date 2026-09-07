@@ -11,9 +11,10 @@ import { HorseBrain, OxController, type HorseOutput, type WorldSnapshot } from '
 import { SupplyWagon } from './actors/wagon';
 import { AnimalAudio } from './audio';
 import { loadCharacter, type CharacterSheet } from '../game/character';
-import { createTrainingCombat, enemyTurn, takeAttack, takeSpell, type CombatState, type Combatant } from '../game/combat';
+import { CombatDirector, type CombatPhase, type CombatSnapshot } from './combat-director';
+import { loadCombatMaterials, type CombatMaterials } from './actors/combat-materials';
+import type { ActionId, LogEntry } from '../game/encounter';
 import { RulesEventLog } from '../game/rules';
-import { addExperience } from '../game/progression';
 import { saveCharacter } from '../game/character';
 
 export interface Interaction { kind: 'cargo' | 'manifest' | 'horses'; id: string; label: string }
@@ -21,7 +22,7 @@ export interface AdventureState {
   story: NarratorState; mounted: boolean; interaction: Interaction | null; canMount: boolean; character: CharacterSheet | null;
   wagon: { x: number; z: number; yaw: number; speed: number }; inventoryRevision: number;
   horses: { x: number; z: number; yaw: number; sniffing: boolean }[];
-  combat: CombatState | null;
+  combat: CombatSnapshot | null;
 }
 function browserStorage() { try { return window.localStorage; } catch { return undefined; } }
 export class Adventure {
@@ -31,7 +32,8 @@ export class Adventure {
   readonly horses: LivingAnimal[];
   readonly animalAudio = new AnimalAudio();
   private horseBrains: HorseBrain[] = [];
-  private combatSession: CombatState | null = null;
+  readonly combatDirector: CombatDirector;
+  readonly combatMaterials: CombatMaterials;
   readonly rulesEvents = new RulesEventLog();
   private oxController!: OxController;
   private horseOut: HorseOutput = { speed: 0, yaw: 0, head: { pitch: 0, yaw: 0 }, alert: 0, headDown: false };
@@ -49,8 +51,17 @@ export class Adventure {
   character: CharacterSheet | null;
   onHandoff = () => {};
   onNotice: (message: string) => void = () => {};
-  private constructor(scene: THREE.Scene, private camera: THREE.PerspectiveCamera, private controller: PlayerController, private collision: CollisionField, private factory: AnimalFactory, readonly materials: AdventureMaterials) {
+  private constructor(scene: THREE.Scene, private camera: THREE.PerspectiveCamera, private controller: PlayerController, private collision: CollisionField, private factory: AnimalFactory, readonly materials: AdventureMaterials, combatMaterials: CombatMaterials, quality: 'performance' | 'balanced' | 'high') {
+    this.combatMaterials = combatMaterials;
+    this.combatDirector = new CombatDirector(scene, camera, controller, collision, combatMaterials, quality);
+    this.combatDirector.onNotice = message => this.onNotice(message);
+    this.combatDirector.onLog = entries => this.onCombatLog(entries);
+    this.combatDirector.onPhaseChange = phase => this.onCombatPhase(phase);
+    this.combatDirector.prepare();
     this.character = loadCharacter();
+    // Replace the placeholder avatar with a real skinned character body that
+    // reflects the species and class actually on the sheet.
+    this.controller.installBody(combatMaterials, this.character);
     this.controller.setEquipment(this.character?.classId ?? null);
     this.wagon = new SupplyWagon(factory, this.inventory); this.wagon.addTo(scene);
     this.horses = [factory.create('horse', '#765339', 2), factory.create('horse', '#b0aca0', 7)];
@@ -76,7 +87,8 @@ export class Adventure {
   }
   static async create(scene: THREE.Scene, camera: THREE.PerspectiveCamera, controller: PlayerController, collision: CollisionField, renderer: THREE.WebGLRenderer, quality: 'performance' | 'balanced' | 'high' = 'high') {
     const materials = await loadAdventureMaterials(renderer), factory = await AnimalFactory.load(materials, quality === 'performance' ? .55 : quality === 'balanced' ? .8 : 1);
-    const adventure = new Adventure(scene, camera, controller, collision, factory, materials);
+    const combatMaterials = await loadCombatMaterials(renderer);
+    const adventure = new Adventure(scene, camera, controller, collision, factory, materials, combatMaterials, quality);
     await adventure.narrator.initialize(); return adventure;
   }
   private pathDistanceOf(x: number, z: number) { return pathDistance(x, z); }
@@ -106,6 +118,35 @@ export class Adventure {
     this.controller.setPaused(paused); this.narrator.setPaused(paused, 'menu');
     if (paused) this.save();
   }
+  private wasPlayerTurn = false;
+
+  /**
+   * Combat runs inside the ordinary frame loop. The world never freezes: the
+   * player walks their turn with the same controls they use everywhere else,
+   * and the encounter engine simply refuses actions the budget cannot pay for.
+   */
+  private updateCombat(dt: number, phase: string, realDelta: number) {
+    if (phase === 'title' || phase === 'journey') return;
+    const director = this.combatDirector;
+    director.update(dt, this.controller.position, this.character, !this.mounted, realDelta);
+
+    if (!director.encounter) return;
+
+    // Hand the movement budget to the controller on the player's turn only.
+    const playerTurn = !!director.encounter.isPlayerTurn && director.phase === 'active';
+    if (playerTurn !== this.wasPlayerTurn) {
+      this.wasPlayerTurn = playerTurn;
+      if (playerTurn) {
+        this.controller.movementLimit = () => director.movementLeftMetres();
+        this.controller.beginCombatTurn();
+      } else {
+        this.controller.endCombatTurn();
+        this.controller.movementLimit = null;
+      }
+    }
+    if (playerTurn) director.syncHeroPosition(this.controller.position);
+  }
+
   update(dt: number, realDelta: number) {
     this.narrator.update(realDelta);
     const paused = this.controller.paused, phase = this.narrator.state.phase;
@@ -126,6 +167,7 @@ export class Adventure {
     this.wagon.update(dt, paused ? 0 : distance, paused);
     if (!paused) this.updateHorses(dt);
     this.updateCollision();
+    this.updateCombat(dt, phase, realDelta);
     if (phase === 'title' || phase === 'journey') this.updateCamera(phase === 'title');
     else if (Math.abs(this.camera.fov - (this.controller.mode === 'first' ? 72 : 59)) > .1) {
       this.camera.fov = THREE.MathUtils.damp(this.camera.fov, this.controller.mode === 'first' ? 72 : 59, 5, dt); this.camera.updateProjectionMatrix();
@@ -274,28 +316,48 @@ export class Adventure {
     else { this.camera.position.lerp(desired, .055); this.cameraLook.lerp(target, .07); }
     this.camera.lookAt(this.cameraLook); this.camera.fov = 50; this.camera.updateProjectionMatrix();
   }
-  startTrainingCombat() {
-    if (!this.character || this.narrator.state.phase === 'journey' || this.narrator.state.phase === 'title' || this.combatSession) return false;
-    const c: Combatant = { actor: { id: this.character.id, level: this.character.level, abilities: this.character.abilities, proficientAbilities: this.character.savingThrows, skills: Object.fromEntries(this.character.skillProficiencies.map(skill => [skill, { proficient: true }])) }, hp: { hp: this.character.maxHp, maxHp: this.character.maxHp, temporaryHp: 0, deathSaveSuccesses: 0, deathSaveFailures: 0, stable: false }, armorClass: this.character.armorClass, conditions: [], budget: { movement: 30, movementUsed: 0, action: true, bonusAction: true, reaction: true, object: true, freeSpeech: true }, side: 'party', spells: this.character.classId === 'wizard' ? ['fireBolt', 'rayOfFrost', 'cureWounds'] : [] };
-    this.combatSession = createTrainingCombat(c); this.rulesEvents.append('CombatStarted', this.clock, { encounter: 'ambush-training' }, this.character.id); this.setPaused(true); return true;
-  }
-  combatAttack(targetId: string) { if (!this.combatSession) return false; const ok = takeAttack(this.combatSession, targetId, Math.floor(this.clock * 1000) + this.combatSession.round); if (ok) this.advanceEnemyTurns(); return ok; }
-  combatCast(spellId: string, targetId: string) { if (!this.combatSession) return false; const ok = takeSpell(this.combatSession, spellId, targetId, Math.floor(this.clock * 1000) + this.combatSession.round); if (ok) this.advanceEnemyTurns(); return ok; }
-  private advanceEnemyTurns() { while (this.combatSession && !this.combatSession.finished && this.combatSession.combatants.find(c => c.actor.id === this.combatSession!.activeId)?.side === 'enemy') enemyTurn(this.combatSession, Math.floor(this.clock * 1000) + this.combatSession.round); }
+  // --- combat -------------------------------------------------------------
+  // The ambush is a physical event in the world, not a modal dialog. The
+  // director owns turn order and rules; this class only forwards intent and
+  // keeps the character sheet in sync when the fight ends.
+  onCombatLog: (entries: LogEntry[]) => void = () => {};
+  onCombatPhase: (phase: CombatPhase) => void = () => {};
+
+  get combatPhase() { return this.combatDirector.phase; }
+  get inCombat() { return this.combatDirector.phase === 'active' || this.combatDirector.phase === 'sprung'; }
+  get isPlayerTurn() { return !!this.combatDirector.encounter?.isPlayerTurn; }
+
+  combatAttack(targetId: string) { return this.combatDirector.attack(targetId); }
+  combatCast(spellId: string, targetIds: string[], slotLevel?: number) { return this.combatDirector.cast(spellId, targetIds, slotLevel); }
+  combatAct(action: ActionId) { return this.combatDirector.act(action); }
+  combatEndTurn() { return this.combatDirector.endTurn(); }
+  combatPointer(x: number, y: number, w: number, h: number) { this.combatDirector.setPointer(x, y, w, h); }
+  get combatHoveredId() { return this.combatDirector.hoveredId; }
+
   finishCombat() {
-    if (!this.combatSession) return;
-    if (this.combatSession.finished && this.combatSession.xp && this.character) {
-      const result = addExperience(this.character, this.combatSession.xp); this.character = result.sheet; saveCharacter(this.character);
-      this.rulesEvents.append('CombatFinished', this.clock, { xp: this.combatSession.xp, levels: result.levels }, this.character.id);
-    }
-    this.combatSession = null; this.setPaused(false);
+    const updated = this.combatDirector.finish(this.character);
+    if (updated) { this.character = updated; saveCharacter(updated); }
+    // Hand movement back to the player unconditionally: a fight that ended on
+    // the hero's turn must not leave the budget clamp installed.
+    this.controller.endCombatTurn();
+    this.controller.movementLimit = null;
+    this.wasPlayerTurn = false;
+    this.rulesEvents.append('CombatFinished', this.clock, { outcome: this.combatDirector.encounter?.outcome ?? 'none' }, this.character?.id);
+    this.setPaused(false);
   }
-  get combat() { return this.combatSession; }
+
+  /** The Survival check that reads the goblin trail after the fight. */
+  readTrail() { return this.character ? this.combatDirector.readTrail(this.character) : null; }
+
+  /** The nearest piece of ambush evidence the player can inspect. */
+  nearbyEvidence() { return this.combatDirector.site?.nearest(this.controller.position) ?? null; }
+
+  get combat() { return this.combatDirector.snapshot(this.controller.position); }
   get state(): AdventureState {
     return { story: this.narrator.state, mounted: this.mounted, interaction: this.interaction(), canMount: this.canMount(), character: this.character,
       wagon: { x: this.wagon.root.position.x, z: this.wagon.root.position.z, yaw: this.wagon.root.rotation.y, speed: this.wagon.speed },
       inventoryRevision: this.inventory.revision,
-      horses: this.horses.map((h, i) => ({ x: h.root.position.x, z: h.root.position.z, yaw: h.root.rotation.y, sniffing: this.horseSniff[i] })), combat: this.combatSession };
+      horses: this.horses.map((h, i) => ({ x: h.root.position.x, z: h.root.position.z, yaw: h.root.rotation.y, sniffing: this.horseSniff[i] })), combat: this.combat };
   }
   get needsRender() { return this.wagon.visualAnimating || this.previouslyPaused !== this.controller.paused; }
   save() {

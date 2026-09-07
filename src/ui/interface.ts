@@ -3,6 +3,7 @@ import { ForestAudio } from '../engine/audio';
 import { isFormControl, type CameraMode } from '../engine/controller';
 import { WoodlandWorld, type Atmosphere, type Quality, type WorldState } from '../engine/world';
 import { Cartography, paintCompass } from './cartography';
+import { CombatHud } from './combat-hud';
 import { AdventureInterface, type AdventureDialog } from './adventure-interface';
 import { ABILITIES, ABILITY_NAMES, availableSkillChoices, BACKGROUNDS, CLASSES, defaultDraft, finalizeCharacter, PERSONALITIES, PRONOUNS, SPECIES, type CharacterDraft } from '../game/character';
 import type { Ability } from '../game/rules';
@@ -31,10 +32,28 @@ export class WorldInterface {
   private abort = new AbortController();
   private adventureUI: AdventureInterface;
   private characterDraft: CharacterDraft = defaultDraft();
+  private combatHud: CombatHud;
   constructor(private world: WoodlandWorld) {
     this.state = world.getState();
     this.loadPreferences(); this.applyPreferences();
     this.adventureUI = new AdventureInterface(world, { open: (kind, nonBlocking) => this.openDialog(kind, nonBlocking), close: () => this.closeDialog(), current: () => this.dialog, toast: message => this.toast(message), icons: refreshIcons });
+    // The combat HUD lives over the canvas and never blocks the world.
+    this.combatHud = new CombatHud(document.body, world);
+    this.combatHud.onFinish = () => {
+      world.adventure.finishCombat();
+      const trail = world.adventure.readTrail();
+      if (trail) this.toast(trail.text);
+    };
+    world.adventure.onCombatLog = entries => this.combatHud.appendLog(entries);
+    world.adventure.onCombatPhase = phase => {
+      if (phase === 'sprung') this.toast('Ambush! Goblins on both sides of the road.');
+    };
+    // Aim in the world: the pointer drives targeting every frame it moves.
+    world.renderer.domElement.addEventListener('pointermove', e => {
+      const rect = world.renderer.domElement.getBoundingClientRect();
+      world.adventure.combatPointer(e.clientX - rect.left, e.clientY - rect.top, rect.width, rect.height);
+    }, { signal: this.abort.signal });
+
     this.bind(); refreshIcons();
     world.controller.onStart = () => this.start();
     world.controller.onUnlock = () => { if (!this.dialog) this.openDialog('pause'); };
@@ -75,9 +94,6 @@ export class WorldInterface {
       if (action === 'reset') { this.world.adventure.returnToWagon(); this.closeDialog(); this.toast('Back at the wagon. Your cargo and inventory are unchanged.'); }
       if (action === 'character-cancel') { this.closeDialog(); }
       if (action === 'character-create') this.createCharacter();
-      if (button.dataset.combatAttack) { this.world.adventure.combatAttack(button.dataset.combatAttack); this.openDialog('combat'); }
-      if (button.dataset.combatSpell) { this.world.adventure.combatCast(button.dataset.combatSpell, button.dataset.target ?? 'goblin-scout'); this.openDialog('combat'); }
-      if (action === 'combat-finish') { this.world.adventure.finishCombat(); this.closeDialog(); }
       if (action === 'audio') void this.toggleAudio();
       if (button.dataset.quality) {
         this.config.quality = button.dataset.quality as Quality; this.world.setQuality(this.config.quality);
@@ -139,7 +155,6 @@ export class WorldInterface {
       if (e.code === 'KeyM') { e.preventDefault(); this.openDialog('map'); }
       if (e.code === 'KeyH') { e.preventDefault(); this.openDialog('help'); }
       if (e.code === 'KeyP') { e.preventDefault(); this.togglePhoto(); }
-      if (e.code === 'KeyC' && this.world.adventure.startTrainingCombat()) { e.preventDefault(); this.openDialog('combat'); }
     }, opts);
     document.addEventListener('fullscreenchange', () => {
       const label = document.fullscreenElement ? 'Exit fullscreen' : 'Enter fullscreen';
@@ -198,7 +213,8 @@ export class WorldInterface {
     document.body.dataset.locked = String(!!document.pointerLockElement);
     $('#region-name').textContent = state.landmark === 'cragmaw' ? 'Cragmaw Trail' : state.landmark === 'ambush' ? 'The Ambush Clearing' : 'Triboar Trail';
     const saveNote = $('#welcome-save-note');
-    if (state.story.phase === 'title' && state.character) saveNote.textContent = `${state.character.name.toUpperCase()} · ${state.character.species === 'elf' ? 'HIGH ELF' : 'HUMAN'} ${state.character.classId.toUpperCase()} · READY TO BEGIN`;
+    if (state.story.phase === 'title' && state.character) saveNote.textContent = `${state.character.name.toUpperCase()} · ${SPECIES[state.character.species].name.toUpperCase()} ${CLASSES[state.character.classId].name.toUpperCase()} · READY TO BEGIN`;
+    this.combatHud.render(state.combat);
     this.audio.update(state.distanceWalked, state.moving, state.grounded);
     this.world.adventure.animalAudio.setListener(state.x, 0, state.z);
   }
@@ -244,14 +260,6 @@ export class WorldInterface {
   private dialogHTML(kind: DialogKind) {
     if (['inventory', 'cargo', 'manifest', 'journal'].includes(kind)) return this.adventureUI.dialogHTML(kind as AdventureDialog);
     const close = `<button class="icon-button dialog-close" data-action="close" aria-label="Close dialog">${icon('x')}</button>`;
-    if (kind === 'combat') {
-      const combat = this.world.adventure.combat;
-      if (!combat) return `${close}<h2 id="dialog-title">No encounter</h2>`;
-      const hero = combat.combatants.find(c => c.side === 'party');
-      const enemies = combat.combatants.filter(c => c.side === 'enemy');
-      const spells = hero?.spells ?? [];
-      return `${close}<div class="combat-panel"><div class="dialog-eyebrow">TACTICAL ENCOUNTER · ROUND ${combat.round}</div><h2 id="dialog-title">The road turns dangerous.</h2><p class="dialog-description">${combat.finished ? (combat.xp ? 'The threat is defeated. Experience earned.' : 'The party is down.') : 'Choose an action. Every result is resolved by the deterministic rules engine.'}</p><div class="combat-status"><div><strong>${hero?.actor.id ?? 'Hero'}</strong><span>${hero?.hp.hp ?? 0} / ${hero?.hp.maxHp ?? 0} HP · AC ${hero?.armorClass ?? 0}</span></div>${enemies.map(e => `<div class="enemy-card ${e.hp.hp <= 0 ? 'defeated' : ''}"><strong>${e.actor.id}</strong><span>${e.hp.hp} / ${e.hp.maxHp} HP · AC ${e.armorClass}</span>${e.hp.hp > 0 && !combat.finished ? `<button data-combat-attack="${e.actor.id}">Attack</button></div>` : '</div>'}`).join('')}</div>${!combat.finished ? `<div class="combat-actions"><button data-combat-attack="goblin-scout">${icon('swords')} Attack scout</button>${spells.map(id => `<button data-combat-spell="${id}" data-target="goblin-scout">${id.replace(/([A-Z])/g, ' $1')}</button>`).join('')}</div>` : `<button class="primary-action" data-action="combat-finish">Leave the battlefield ${icon('arrow-right')}</button>`}<div class="combat-log">${combat.log.slice(-5).map(e => `<p>${e.text}</p>`).join('')}</div></div>`;
-    }
     if (kind === 'character') {
       const d = this.characterDraft;
       const select = (field: string, options: string, label: string) => `<label class="character-field"><span>${label}</span><select data-character="${field}">${options}</select></label>`;

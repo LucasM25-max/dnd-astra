@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { CollisionField, SPAWN, clamp, terrainHeight } from './landscape';
+import { Humanoid } from './actors/humanoid';
+import type { CombatMaterials } from './actors/combat-materials';
 
 export type CameraMode = 'first' | 'third';
 export class PlayerController {
@@ -35,6 +37,9 @@ export class PlayerController {
   private look = new THREE.Vector3();
   private desiredCamera = new THREE.Vector3();
   private rig = new THREE.Group();
+  /** The skinned player body, installed once the PBR materials have loaded. */
+  private body: Humanoid | null = null;
+  private bodyPose: 'idle' | 'walk' | 'run' = 'idle';
   private contactShadow: THREE.Mesh;
   private disposed = new AbortController();
   onStart = () => {};
@@ -42,14 +47,12 @@ export class PlayerController {
   onPointerFallback = () => {};
 
   constructor(private camera: THREE.PerspectiveCamera, private canvas: HTMLCanvasElement, private collision: CollisionField, scene: THREE.Scene) {
-    const beanMat = new THREE.MeshStandardMaterial({ color: '#e3ddc9', roughness: .63, metalness: .035 });
-    const bean = new THREE.Mesh(new THREE.CapsuleGeometry(.305, .82, 9, 20), beanMat);
-    bean.position.y = .745; bean.castShadow = true; bean.receiveShadow = true;
-    this.rig.add(bean);
+    // The avatar's arms, used only in first person where the body is hidden.
+    const skinMat = new THREE.MeshStandardMaterial({ color: '#c9a184', roughness: .72, metalness: 0 });
     for (const side of [-1, 1]) {
       const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(side * .265, .95, -.02), new THREE.Vector3(side * .365, .77, -.17), new THREE.Vector3(side * .24, .90, -.33)]);
-      const arm = new THREE.Mesh(new THREE.TubeGeometry(curve, 12, .067, 8, false), beanMat); arm.castShadow = true;
-      const hand = new THREE.Mesh(new THREE.SphereGeometry(.071, 10, 8), beanMat); hand.position.set(side * .24, .90, -.33); hand.castShadow = true;
+      const arm = new THREE.Mesh(new THREE.TubeGeometry(curve, 12, .067, 8, false), skinMat); arm.castShadow = true;
+      const hand = new THREE.Mesh(new THREE.SphereGeometry(.071, 10, 8), skinMat); hand.position.set(side * .24, .90, -.33); hand.castShadow = true;
       this.arms.add(arm, hand);
     }
     this.arms.visible = false; this.rig.add(this.arms); this.rig.add(this.equipment);
@@ -60,33 +63,151 @@ export class PlayerController {
     shadowCtx.fillStyle = gradient; shadowCtx.fillRect(0, 0, 64, 64);
     this.contactShadow = new THREE.Mesh(new THREE.PlaneGeometry(1.05, 1.05), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(shadowCanvas), transparent: true, depthWrite: false, opacity: .62, polygonOffset: true, polygonOffsetFactor: -2 }));
     this.contactShadow.rotation.x = -Math.PI / 2; this.contactShadow.renderOrder = 1; scene.add(this.contactShadow);
-    // An intentionally simple placeholder, not a finished character model.
-    const faceMat = new THREE.MeshStandardMaterial({ color: '#393d32', roughness: .4 });
-    for (const x of [-.093, .093]) {
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(.029, 8, 8), faceMat);
-      eye.position.set(x, 1.08, -.286); eye.scale.z = .55; this.rig.add(eye);
-    }
-    const belt = new THREE.Mesh(new THREE.CylinderGeometry(.309, .31, .065, 28, 1, true), new THREE.MeshStandardMaterial({ color: '#827257', roughness: .9 }));
-    belt.position.y = .60; belt.castShadow = true; this.rig.add(belt);
-    const clasp = new THREE.Mesh(new THREE.BoxGeometry(.075, .067, .027), new THREE.MeshStandardMaterial({ color: '#b49b6a', metalness: .55, roughness: .55 }));
-    clasp.position.set(0, .60, -.31); this.rig.add(clasp);
     this.avatar.add(this.rig); this.avatar.position.copy(this.position); this.avatar.rotation.y = this.yaw; scene.add(this.avatar);
     this.canvas.tabIndex = 0;
     this.canvas.setAttribute('aria-label', 'Interactive 3D woodland. Use WASD to move, drag to look, V to switch camera.');
     this.bindInput();
     this.updateCamera(1);
   }
-  setEquipment(classId: 'fighter' | 'wizard' | null) {
-    this.equipment.clear(); if (!classId) return;
-    if (classId === 'fighter') {
-      const blade = new THREE.Mesh(new THREE.BoxGeometry(.045, .72, .09), new THREE.MeshStandardMaterial({ color: '#9da6a0', metalness: .82, roughness: .3 }));
-      blade.position.set(.39, .72, -.02); blade.rotation.z = -.22; blade.castShadow = true;
-      const hilt = new THREE.Mesh(new THREE.BoxGeometry(.16, .045, .08), new THREE.MeshStandardMaterial({ color: '#8b623c', roughness: .7 })); hilt.position.set(.39, .38, -.02); hilt.rotation.z = -.22; hilt.castShadow = true; this.equipment.add(blade, hilt);
-    } else {
-      const book = new THREE.Mesh(new THREE.BoxGeometry(.27, .34, .07), new THREE.MeshStandardMaterial({ color: '#4c2f25', roughness: .8 })); book.position.set(-.36, .66, -.12); book.rotation.set(.15, .3, -.12); book.castShadow = true;
-      const clasp = new THREE.Mesh(new THREE.BoxGeometry(.025, .22, .012), new THREE.MeshStandardMaterial({ color: '#c1a45e', metalness: .5, roughness: .45 })); clasp.position.set(-.36, .66, -.16); clasp.rotation.z = -.12; this.equipment.add(book, clasp);
-    }
+  /**
+   * Swaps the placeholder for a real skinned character body, using the same
+   * rig and locomotion system that drives the goblins. Called once the PBR
+   * material set has loaded, so the avatar is never a white capsule after the
+   * world has finished coming up.
+   */
+  installBody(materials: CombatMaterials, sheet: { species?: string; classId?: string } | null) {
+    this.body?.dispose();
+    const tall = sheet?.species === 'lightfootHalfling' ? 1.32
+      : sheet?.species === 'hillDwarf' || sheet?.species === 'mountainDwarf' ? 1.42
+      : sheet?.species === 'halfOrc' ? 1.92 : 1.78;
+    const stocky = sheet?.species === 'hillDwarf' || sheet?.species === 'mountainDwarf' || sheet?.species === 'halfOrc';
+    const elf = sheet?.species === 'highElf' || sheet?.species === 'woodElf';
+    const skin = sheet?.species === 'halfOrc' ? '#8ea07a' : sheet?.species === 'tiefling' ? '#a8544a' : '#c9a184';
+    const cloth = sheet?.classId === 'wizard' ? '#3b3a5c'
+      : sheet?.classId === 'cleric' ? '#c9c2ae'
+      : sheet?.classId === 'rogue' ? '#33322b'
+      : sheet?.classId === 'ranger' ? '#4a5940' : '#6a5a44';
+
+    this.body = new Humanoid(
+      { height: tall, build: stocky ? 'stocky' : 'lean', earLength: elf ? tall * 0.075 : tall * 0.03, noseLength: tall * 0.035 },
+      materials, skin, cloth, 1337, 1,
+    );
+    this.body.root.position.set(0, 0, 0);
+    this.rig.add(this.body.root);
   }
+
+  /**
+   * Visible kit on the avatar, per class. Small, but it is the difference
+   * between "a bean" and "my character" the moment the player looks down.
+   */
+  setEquipment(classId: 'fighter' | 'wizard' | 'rogue' | 'cleric' | 'ranger' | null) {
+    this.equipment.clear();
+    if (!classId) return;
+    const steel = new THREE.MeshStandardMaterial({ color: '#aab2b6', metalness: 1, roughness: .32 });
+    const wood = new THREE.MeshStandardMaterial({ color: '#7a6242', roughness: .88 });
+    const leather = new THREE.MeshStandardMaterial({ color: '#5a4530', roughness: .82 });
+    const brass = new THREE.MeshStandardMaterial({ color: '#a2803f', metalness: .9, roughness: .42 });
+
+    const sheathe = (length: number, x: number, tilt: number) => {
+      const scabbard = new THREE.Mesh(new THREE.CylinderGeometry(.032, .026, length, 8), leather);
+      scabbard.position.set(x, .58, .07); scabbard.rotation.set(.22, 0, tilt);
+      scabbard.castShadow = true;
+      const mouth = new THREE.Mesh(new THREE.CylinderGeometry(.036, .036, .03, 8), brass);
+      mouth.position.copy(scabbard.position).add(new THREE.Vector3(0, length * .48, 0));
+      mouth.rotation.copy(scabbard.rotation);
+      return [scabbard, mouth];
+    };
+
+    if (classId === 'fighter') {
+      // A sheathed longsword at the hip and a shield slung on the back.
+      this.equipment.add(...sheathe(.66, .30, -.28));
+      const grip = new THREE.Mesh(new THREE.CylinderGeometry(.014, .014, .12, 6), leather);
+      grip.position.set(.38, .92, .04); grip.rotation.z = -.28; grip.castShadow = true;
+      const pommel = new THREE.Mesh(new THREE.SphereGeometry(.022, 10, 8), brass);
+      pommel.position.set(.40, .99, .04);
+      const guard = new THREE.Mesh(new THREE.BoxGeometry(.15, .018, .028), brass);
+      guard.position.set(.36, .855, .04); guard.rotation.z = -.28;
+      const shield = new THREE.Mesh(new THREE.CylinderGeometry(.28, .28, .035, 20), wood);
+      shield.position.set(0, .78, .34); shield.rotation.set(1.42, 0, .12); shield.castShadow = true;
+      const boss = new THREE.Mesh(new THREE.SphereGeometry(.055, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), steel);
+      boss.position.set(0, .78, .36); boss.rotation.x = -Math.PI / 2 + 1.42;
+      this.equipment.add(grip, pommel, guard, shield, boss);
+    } else if (classId === 'wizard') {
+      const staff = new THREE.Mesh(new THREE.CylinderGeometry(.021, .026, 1.42, 8), wood);
+      staff.position.set(-.34, .70, .05); staff.rotation.set(.10, 0, .13); staff.castShadow = true;
+      const knot = new THREE.Mesh(new THREE.IcosahedronGeometry(.05, 1), wood);
+      knot.position.set(-.42, 1.38, .02);
+      const book = new THREE.Mesh(new THREE.BoxGeometry(.24, .30, .075), new THREE.MeshStandardMaterial({ color: '#4a2e24', roughness: .78 }));
+      book.position.set(.30, .62, .14); book.rotation.set(.12, -.28, -.10); book.castShadow = true;
+      const clasp = new THREE.Mesh(new THREE.BoxGeometry(.022, .20, .012), brass);
+      clasp.position.set(.30, .62, .18); clasp.rotation.set(.12, -.28, -.10);
+      this.equipment.add(staff, knot, book, clasp);
+    } else if (classId === 'rogue') {
+      // Two daggers, worn where a rogue would actually reach for them.
+      for (const side of [-1, 1]) {
+        const hilt = new THREE.Mesh(new THREE.CylinderGeometry(.011, .011, .085, 6), leather);
+        hilt.position.set(side * .30, .60, .12); hilt.rotation.set(.4, 0, side * .5); hilt.castShadow = true;
+        const blade = new THREE.Mesh(new THREE.ConeGeometry(.017, .19, 4), steel);
+        blade.position.set(side * .32, .48, .14); blade.rotation.set(Math.PI + .4, 0, side * .5);
+        this.equipment.add(hilt, blade);
+      }
+      const pouch = new THREE.Mesh(new THREE.SphereGeometry(.062, 10, 8), leather);
+      pouch.position.set(0, .55, .29); pouch.scale.set(1, .85, .6); pouch.castShadow = true;
+      const hood = new THREE.Mesh(new THREE.SphereGeometry(.20, 14, 10, 0, Math.PI * 2, 0, Math.PI * .55), new THREE.MeshStandardMaterial({ color: '#33322b', roughness: .95, side: THREE.DoubleSide }));
+      hood.position.set(0, 1.02, .06); hood.rotation.x = .28; hood.castShadow = true;
+      this.equipment.add(pouch, hood);
+    } else if (classId === 'cleric') {
+      const mace = new THREE.Mesh(new THREE.CylinderGeometry(.017, .019, .42, 7), wood);
+      mace.position.set(.31, .60, .08); mace.rotation.z = -.22; mace.castShadow = true;
+      const head = new THREE.Mesh(new THREE.CylinderGeometry(.045, .045, .085, 8), steel);
+      head.position.set(.36, .40, .08); head.rotation.z = -.22; head.castShadow = true;
+      // A holy symbol on a chain: the read that says "cleric" at a glance.
+      const symbol = new THREE.Mesh(new THREE.TorusGeometry(.045, .009, 6, 16), brass);
+      symbol.position.set(0, .84, -.30); symbol.castShadow = true;
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(.075, .010, .010), brass);
+      bar.position.set(0, .84, -.30);
+      const shield = new THREE.Mesh(new THREE.CylinderGeometry(.26, .26, .032, 18), wood);
+      shield.position.set(0, .78, .33); shield.rotation.set(1.42, 0, -.1); shield.castShadow = true;
+      this.equipment.add(mace, head, symbol, bar, shield);
+    } else {
+      // Ranger: a longbow across the back and a quiver at the shoulder.
+      const curve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(-.05, .18, .30), new THREE.Vector3(.02, .62, .36),
+        new THREE.Vector3(.06, 1.02, .34), new THREE.Vector3(.02, 1.40, .28),
+      ]);
+      const bow = new THREE.Mesh(new THREE.TubeGeometry(curve, 20, .014, 6, false), wood);
+      bow.castShadow = true;
+      const quiver = new THREE.Mesh(new THREE.CylinderGeometry(.055, .048, .40, 10), leather);
+      quiver.position.set(-.22, .92, .24); quiver.rotation.set(.30, 0, .34); quiver.castShadow = true;
+      this.equipment.add(bow, quiver);
+      for (let i = 0; i < 4; i++) {
+        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(.005, .005, .30, 4), wood);
+        shaft.position.set(-.22 + (i % 2) * .026, 1.11, .21 + Math.floor(i / 2) * .026);
+        shaft.rotation.set(.30, 0, .34);
+        const fletch = new THREE.Mesh(new THREE.PlaneGeometry(.032, .05), new THREE.MeshStandardMaterial({ color: '#2c3128', roughness: 1, side: THREE.DoubleSide }));
+        fletch.position.copy(shaft.position).add(new THREE.Vector3(0, .13, 0));
+        fletch.rotation.copy(shaft.rotation);
+        this.equipment.add(shaft, fletch);
+      }
+      const sword = new THREE.Mesh(new THREE.CylinderGeometry(.026, .022, .42, 8), leather);
+      sword.position.set(.29, .55, .07); sword.rotation.z = -.26; sword.castShadow = true;
+      this.equipment.add(sword);
+    }
+    for (const child of this.equipment.children) child.castShadow = true;
+  }
+
+  /**
+   * During the player's combat turn, movement is limited to the remaining
+   * budget. The controller asks for the limit each frame rather than being
+   * told, so the encounter stays authoritative.
+   */
+  movementLimit: (() => number) | null = null;
+  private turnOrigin = new THREE.Vector3();
+  private turnBudgetActive = false;
+
+  beginCombatTurn() { this.turnOrigin.copy(this.position); this.turnBudgetActive = true; }
+  endCombatTurn() { this.turnBudgetActive = false; }
+
   private bindInput() {
     const opts = { signal: this.disposed.signal };
     window.addEventListener('keydown', e => {
@@ -198,11 +319,22 @@ export class PlayerController {
         this.avatar.rotation.y += diff * Math.min(1, dt * 12);
       }
       const moving = Math.min(1, moveSpeed / 2);
-      this.rig.position.y = this.grounded ? Math.abs(Math.sin(this.walkDistance * 4.8)) * .032 * moving : 0;
-      this.rig.rotation.z = Math.sin(this.walkDistance * 4.8) * .027 * moving;
-      this.rig.rotation.x = -.025 * moving;
+      // A real skinned body animates itself; the capsule bob is only a
+      // fallback for the frames before the character model has loaded.
+      if (this.body) {
+        this.rig.position.y = 0; this.rig.rotation.set(0, 0, 0);
+      } else {
+        this.rig.position.y = this.grounded ? Math.abs(Math.sin(this.walkDistance * 4.8)) * .032 * moving : 0;
+        this.rig.rotation.z = Math.sin(this.walkDistance * 4.8) * .027 * moving;
+        this.rig.rotation.x = -.025 * moving;
+      }
     }
     this.avatar.position.copy(this.position);
+    if (this.body) {
+      const speed = Math.hypot(this.velocity.x, this.velocity.z);
+      this.bodyPose = speed > 3.4 ? 'run' : speed > .25 ? 'walk' : 'idle';
+      this.body.update(dt, { speed, pose: this.bodyPose, crouch: 0, actionPhase: 0 });
+    }
     const floor = terrainHeight(this.position.x, this.position.z);
     this.contactShadow.position.set(this.position.x, floor + .016, this.position.z);
     (this.contactShadow.material as THREE.MeshBasicMaterial).opacity = .62 / (1 + Math.max(0, this.position.y - floor) * 3);
@@ -220,6 +352,21 @@ export class PlayerController {
     }
     const resolved = this.collision.resolve(nx, nz, this.position.y);
     this.position.x = resolved.x; this.position.z = resolved.z;
+    // In combat the player walks their own movement, but only as far as the
+    // turn allows. Past the budget they are held on the edge of the circle
+    // rather than snapped back, so it feels like a limit and not a bug.
+    if (this.turnBudgetActive && this.movementLimit) {
+      const limit = this.movementLimit();
+      if (Number.isFinite(limit)) {
+        const ox = this.position.x - this.turnOrigin.x, oz = this.position.z - this.turnOrigin.z;
+        const walked = Math.hypot(ox, oz);
+        if (walked > limit) {
+          const scale = limit / walked;
+          this.position.x = this.turnOrigin.x + ox * scale;
+          this.position.z = this.turnOrigin.z + oz * scale;
+        }
+      }
+    }
     const floor = terrainHeight(resolved.x, resolved.z);
     if (!this.grounded) {
       this.verticalVelocity -= 11.4 * dt;
@@ -266,7 +413,8 @@ export class PlayerController {
       this.avatar.visible = this.camera.position.distanceTo(this.look) > .75;
     }
   }
-  dispose() { this.disposed.abort(); if (document.pointerLockElement === this.canvas) document.exitPointerLock(); }
+  dispose() {
+    this.body?.dispose(); this.disposed.abort(); if (document.pointerLockElement === this.canvas) document.exitPointerLock(); }
 }
 export function isFormControl(target: EventTarget | null) {
   return target instanceof HTMLElement && (['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName) || target.isContentEditable);
