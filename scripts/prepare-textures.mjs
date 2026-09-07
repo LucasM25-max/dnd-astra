@@ -1,7 +1,7 @@
 import sharp from 'sharp';
 import { mkdir } from 'node:fs/promises';
 await mkdir('public/textures', { recursive: true });
-for (const name of ['earth-path', 'forest-floor', 'bark', 'rock']) {
+for (const name of ['earth-path', 'forest-floor', 'bark', 'rock', 'leaf-litter', 'mossy-bark-detail']) {
   const { data, info } = await sharp(`assets-source/${name}.jpg`).resize(1024,1024).removeAlpha().raw().toBuffer({resolveWithObject:true});
   const w=info.width, h=info.height, c=info.channels;
   const height=new Float32Array(w*h);

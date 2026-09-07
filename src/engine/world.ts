@@ -297,8 +297,24 @@ export class WoodlandWorld {
     this.renderer.setSize(w, h); this.composer?.setPixelRatio(this.renderer.getPixelRatio()); this.composer?.setSize(w, h);
   }
   async screenshot() {
+    // Render once, then prefer toBlob. A few embedded Chromium/WebGL
+    // implementations never invoke toBlob after a post-processing pass; that
+    // used to leave Photo Mode waiting forever. The bounded fallback keeps the
+    // control usable without changing the saved image format.
     this.composer.render();
-    const blob = await new Promise<Blob | null>(resolve => this.renderer.domElement.toBlob(resolve, 'image/png'));
+    const canvas = this.renderer.domElement;
+    const blob = await new Promise<Blob | null>(resolve => {
+      let settled = false;
+      const finish = (value: Blob | null) => { if (!settled) { settled = true; resolve(value); } };
+      try { canvas.toBlob(finish, 'image/png'); } catch { finish(null); }
+      window.setTimeout(() => {
+        if (settled) return;
+        try {
+          const data = canvas.toDataURL('image/png');
+          fetch(data).then(response => response.blob()).then(finish).catch(() => finish(null));
+        } catch { finish(null); }
+      }, 1500);
+    });
     if (!blob) throw new Error('The browser could not save this frame.');
     const url = URL.createObjectURL(blob), a = document.createElement('a');
     a.href = url; a.download = `astra-triboar-trail-${Date.now()}.png`; a.click();

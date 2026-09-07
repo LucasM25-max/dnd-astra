@@ -1,5 +1,7 @@
 import './styles.css';
 import './adventure.css';
+import './character.css';
+import './combat.css';
 import { WoodlandWorld } from './engine/world';
 import { terrainHeight } from './engine/landscape';
 import { WorldInterface, refreshIcons } from './ui/interface';

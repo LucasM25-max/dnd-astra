@@ -244,15 +244,19 @@ export class LivingAnimal {
     this.species = species; this.t = seed * 2.19; this.gait = seed * 1.37; this.rng = seededRandom(9000 + seed * 137);
     const S = SHAPES[species];
     this.L1f = S.shoulder - .02 - S.knee; this.L2f = S.knee - .14; this.L1r = S.shoulder - .02 - S.hock; this.L2r = S.hock - .14;
-    const material = new THREE.MeshStandardMaterial({ map: mat.coat, normalMap: mat.coatNormal, normalScale: new THREE.Vector2(.22, .22), color, vertexColors: true, roughness: .96 });
-    material.onBeforeCompile = shader => {
-      shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vFurPosition; varying vec3 vFurNormal;')
-        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvFurPosition = position; vFurNormal = normal;');
-      shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vFurPosition; varying vec3 vFurNormal;')
-        .replace('#include <map_fragment>', `vec3 blend = pow(abs(normalize(vFurNormal)), vec3(4.)); blend /= (blend.x+blend.y+blend.z);
-        vec3 fur = texture2D(map,vFurPosition.zy*3.5).rgb*blend.x + texture2D(map,vFurPosition.xz*3.5).rgb*blend.y + texture2D(map,vFurPosition.xy*3.5).rgb*blend.z;
-        float grey=dot(fur,vec3(.299,.587,.114)); diffuseColor.rgb *= mix(fur,vec3(grey),.62);`);
-    };
+    // Use the authored UVs directly. The old triplanar shader sampled the same
+    // coat image three times from object-space projections; on the thin legs and
+    // curved head that produced hard seams, noisy checker patches, and a plastic
+    // "melted" silhouette. A normal-mapped, UV-driven PBR coat is both calmer at
+    // distance and much more believable under changing light.
+    const material = new THREE.MeshStandardMaterial({
+      map: mat.coat,
+      normalMap: mat.coatNormal,
+      normalScale: new THREE.Vector2(.16, .16),
+      color,
+      vertexColors: true,
+      roughness: .93,
+    });
     this.body.name = 'torso'; this.neck.name = 'neck'; this.head.name = 'head'; this.tail.name = 'tail';
     this.neck.position.copy(S.neckBase); this.head.position.copy(S.headBase); this.tail.position.copy(S.tailBase);
     this.body.add(this.neck, this.tail); this.neck.add(this.head);
@@ -437,7 +441,6 @@ export class LivingAnimal {
       }
       // A stopped animal settles its feet straight down instead of freezing mid-arch.
       if (Math.abs(speed) < .03) {
-        this.hipCache[i + 4] ?? this.hipCache[0]; // noop
         target.x += (hip.x - target.x) * (1 - Math.exp(-7 * dt));
         target.z += (hip.z - target.z) * (1 - Math.exp(-7 * dt));
         target.y = terrainHeight(target.x, target.z) + LivingAnimal.FOOT;
