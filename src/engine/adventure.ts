@@ -10,12 +10,18 @@ import { AnimalFactory, type LivingAnimal } from './actors/animals';
 import { HorseBrain, OxController, type HorseOutput, type WorldSnapshot } from './actors/behaviour';
 import { SupplyWagon } from './actors/wagon';
 import { AnimalAudio } from './audio';
+import { loadCharacter, type CharacterSheet } from '../game/character';
+import { createTrainingCombat, enemyTurn, takeAttack, takeSpell, type CombatState, type Combatant } from '../game/combat';
+import { RulesEventLog } from '../game/rules';
+import { addExperience } from '../game/progression';
+import { saveCharacter } from '../game/character';
 
 export interface Interaction { kind: 'cargo' | 'manifest' | 'horses'; id: string; label: string }
 export interface AdventureState {
-  story: NarratorState; mounted: boolean; interaction: Interaction | null; canMount: boolean;
+  story: NarratorState; mounted: boolean; interaction: Interaction | null; canMount: boolean; character: CharacterSheet | null;
   wagon: { x: number; z: number; yaw: number; speed: number }; inventoryRevision: number;
   horses: { x: number; z: number; yaw: number; sniffing: boolean }[];
+  combat: CombatState | null;
 }
 function browserStorage() { try { return window.localStorage; } catch { return undefined; } }
 export class Adventure {
@@ -25,6 +31,8 @@ export class Adventure {
   readonly horses: LivingAnimal[];
   readonly animalAudio = new AnimalAudio();
   private horseBrains: HorseBrain[] = [];
+  private combatSession: CombatState | null = null;
+  readonly rulesEvents = new RulesEventLog();
   private oxController!: OxController;
   private horseOut: HorseOutput = { speed: 0, yaw: 0, head: { pitch: 0, yaw: 0 }, alert: 0, headDown: false };
   private clock = 0;
@@ -38,9 +46,12 @@ export class Adventure {
   private cameraLift = 0;
   private disposed = false;
   mounted = true;
+  character: CharacterSheet | null;
   onHandoff = () => {};
   onNotice: (message: string) => void = () => {};
   private constructor(scene: THREE.Scene, private camera: THREE.PerspectiveCamera, private controller: PlayerController, private collision: CollisionField, private factory: AnimalFactory, readonly materials: AdventureMaterials) {
+    this.character = loadCharacter();
+    this.controller.setEquipment(this.character?.classId ?? null);
     this.wagon = new SupplyWagon(factory, this.inventory); this.wagon.addTo(scene);
     this.horses = [factory.create('horse', '#765339', 2), factory.create('horse', '#b0aca0', 7)];
     this.horses.forEach(h => scene.add(h.root));
@@ -263,11 +274,28 @@ export class Adventure {
     else { this.camera.position.lerp(desired, .055); this.cameraLook.lerp(target, .07); }
     this.camera.lookAt(this.cameraLook); this.camera.fov = 50; this.camera.updateProjectionMatrix();
   }
+  startTrainingCombat() {
+    if (!this.character || this.narrator.state.phase === 'journey' || this.narrator.state.phase === 'title' || this.combatSession) return false;
+    const c: Combatant = { actor: { id: this.character.id, level: this.character.level, abilities: this.character.abilities, proficientAbilities: this.character.savingThrows, skills: Object.fromEntries(this.character.skillProficiencies.map(skill => [skill, { proficient: true }])) }, hp: { hp: this.character.maxHp, maxHp: this.character.maxHp, temporaryHp: 0, deathSaveSuccesses: 0, deathSaveFailures: 0, stable: false }, armorClass: this.character.armorClass, conditions: [], budget: { movement: 30, movementUsed: 0, action: true, bonusAction: true, reaction: true, object: true, freeSpeech: true }, side: 'party', spells: this.character.classId === 'wizard' ? ['fireBolt', 'rayOfFrost', 'cureWounds'] : [] };
+    this.combatSession = createTrainingCombat(c); this.rulesEvents.append('CombatStarted', this.clock, { encounter: 'ambush-training' }, this.character.id); this.setPaused(true); return true;
+  }
+  combatAttack(targetId: string) { if (!this.combatSession) return false; const ok = takeAttack(this.combatSession, targetId, Math.floor(this.clock * 1000) + this.combatSession.round); if (ok) this.advanceEnemyTurns(); return ok; }
+  combatCast(spellId: string, targetId: string) { if (!this.combatSession) return false; const ok = takeSpell(this.combatSession, spellId, targetId, Math.floor(this.clock * 1000) + this.combatSession.round); if (ok) this.advanceEnemyTurns(); return ok; }
+  private advanceEnemyTurns() { while (this.combatSession && !this.combatSession.finished && this.combatSession.combatants.find(c => c.actor.id === this.combatSession!.activeId)?.side === 'enemy') enemyTurn(this.combatSession, Math.floor(this.clock * 1000) + this.combatSession.round); }
+  finishCombat() {
+    if (!this.combatSession) return;
+    if (this.combatSession.finished && this.combatSession.xp && this.character) {
+      const result = addExperience(this.character, this.combatSession.xp); this.character = result.sheet; saveCharacter(this.character);
+      this.rulesEvents.append('CombatFinished', this.clock, { xp: this.combatSession.xp, levels: result.levels }, this.character.id);
+    }
+    this.combatSession = null; this.setPaused(false);
+  }
+  get combat() { return this.combatSession; }
   get state(): AdventureState {
-    return { story: this.narrator.state, mounted: this.mounted, interaction: this.interaction(), canMount: this.canMount(),
+    return { story: this.narrator.state, mounted: this.mounted, interaction: this.interaction(), canMount: this.canMount(), character: this.character,
       wagon: { x: this.wagon.root.position.x, z: this.wagon.root.position.z, yaw: this.wagon.root.rotation.y, speed: this.wagon.speed },
       inventoryRevision: this.inventory.revision,
-      horses: this.horses.map((h, i) => ({ x: h.root.position.x, z: h.root.position.z, yaw: h.root.rotation.y, sniffing: this.horseSniff[i] })) };
+      horses: this.horses.map((h, i) => ({ x: h.root.position.x, z: h.root.position.z, yaw: h.root.rotation.y, sniffing: this.horseSniff[i] })), combat: this.combatSession };
   }
   get needsRender() { return this.wagon.visualAnimating || this.previouslyPaused !== this.controller.paused; }
   save() {

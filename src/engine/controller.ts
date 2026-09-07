@@ -15,6 +15,7 @@ export class PlayerController {
   cameraOverride = false;
   private vehicleYaw = 0;
   private arms = new THREE.Group();
+  private equipment = new THREE.Group();
   started = false;
   paused = false;
   grounded = true;
@@ -51,7 +52,7 @@ export class PlayerController {
       const hand = new THREE.Mesh(new THREE.SphereGeometry(.071, 10, 8), beanMat); hand.position.set(side * .24, .90, -.33); hand.castShadow = true;
       this.arms.add(arm, hand);
     }
-    this.arms.visible = false; this.rig.add(this.arms);
+    this.arms.visible = false; this.rig.add(this.arms); this.rig.add(this.equipment);
     const shadowCanvas = document.createElement('canvas'); shadowCanvas.width = shadowCanvas.height = 64;
     const shadowCtx = shadowCanvas.getContext('2d')!;
     const gradient = shadowCtx.createRadialGradient(32, 32, 2, 32, 32, 31);
@@ -74,6 +75,17 @@ export class PlayerController {
     this.canvas.setAttribute('aria-label', 'Interactive 3D woodland. Use WASD to move, drag to look, V to switch camera.');
     this.bindInput();
     this.updateCamera(1);
+  }
+  setEquipment(classId: 'fighter' | 'wizard' | null) {
+    this.equipment.clear(); if (!classId) return;
+    if (classId === 'fighter') {
+      const blade = new THREE.Mesh(new THREE.BoxGeometry(.045, .72, .09), new THREE.MeshStandardMaterial({ color: '#9da6a0', metalness: .82, roughness: .3 }));
+      blade.position.set(.39, .72, -.02); blade.rotation.z = -.22; blade.castShadow = true;
+      const hilt = new THREE.Mesh(new THREE.BoxGeometry(.16, .045, .08), new THREE.MeshStandardMaterial({ color: '#8b623c', roughness: .7 })); hilt.position.set(.39, .38, -.02); hilt.rotation.z = -.22; hilt.castShadow = true; this.equipment.add(blade, hilt);
+    } else {
+      const book = new THREE.Mesh(new THREE.BoxGeometry(.27, .34, .07), new THREE.MeshStandardMaterial({ color: '#4c2f25', roughness: .8 })); book.position.set(-.36, .66, -.12); book.rotation.set(.15, .3, -.12); book.castShadow = true;
+      const clasp = new THREE.Mesh(new THREE.BoxGeometry(.025, .22, .012), new THREE.MeshStandardMaterial({ color: '#c1a45e', metalness: .5, roughness: .45 })); clasp.position.set(-.36, .66, -.16); clasp.rotation.z = -.12; this.equipment.add(book, clasp);
+    }
   }
   private bindInput() {
     const opts = { signal: this.disposed.signal };

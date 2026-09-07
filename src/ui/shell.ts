@@ -23,7 +23,7 @@ export function renderShell(host: HTMLElement) {
           <h1 id="world-title">Triboar Trail<span class="title-period">.</span></h1>
           <div class="scene-tag"><span></span> A DELIVERY FOR GUNDREN</div>
           <p class="welcome-copy">A wagon full of provisions. A promise to keep.<br>Some roads lead to more than a destination.</p>
-          <button class="enter-button" id="enter-world"><span>Begin your journey</span><i data-lucide="arrow-right"></i></button>
+          <div class="title-actions"><button class="enter-button" id="enter-world"><span>Begin your journey</span><i data-lucide="arrow-right"></i></button><button class="character-button" id="character-create"><i data-lucide="user-round-pen"></i><span>Create character</span></button></div>
           <div class="welcome-note" id="welcome-save-note">A VOICED OPENING · YOUR ADVENTURE BEGINS HERE</div>
         </section>
         <div class="journey-status"><div class="traveller-emblem"><i data-lucide="footprints"></i></div><div><span class="micro-label" id="travel-mode">AT THE REINS</span><p id="travel-flavour">A promise to keep.</p></div><div class="journey-line"></div></div>
