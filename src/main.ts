@@ -42,6 +42,21 @@ async function boot() {
       // Read-only diagnostics for local browser smoke tests; omitted from production.
       Object.defineProperty(window, '__astra', { configurable: true, value: { getState: () => world!.getState(), getDiagnostics: () => world!.diagnostics, getInventory: () => world!.adventure.inventory.snapshot(),
         getAdventure: () => world!.adventure as unknown as { canDriveAt: (x:number,z:number,yaw:number)=>boolean },
+        // Combat diagnostics, used by the ambush smoke test.
+        getCombat: () => world!.adventure.combat,
+        getCombatPhase: () => ({ phase: world!.adventure.combatDirector.phase, paused: world!.controller.paused, props: world!.adventure.combatDirector.site?.props.length ?? -1 }),
+        teleport: (x: number, z: number) => { world!.controller.position.set(x, terrainHeight(x, z), z); },
+        combatAttack: (id: string) => world!.adventure.combatAttack(id),
+        combatEndTurn: () => world!.adventure.combatEndTurn(),
+        combatFinish: () => world!.adventure.finishCombat(),
+        // Test hook: drop every remaining goblin to prove the victory branch.
+        combatDebugVictory: () => {
+          const e = world!.adventure.combatDirector.encounter;
+          if (!e) return false;
+          for (const c of e.combatants) if (c.side === 'enemy') c.health = { ...c.health, hp: 0, dead: true };
+          world!.adventure.combatEndTurn();
+          return true;
+        },
         getDebug: (forwardMeters = 0) => {
           const w = world!, st = w.getState();
           const c = w.collision;
