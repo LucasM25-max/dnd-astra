@@ -124,7 +124,7 @@ this cannot regress.
 
 ---
 
-## 4. Gameplay improvements — **[planned]**
+## 4. Gameplay improvements — **[done]**
 
 Ordered by how much they change the feel of the chapter.
 
@@ -152,13 +152,12 @@ Ordered by how much they change the feel of the chapter.
      attack log entries carry their presentation payload and that the dice
      results shown match the numbers the engine kept.
 
-4.6. **Documentation.** `README.md` still says "combat is not yet enabled" and
-     describes a 31-test suite that now has 78; bring it in line with the
-     build.
+4.6. **Documentation.** `README.md` no longer says combat is disabled: it
+     gains a Cragmaw ambush section, combat rows in the controls table, and
+     the real test count (85 rules tests, not 31).
 
-4.7. **Save/load.** Confirm a save written mid-combat or after the fight
-     restores correctly, and that the solo hit-point loan never leaks onto the
-     saved sheet (already covered by `ambush-smoke.mjs` — keep it green).
+4.7. **Save/load.** `ambush-smoke.mjs` confirms victory awards 200 XP and
+     that the saved sheet stays at 12/12 — the solo loan never leaks. **Green.**
 
 ---
 
@@ -182,3 +181,41 @@ Ordered by how much they change the feel of the chapter.
 - `visual-qa.mjs` reports no UI overlaps, no page errors, and captures the
   dice mid-tumble.
 - `README.md` matches the shipped build.
+
+
+---
+
+## 7. What the playtest actually found
+
+Recorded here because the harnesses that found these things do not survive
+in the tree.
+
+**Models.** Every creature was inside out, and the animal torsos were nearly
+two metres tall. The winding audit that existed could only detect
+*inconsistency* against the stored normals, and the stored normals are
+derived from the winding — so a global flip was invisible to it. The
+replacement is a shader that paints front faces white and back faces black:
+an absolute measurement. The horse's neck and head were 100% inverted; all
+four models now read 0.0-0.4%, which is silhouette antialiasing.
+
+**Rules.** The combat log appended entries at creation time, but an attack is
+*assembled* out of order — the "hits for 9" entry is unshifted to the front of
+the returned array so the director can stage a strike from it, while the
+death it causes is only known afterwards. Every killing blow therefore logged
+the death above the blow that caused it. The solo hero's lucky rerolls were
+charged before the reroll was made, so both were routinely spent on swings
+that missed twice. And `checkEnd` only ran after a blow, so an enemy that
+fell outside one left the encounter handing out turns with nothing to fight.
+
+**Balance is measured, not guessed.** The ambush is four times over the solo
+"deadly" threshold. Played a hundred times over with the director's own
+setup, a traveller who never heals or dodges wins 46 of them. An earlier
+reading said 80% defeats; that harness spawned the goblins at their hiding
+places rather than the strike positions they occupy from turn one, and the
+focus-fire cap was nearly halved before the mistake was caught.
+
+**The headless browser cannot render.** `requestAnimationFrame` stalls to
+roughly one frame every two seconds and sometimes freezes for tens of
+seconds, identically on the base commit. Any browser assert that needs N
+frames is timing the renderer. Rules belong in vitest; the browser suite
+should only check that the pieces are wired together.
