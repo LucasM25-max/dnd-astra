@@ -3,7 +3,7 @@ import { InventoryStore } from '../game/save';
 import { Narrator, type NarratorState } from '../game/narrator';
 import { journeyPose } from '../game/road';
 import { CONTAINERS, emptyStock, type ContainerId, type ItemId } from '../game/items';
-import { CollisionField, WORLD_LIMIT, pathDistance, terrainHeight } from './landscape';
+import { CollisionField, WORLD_EXTENT, pathDistance, terrainHeight } from './landscape';
 import { PlayerController } from './controller';
 import { loadAdventureMaterials, type AdventureMaterials } from './actors/materials';
 import { AnimalFactory, type LivingAnimal } from './actors/animals';
@@ -19,7 +19,7 @@ import { saveCharacter } from '../game/character';
 
 export interface Interaction { kind: 'cargo' | 'manifest' | 'horses'; id: string; label: string }
 export interface AdventureState {
-  story: NarratorState; mounted: boolean; interaction: Interaction | null; canMount: boolean; character: CharacterSheet | null;
+  story: NarratorState; mounted: boolean; oxenTied: boolean; interaction: Interaction | null; canMount: boolean; character: CharacterSheet | null;
   wagon: { x: number; z: number; yaw: number; speed: number }; inventoryRevision: number;
   horses: { x: number; z: number; yaw: number; sniffing: boolean }[];
   combat: CombatSnapshot | null;
@@ -49,6 +49,8 @@ export class Adventure {
   private cameraLift = 0;
   private disposed = false;
   mounted = true;
+  /** The driver can leave the road at the clearing and secure the team before pursuing the trail. */
+  oxenTied = false;
   character: CharacterSheet | null;
   onHandoff = () => {};
   onNotice: (message: string) => void = () => {};
@@ -97,7 +99,7 @@ export class Adventure {
     if (this.narrator.state.phase !== 'title') return;
     this.controller.start();
     if (this.inventory.arrived) {
-      const saved = this.inventory.snapshot(); this.mounted = saved.mounted;
+      const saved = this.inventory.snapshot(); this.mounted = saved.mounted; this.oxenTied = saved.oxenTied ?? !saved.mounted;
       if (!this.mounted && saved.player) this.controller.placeOnFoot(new THREE.Vector3(saved.player.x, 0, saved.player.z), saved.player.yaw);
       else this.mount();
       this.controller.cameraOverride = false;
@@ -130,7 +132,14 @@ export class Adventure {
   private updateCombat(dt: number, phase: string, realDelta: number) {
     if (phase === 'title' || phase === 'journey') return;
     const director = this.combatDirector;
-    director.update(dt, this.controller.position, this.character, !this.mounted, realDelta);
+    director.update(dt, this.controller.position, this.character, !this.mounted, this.controller.keys.has('KeyT'), realDelta);
+    const trapDamage = director.consumeTrailDamage();
+    if (trapDamage && this.character) {
+      this.character = { ...this.character, currentHp: Math.max(1, this.character.currentHp - trapDamage) };
+      saveCharacter(this.character);
+    }
+    this.controller.movementLocked = director.trailSnaredState;
+    this.controller.setHazardLift(director.trailSnaredState ? 10 * 0.3048 : 0);
 
     if (!director.encounter) return;
 
@@ -178,6 +187,7 @@ export class Adventure {
     this.previouslyPaused = paused;
   }
   private drive(dt: number) {
+    if (this.oxenTied) return 0;
     const keys = this.controller.keys;
     const forward = +(keys.has('KeyW') || keys.has('ArrowUp')) - +(keys.has('KeyS') || keys.has('ArrowDown')) + this.controller.touchMove.y;
     const steering = +(keys.has('KeyD') || keys.has('ArrowRight')) - +(keys.has('KeyA') || keys.has('ArrowLeft')) + this.controller.touchMove.x;
@@ -199,7 +209,7 @@ export class Adventure {
   }
   lastBlock: { probe: [number, number]; reason: string; x: number; z: number } | null = null;
   private canDriveAt(x: number, z: number, yaw: number) {
-    if (Math.abs(x) > WORLD_LIMIT - 7 || Math.abs(z) > WORLD_LIMIT - 7) { this.lastBlock = { probe: [0, 0], reason: 'world edge', x, z }; return false; }
+    if (Math.abs(x) > WORLD_EXTENT - 7 || Math.abs(z) > WORLD_EXTENT - 7) { this.lastBlock = { probe: [0, 0], reason: 'world edge', x, z }; return false; }
     const y = terrainHeight(x, z);
     const points = [[-.98, -1.2], [.98, -1.2], [-.98, 1.2], [.98, 1.2], [-.72, -4.95], [.72, -4.95]];
     for (const [px, pz] of points) {
@@ -217,12 +227,12 @@ export class Adventure {
     if (this.mounted) {
       const candidate = this.wagon.dismountPoints().find(p => {
         const clear = this.collision.resolve(p.x, p.z, p.y);
-        return Math.hypot(clear.x - p.x, clear.z - p.z) < .12 && Math.abs(p.x) < WORLD_LIMIT && Math.abs(p.z) < WORLD_LIMIT;
+        return Math.hypot(clear.x - p.x, clear.z - p.z) < .12 && Math.abs(p.x) < WORLD_EXTENT && Math.abs(p.z) < WORLD_EXTENT;
       });
       if (!candidate) { this.onNotice('There isn’t space beside the wagon. Move to a clearer stretch first.'); return false; }
-      this.wagon.speed = 0; this.mounted = false; this.wagon.mounted = false;
+      this.wagon.speed = 0; this.mounted = false; this.oxenTied = true; this.wagon.mounted = false;
       this.controller.placeOnFoot(candidate, this.wagon.root.rotation.y); this.controller.cameraOverride = false;
-      this.onNotice('On foot · E to open nearby cargo · I for your inventory');
+      this.onNotice('The oxen are tied off beside the road. On foot · T to search for traps · E to inspect');
     } else {
       if (!this.canMount()) { this.onNotice('Walk back to the driver’s bench to take the reins.'); return false; }
       this.mount(); this.onNotice('At the reins · W/S to guide · A/D to steer · Space to brake');
@@ -230,7 +240,7 @@ export class Adventure {
     this.save(); return true;
   }
   private mount() {
-    this.mounted = true; this.wagon.mounted = true; this.wagon.speed = 0;
+    this.mounted = true; this.oxenTied = false; this.wagon.mounted = true; this.wagon.speed = 0;
     // Set the attachment heading before enabling free look so boarding cannot rotate the camera twice.
     this.controller.setControlMode('cinematic'); this.controller.attachToSeat(this.wagon.seatPosition(), this.wagon.root.rotation.y);
     this.controller.setControlMode('wagon'); this.controller.attachToSeat(this.wagon.seatPosition(), this.wagon.root.rotation.y);
@@ -353,10 +363,11 @@ export class Adventure {
 
   /** The nearest piece of ambush evidence the player can inspect. */
   nearbyEvidence() { return this.combatDirector.site?.nearest(this.controller.position) ?? null; }
+  cutTrailSnare() { return this.combatDirector.cutSnare(); }
 
   get combat() { return this.combatDirector.snapshot(this.controller.position); }
   get state(): AdventureState {
-    return { story: this.narrator.state, mounted: this.mounted, interaction: this.interaction(), canMount: this.canMount(), character: this.character,
+    return { story: this.narrator.state, mounted: this.mounted, oxenTied: this.oxenTied, interaction: this.interaction(), canMount: this.canMount(), character: this.character,
       wagon: { x: this.wagon.root.position.x, z: this.wagon.root.position.z, yaw: this.wagon.root.rotation.y, speed: this.wagon.speed },
       inventoryRevision: this.inventory.revision,
       horses: this.horses.map((h, i) => ({ x: h.root.position.x, z: h.root.position.z, yaw: h.root.rotation.y, sniffing: this.horseSniff[i] })), combat: this.combat };
@@ -365,7 +376,7 @@ export class Adventure {
   save() {
     if (!this.inventory.arrived) return;
     const p = this.controller.position, w = this.wagon.root.position;
-    this.inventory.savePosition({ x: w.x, z: w.z, yaw: this.wagon.root.rotation.y }, { x: p.x, z: p.z, yaw: this.controller.yaw }, this.mounted);
+    this.inventory.savePosition({ x: w.x, z: w.z, yaw: this.wagon.root.rotation.y }, { x: p.x, z: p.z, yaw: this.controller.yaw }, this.mounted, this.oxenTied);
   }
   dispose() {
     if (this.disposed) return; this.disposed = true; this.save(); this.narrator.dispose(); this.factory.dispose(); this.animalAudio.dispose();

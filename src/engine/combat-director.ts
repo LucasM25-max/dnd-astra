@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {
   AMBUSHERS, AMBUSH_CENTRE, AMBUSH_TRIGGER_RADIUS, AFTERMATH_NOTE, CAPTURE,
-  DEFEAT_OUTCOME, GOBLIN_TRAIL_MOUTH, TRAIL_DISCOVERY,
+  DEFEAT_OUTCOME, GOBLIN_TRAIL_MOUTH, TRAIL_DISCOVERY, TRAIL_TRAPS,
 } from '../game/ambush';
 import { Encounter, distanceFeet, type ActionId, type AttackPresentation, type Combatant, type LogEntry } from '../game/encounter';
 import { WEAPONS } from '../game/equipment';
@@ -12,12 +12,13 @@ import { applySoloProfile, baselineOf, soloProfile, type SoloProfile } from '../
 import { encounterDifficulty } from '../game/bestiary';
 import { saveCharacter, type CharacterSheet } from '../game/character';
 import { EncounterView, chooseWeapon, makeVisibility } from './encounter-view';
-import { AmbushSite, buildTrailMarker } from './ambush-props';
+import { AmbushSite, buildTrailMarker, TrailHazards, type TrailHazardState } from './ambush-props';
 import type { CombatMaterials } from './actors/combat-materials';
 import { DiceTray } from './actors/dice';
 import { CombatFx } from './combat-fx';
 import type { CollisionField } from './landscape';
-import { terrainHeight } from './landscape';
+import { terrainHeight, trailDistanceAlong } from './landscape';
+import { DiceStream, rollDice } from '../game/dice';
 import type { PlayerController } from './controller';
 import type { CombatAudio } from './audio';
 
@@ -101,6 +102,8 @@ export interface CombatSnapshot {
   notice: string | null;
   /** The declared solo-play handicap, shown to the player. */
   solo: { notes: string[]; luck: number } | null;
+  /** Progress and trap states after the ambush, in metres from the trail mouth. */
+  trail: { progressMetres: number; traps: { id: string; state: TrailHazardState; atMetres: number }[]; snared: boolean; searching: boolean } | null;
 }
 
 export class CombatDirector {
@@ -109,7 +112,14 @@ export class CombatDirector {
   view: EncounterView | null = null;
   site: AmbushSite | null = null;
   private trailMarker: THREE.Object3D | null = null;
+  private trailHazards: TrailHazards | null = null;
+  private trailProgressMetres = 0;
+  private trailSearch = false;
+  private trailSnared = false;
+  private trailDamage = 0;
+  private trailTrapState = new Map<string, TrailHazardState>();
   private heroId = '';
+  private trailCharacter: CharacterSheet | null = null;
   private lastNotice: string | null = null;
   private enemyTurnTimer = 0;
   private pendingEnemyTurn = false;
@@ -173,6 +183,7 @@ export class CombatDirector {
   }
 
   private spring(playerPosition: THREE.Vector3, character: CharacterSheet) {
+    this.trailCharacter = character;
     const visibility = makeVisibility(this.collision);
 
     // The module's four goblins are written for a party of four. Work out how
@@ -375,8 +386,13 @@ export class CombatDirector {
 
   // -- per-frame ------------------------------------------------------------
 
-  update(dt: number, playerPosition: THREE.Vector3, character: CharacterSheet | null, onFoot: boolean, realDelta = dt) {
+  update(dt: number, playerPosition: THREE.Vector3, character: CharacterSheet | null, onFoot: boolean, searching = false, realDelta = dt) {
+    this.trailSearch = searching;
     this.site?.update(dt, playerPosition, this.phase === 'dormant' || this.phase === 'resolved');
+    if (this.trailHazards && (this.phase === 'resolved' || this.phase === 'lost')) {
+      this.trailHazards.update(Math.min(realDelta, .25), playerPosition);
+      this.updateTrailTraps(playerPosition, searching, character ?? this.trailCharacter);
+    }
     // Camera shake decays on the presentation clock.
     this.shakeAmplitude = Math.max(0, this.shakeAmplitude - realDelta * 1.6);
 
@@ -743,8 +759,9 @@ export class CombatDirector {
     this.dice?.dispose(); this.dice = null;
     this.view?.dispose(this.scene);
     this.site?.dispose(this.scene);
+    this.trailHazards?.dispose(this.scene);
     if (this.trailMarker) this.scene.remove(this.trailMarker);
-    this.view = null; this.site = null; this.encounter = null;
+    this.view = null; this.site = null; this.trailHazards = null; this.trailMarker = null; this.encounter = null;
   }
 
   /** Cursor targeting, so the player aims with the mouse in the 3D world. */
@@ -804,9 +821,98 @@ export class CombatDirector {
   }
 
   private revealTrail() {
-    if (this.trailMarker) return;
-    this.trailMarker = buildTrailMarker(this.materials, this.collision);
-    this.scene.add(this.trailMarker);
+    if (!this.trailMarker) {
+      this.trailMarker = buildTrailMarker(this.materials, this.collision);
+      this.scene.add(this.trailMarker);
+    }
+    if (!this.trailHazards) {
+      this.trailHazards = new TrailHazards(this.materials, this.collision);
+      this.trailHazards.addTo(this.scene);
+      for (const trap of TRAIL_TRAPS) this.trailTrapState.set(trap.id, 'hidden');
+    }
+  }
+
+  /**
+   * Advance the physical trail sequence. The check is intentionally made when
+   * the lead character crosses each trap, not on a timer, so stopping to scout
+   * or wandering back never consumes the encounter out of order.
+   */
+  private updateTrailTraps(playerPosition: THREE.Vector3, searching: boolean, character: CharacterSheet | null) {
+    const progress = trailDistanceAlong(playerPosition.x, playerPosition.z);
+    if (!Number.isFinite(progress)) return;
+    this.trailProgressMetres = Math.max(this.trailProgressMetres, progress);
+    const sheet = character ?? this.trailCharacter;
+    if (!sheet) return;
+    const actor = {
+      id: sheet.id, level: sheet.level, abilities: sheet.finalAbilities,
+      proficiencyBonus: sheet.proficiencyBonus,
+      skills: Object.fromEntries(sheet.skillProficiencies.map(s => [s, { proficient: true }])),
+      proficientAbilities: sheet.savingThrows,
+    };
+    for (const trap of TRAIL_TRAPS) {
+      const state = this.trailTrapState.get(trap.id) ?? 'hidden';
+      if (state !== 'hidden' || this.trailProgressMetres < trap.atMetres) continue;
+      const spot = searching
+        ? resolveCheck({ kind: 'skill', actor, ability: 'wis', skill: 'perception', dc: trap.spot.dc, seed: hashString(`${sheet.id}:${trap.id}:spot`) })
+        : null;
+      const passiveSpot = sheet.passivePerception >= trap.spot.dc;
+      if (passiveSpot || spot?.success) {
+        this.setTrailTrapState(trap.id, 'spotted');
+        this.notice(`${trap.name}: ${trap.onSpot}`);
+        this.onLog([{ id: -20 - TRAIL_TRAPS.indexOf(trap), kind: 'info', text: `${trap.name} spotted. ${trap.onSpot}` }]);
+        continue;
+      }
+
+      this.setTrailTrapState(trap.id, 'triggered');
+      const save = resolveCheck({ kind: 'savingThrow', actor, ability: trap.save.ability, dc: trap.save.dc, seed: hashString(`${sheet.id}:${trap.id}:save`) });
+      if (trap.id === 'snare' && !save.success) {
+        this.trailSnared = true;
+        this.notice('The snare catches you upside down. Press C to cut the cord, or have an ally deal 1 slashing damage to it.');
+        this.onLog([{ id: -30, kind: 'condition', text: `${trap.name}: ${trap.onTrigger} You are restrained until the cord is cut.` }]);
+      } else if (trap.id === 'pit' && !save.success) {
+        const damage = rollDice(trap.damage, new DiceStream(hashString(`${sheet.id}:${trap.id}:damage`))).total;
+        this.trailDamage += damage;
+        this.notice(`The pit gives way. You take ${damage} bludgeoning damage, then scramble out of the ten-foot hole.`);
+        this.onLog([{ id: -31, kind: 'damage', amount: damage, text: `${trap.name}: ${trap.onTrigger} ${damage} bludgeoning damage.` }]);
+      } else {
+        this.notice(trap.onSave);
+        this.onLog([{ id: -32 - TRAIL_TRAPS.indexOf(trap), kind: 'save', text: `${trap.name}: ${trap.onSave}` }]);
+      }
+    }
+  }
+
+  private setTrailTrapState(id: string, state: TrailHazardState) {
+    this.trailTrapState.set(id, state);
+    this.trailHazards?.setState(id, state);
+  }
+
+  get trailSnaredState() { return this.trailSnared; }
+  get trailProgress() { return this.trailProgressMetres; }
+  /** Consume trap damage once the adventure layer has applied it to the saved sheet. */
+  consumeTrailDamage() {
+    const damage = this.trailDamage;
+    this.trailDamage = 0;
+    return damage;
+  }
+  get trailTraps() { return TRAIL_TRAPS.map(t => ({ id: t.id, state: this.trailTrapState.get(t.id) ?? 'hidden', atMetres: t.atMetres })); }
+  setSearching(value: boolean) { this.trailSearch = value; }
+  /** Cut the snare cord with the required 1 slashing damage. The normal UI
+   * chooses a careful lowering; callers that model a rushed rescue can pass
+   * false and take the module's 1d6 bludgeoning fall damage. */
+  cutSnare(careful = true) {
+    if (!this.trailSnared) return false;
+    this.trailSnared = false;
+    this.setTrailTrapState('snare', 'disarmed');
+    const damage = careful ? 0 : rollDice('1d6', new DiceStream(hashString(`${this.trailCharacter?.id ?? 'trail'}:snare:lower`))).total;
+    if (damage) {
+      this.trailDamage += damage;
+      this.notice(`The cord parts, but the lowering is careless. The fall deals ${damage} bludgeoning damage.`);
+      this.onLog([{ id: -34, kind: 'damage', amount: damage, text: `The snared traveller takes ${damage} bludgeoning damage while being lowered.` }]);
+    } else {
+      this.notice('The cord parts. Lower the snared traveller carefully; the restrained condition ends without a fall.');
+    }
+    this.onLog([{ id: -33, kind: 'condition', text: 'The snare cord takes 1 slashing damage and breaks. The restrained condition ends.' }]);
+    return true;
   }
 
   /** Called by the UI once the player dismisses the after-action panel. */
@@ -831,7 +937,11 @@ export class CombatDirector {
         slots: { max: [...hero.slots.max], used: [...hero.slots.used] },
       };
     }
-    saveCharacter(sheet);
+    if (this.trailDamage > 0) {
+      sheet = { ...sheet, currentHp: Math.max(1, sheet.currentHp - this.trailDamage) };
+      this.trailDamage = 0;
+      saveCharacter(sheet);
+    }
     return sheet;
   }
 
@@ -921,6 +1031,10 @@ export class CombatDirector {
       } : null,
       notice: this.lastNotice,
       solo: this.solo ? { notes: this.solo.notes, luck: this.solo.luck } : null,
+      trail: this.trailHazards ? {
+        progressMetres: Math.round(this.trailProgressMetres), traps: this.trailTraps,
+        snared: this.trailSnared, searching: this.trailSearch,
+      } : null,
     };
   }
 

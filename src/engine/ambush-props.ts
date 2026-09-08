@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { SCATTER, SPENT_ARROWS, type ScatterProp } from '../game/ambush';
-import { terrainHeight, type CollisionField } from './landscape';
+import { SCATTER, SPENT_ARROWS, TRAIL_TRAPS, type ScatterProp, type TrailTrap } from '../game/ambush';
+import { TRAIL, terrainHeight, trailPointAtDistance, type CollisionField } from './landscape';
 import { buildArrow, type CombatMaterials } from './actors/combat-materials';
 
 /**
@@ -191,6 +191,101 @@ export class AmbushSite {
   }
 }
 
+export type TrailHazardState = 'hidden' | 'spotted' | 'triggered' | 'disarmed';
+export interface TrailHazardVisual {
+  trap: TrailTrap;
+  position: THREE.Vector3;
+  object: THREE.Group;
+  state: TrailHazardState;
+}
+
+/**
+ * Physical, inspectable versions of the two module traps. They stay camouflaged
+ * until the search check succeeds or the trigger fires; after that the player
+ * can see the cord/pit rather than receiving a text-only teleport.
+ */
+export class TrailHazards {
+  readonly group = new THREE.Group();
+  readonly hazards: TrailHazardVisual[] = [];
+  private clock = 0;
+
+  constructor(private materials: CombatMaterials, _collision: CollisionField) {
+    this.group.name = 'Goblin trail traps';
+    for (const trap of TRAIL_TRAPS) this.build(trap);
+  }
+
+  private build(trap: TrailTrap) {
+    const point = trailPointAtDistance(trap.atMetres);
+    const position = new THREE.Vector3(point.x, terrainHeight(point.x, point.z), point.z);
+    const object = new THREE.Group();
+    object.position.copy(position);
+    object.rotation.y = Math.atan2(1.1, .7) + trap.atMinutes;
+    object.visible = false;
+
+    if (trap.id === 'snare') {
+      const cord = new THREE.Mesh(
+        new THREE.TubeGeometry(new THREE.CatmullRomCurve3([
+          new THREE.Vector3(-.78, .025, .10), new THREE.Vector3(-.20, .018, -.02),
+          new THREE.Vector3(.34, .026, .06), new THREE.Vector3(.78, .018, -.08),
+        ]), 12, .012, 5, false),
+        this.materials.leather,
+      );
+      cord.name = 'snare cord';
+      const sapling = new THREE.Mesh(new THREE.CylinderGeometry(.025, .045, 1.9, 7), this.materials.woodShaft);
+      sapling.position.set(.63, .88, .02); sapling.rotation.z = -.33;
+      const loop = new THREE.Mesh(new THREE.TorusGeometry(.24, .012, 6, 22), this.materials.leather);
+      loop.rotation.x = Math.PI / 2; loop.position.set(0, .035, 0);
+      object.add(cord, sapling, loop);
+    } else {
+      const earth = new THREE.Mesh(new THREE.CylinderGeometry(.92, .78, .08, 28), this.materials.caveRock);
+      earth.name = 'six-foot pit opening'; earth.position.y = -.02;
+      const dark = new THREE.Mesh(new THREE.CircleGeometry(.75, 28), new THREE.MeshBasicMaterial({ color: '#0b0a07', side: THREE.DoubleSide }));
+      dark.rotation.x = -Math.PI / 2; dark.position.y = .026;
+      const rim = new THREE.Mesh(new THREE.TorusGeometry(.95, .045, 6, 28), this.materials.leather);
+      rim.rotation.x = -Math.PI / 2; rim.position.y = .035;
+      const branch = new THREE.Mesh(new THREE.BoxGeometry(1.65, .035, .045), this.materials.woodShaft);
+      branch.position.y = .055; branch.rotation.y = .35;
+      object.add(earth, dark, rim, branch);
+    }
+    object.traverse(child => { if (child instanceof THREE.Mesh) { child.castShadow = true; child.receiveShadow = true; } });
+    this.group.add(object);
+    this.hazards.push({ trap, position, object, state: 'hidden' });
+  }
+
+  setState(id: string, state: TrailHazardState) {
+    const hazard = this.hazards.find(h => h.trap.id === id);
+    if (!hazard) return;
+    hazard.state = state;
+    hazard.object.visible = state !== 'hidden';
+    hazard.object.traverse(child => {
+      if (child instanceof THREE.Mesh && child.material instanceof THREE.Material) child.material.transparent = state === 'spotted';
+    });
+  }
+
+  stateOf(id: string) { return this.hazards.find(h => h.trap.id === id)?.state ?? 'hidden' as TrailHazardState; }
+
+  update(dt: number, playerPosition: THREE.Vector3) {
+    this.clock += dt;
+    for (const hazard of this.hazards) {
+      if (!hazard.object.visible) continue;
+      const near = Math.hypot(playerPosition.x - hazard.position.x, playerPosition.z - hazard.position.z) < 6;
+      hazard.object.position.y = hazard.position.y + (near ? Math.sin(this.clock * 2.5) * .004 : 0);
+    }
+  }
+
+  addTo(scene: THREE.Scene) { scene.add(this.group); }
+  dispose(scene: THREE.Scene) {
+    this.group.traverse(child => {
+      if (child instanceof THREE.Mesh) {
+        child.geometry.dispose();
+        const mats = Array.isArray(child.material) ? child.material : [child.material];
+        mats.forEach(m => m.dispose());
+      }
+    });
+    scene.remove(this.group);
+  }
+}
+
 /**
  * The goblin trail behind the northern thickets: a beaten path through the
  * undergrowth that only becomes visible once the fight is over and the player
@@ -200,22 +295,46 @@ export function buildTrailMarker(materials: CombatMaterials, collision: Collisio
   const group = new THREE.Group();
   group.name = 'Goblin trail';
 
-  // Trodden earth, laid as a ribbon of darkened ground heading northwest.
+  // Trodden earth, laid as a continuous ribbon for the entire visible
+  // approach. The old marker stopped a few metres into the brush, which made
+  // the destination text feel like a promise the world could not keep.
   const points: THREE.Vector3[] = [];
-  for (let i = 0; i <= 12; i++) {
-    const t = i / 12;
-    const x = 12.4 - t * 5.4 + Math.sin(t * 3.1) * 0.55;
-    const z = -6.8 - t * 7.8 + Math.cos(t * 2.2) * 0.7;
-    points.push(new THREE.Vector3(x, terrainHeight(x, z) + 0.02, z));
+  for (let i = 0; i < TRAIL.length; i += 3) {
+    const p = TRAIL[i];
+    points.push(new THREE.Vector3(p.x, terrainHeight(p.x, p.z) + 0.02, p.z));
   }
+  const last = TRAIL[TRAIL.length - 1];
+  points.push(new THREE.Vector3(last.x, terrainHeight(last.x, last.z) + 0.02, last.z));
   const curve = new THREE.CatmullRomCurve3(points);
   const ribbon = new THREE.Mesh(
-    new THREE.TubeGeometry(curve, 40, 0.42, 4, false),
+    new THREE.TubeGeometry(curve, Math.max(80, points.length * 4), 0.42, 4, false),
     new THREE.MeshStandardMaterial({ color: '#4a4032', roughness: 1, transparent: true, opacity: 0.55, depthWrite: false }),
   );
   ribbon.scale.y = 0.03;
   ribbon.receiveShadow = true;
   group.add(ribbon);
+
+  // The first few metres carry the physical aftermath described by the
+  // inspection text: many small overlapping tracks and two parallel drag
+  // grooves from human-sized bodies. These are deliberately subtle until the
+  // player is close, but they make the trail read as used rather than painted.
+  const trackMaterial = new THREE.MeshStandardMaterial({ color: '#29251d', roughness: 1, transparent: true, opacity: .66, depthWrite: false });
+  for (let i = 0; i < 24; i++) {
+    const t = .012 + (i / 24) * .19, p = curve.getPointAt(t), tangent = curve.getTangentAt(t).normalize();
+    const side = i % 2 ? 1 : -1, mark = new THREE.Mesh(new THREE.CircleGeometry(.068, 7), trackMaterial);
+    mark.position.set(p.x + tangent.z * side * .18, p.y + .027, p.z - tangent.x * side * .18);
+    mark.scale.set(.72, 1, 1.35); mark.rotation.x = -Math.PI / 2; mark.rotation.z = Math.atan2(tangent.z, tangent.x);
+    group.add(mark);
+  }
+  for (const side of [-1, 1]) {
+    const dragPoints: THREE.Vector3[] = [];
+    for (let i = 0; i <= 12; i++) {
+      const t = .018 + i / 12 * .16, p = curve.getPointAt(t), tangent = curve.getTangentAt(t).normalize();
+      dragPoints.push(new THREE.Vector3(p.x + tangent.z * side * .34, p.y + .024, p.z - tangent.x * side * .34));
+    }
+    const drag = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(dragPoints), 18, .026, 5, false), materials.blood);
+    drag.name = `human body drag groove ${side}`; drag.scale.y = .35; group.add(drag);
+  }
 
   // Broken saplings and pushed-aside brush marking the mouth of the trail.
   for (let i = 0; i < 5; i++) {
@@ -227,6 +346,18 @@ export function buildTrailMarker(materials: CombatMaterials, collision: Collisio
     stick.castShadow = true;
     group.add(stick);
   }
+
+  // A distant, deliberately understated destination silhouette: the trail is
+  // headed somewhere. The cave is decorative and does not block the path, so
+  // the opening can later be replaced by the full Cragmaw Hideout scene.
+  const end = TRAIL[TRAIL.length - 1], previous = TRAIL[Math.max(0, TRAIL.length - 2)];
+  const mouth = new THREE.Group();
+  const cave = new THREE.Mesh(new THREE.CircleGeometry(2.25, 32), new THREE.MeshBasicMaterial({ color: '#090a08', side: THREE.DoubleSide }));
+  cave.position.set(end.x, terrainHeight(end.x, end.z) + 2.1, end.z);
+  cave.lookAt(new THREE.Vector3(end.x + (end.x - previous.x), cave.position.y, end.z + (end.z - previous.z)));
+  const arch = new THREE.Mesh(new THREE.TorusGeometry(2.32, .28, 8, 28, Math.PI), materials.caveRock);
+  arch.position.copy(cave.position); arch.rotation.copy(cave.rotation); arch.rotateZ(Math.PI);
+  mouth.add(cave, arch); mouth.name = 'Distant Cragmaw Hideout entrance'; group.add(mouth);
 
   // The trail mouth is walkable: no collider is added across the path itself.
   void collision;

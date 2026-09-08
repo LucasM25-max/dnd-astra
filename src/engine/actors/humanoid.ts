@@ -755,20 +755,21 @@ export class Humanoid {
     if (pose !== this.currentPose) { this.currentPose = pose; this.actionBlend = 0; }
 
     const speed = Math.abs(command.speed);
-    this.moving = THREE.MathUtils.damp(this.moving, Math.min(1, speed / 2.2), 8, dt);
+    const running = pose === 'run';
+    this.moving = THREE.MathUtils.damp(this.moving, Math.min(1, speed / (running ? 4.8 : 2.2)), 8, dt);
     this.crouchBlend = THREE.MathUtils.damp(this.crouchBlend, command.crouch, 6, dt);
     const dying = pose === 'down' || pose === 'dead';
     this.deathBlend = THREE.MathUtils.damp(this.deathBlend, dying ? 1 : 0, dying ? 5 : 9, dt);
 
     // Stride frequency scales with speed so footfalls land where the feet are.
-    const cadence = 1.6 + speed * 1.35;
+    const cadence = (running ? 2.25 : 1.6) + speed * (running ? 1.65 : 1.35);
     if (speed > 0.05) this.stride += dt * cadence * Math.PI * 2 * (command.speed < 0 ? -1 : 1);
     const swing = this.moving;
 
     // --- root: breathing, bob, crouch, collapse ------------------------------
     this.breath += dt * (1.1 + this.moving * 1.4);
     const breathe = Math.sin(this.breath) * h * 0.006 * (1 - this.moving * 0.5);
-    const bob = Math.abs(Math.sin(this.stride)) * h * 0.022 * swing;
+    const bob = Math.abs(Math.sin(this.stride)) * h * (running ? 0.030 : 0.022) * swing;
     const crouchDrop = this.crouchBlend * h * 0.16;
 
     // Falling is a rotation about the feet, not a translation: the body tips

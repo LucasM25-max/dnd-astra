@@ -76,7 +76,10 @@ export class WoodlandWorld {
     this.renderer.domElement.id = 'world-canvas';
     this.host.append(this.renderer.domElement);
     this.scene.background = new THREE.Color('#bac7b0');
-    this.scene.fog = new THREE.FogExp2('#c3c6a9', .0125);
+    // The trail is a real north-west route, not a backdrop that disappears
+    // after the clearing. Keep atmospheric depth while leaving the next few
+    // hundred metres readable on the ground.
+    this.scene.fog = new THREE.FogExp2('#c3c6a9', .0065);
     this.scene.add(this.hemisphere, this.sun, this.sun.target);
     const fill = new THREE.DirectionalLight('#e1e4ca', .75); fill.position.set(-25, 15, 20); this.scene.add(fill);
     this.sun.position.set(-22, 32, -20); this.sun.target.position.set(0, 0, -2);
@@ -215,7 +218,7 @@ export class WoodlandWorld {
       this.sun.color.set('#ffe0a6'); this.sun.intensity = 3.8;
       this.hemisphere.color.set('#d1ded9'); this.hemisphere.groundColor.set('#746b48'); this.hemisphere.intensity = 1.95;
       this.scene.environmentIntensity = .70; this.renderer.toneMappingExposure = 1.06;
-      fog.color.set('#c3c6a9'); fog.density = .0125;
+      fog.color.set('#c3c6a9'); fog.density = .0065;
       this.sky.material.uniforms.turbidity.value = 6; this.sky.material.uniforms.rayleigh.value = 1.65;
       this.shaftMaterial.uniforms.opacity.value = .075;
       particleMat.uniforms.tint.value.set('#e4d9a9'); particleMat.uniforms.opacity.value = .48;
@@ -223,7 +226,7 @@ export class WoodlandWorld {
       this.sun.color.set('#c9d9e5'); this.sun.intensity = .85;
       this.hemisphere.color.set('#c1d0d6'); this.hemisphere.groundColor.set('#56625c'); this.hemisphere.intensity = 2.1;
       this.scene.environmentIntensity = .66; this.renderer.toneMappingExposure = 1.02;
-      fog.color.set('#aebbb8'); fog.density = .025;
+      fog.color.set('#aebbb8'); fog.density = .012;
       this.sky.material.uniforms.turbidity.value = 20; this.sky.material.uniforms.rayleigh.value = .35;
       this.shaftMaterial.uniforms.opacity.value = 0;
       particleMat.uniforms.tint.value.set('#c5d4d1'); particleMat.uniforms.opacity.value = .22;
@@ -231,7 +234,7 @@ export class WoodlandWorld {
       this.sun.color.set('#aac6ed'); this.sun.intensity = .55;
       this.hemisphere.color.set('#7189ac'); this.hemisphere.groundColor.set('#263e3f'); this.hemisphere.intensity = 1.2;
       this.scene.environmentIntensity = .17; this.renderer.toneMappingExposure = .86;
-      fog.color.set('#526e79'); fog.density = .022;
+      fog.color.set('#526e79'); fog.density = .010;
       this.sky.material.uniforms.turbidity.value = 9; this.sky.material.uniforms.rayleigh.value = .55;
       this.shaftMaterial.uniforms.opacity.value = .023; this.shaftMaterial.uniforms.tint.value.set('#94bedb');
       particleMat.uniforms.tint.value.set('#d3e896'); particleMat.uniforms.opacity.value = .8;

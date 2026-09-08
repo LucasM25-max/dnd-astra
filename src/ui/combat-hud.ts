@@ -32,6 +32,7 @@ export class CombatHud {
   private lastActiveId: string | null = null;
   private vignetteTimer = 0;
   private visible = false;
+  private resultDismissed = false;
   private selectedSpell: string | null = null;
   private abort = new AbortController();
 
@@ -85,7 +86,14 @@ export class CombatHud {
         case 'hide': adventure.combatAct({ type: 'hide' }); break;
         case 'secondWind': adventure.combatAct({ type: 'secondWind' }); break;
         case 'endTurn': adventure.combatEndTurn(); break;
-        case 'finish': this.onFinish(); break;
+        case 'finish':
+          // The fight remains resolved in the world so its trail props and
+          // trap state continue to update, but the after-action card must
+          // release the canvas before the player can walk northwest.
+          this.resultDismissed = true;
+          this.setVisible(false);
+          this.onFinish();
+          break;
       }
     }, opts);
 
@@ -155,8 +163,9 @@ export class CombatHud {
     if (!snapshot) { this.setVisible(false); return; }
     const active = snapshot.phase === 'active' || snapshot.phase === 'sprung';
     const done = snapshot.phase === 'resolved' || snapshot.phase === 'lost';
-    this.setVisible(active || done);
-    if (!active && !done) return;
+    if (active) this.resultDismissed = false;
+    this.setVisible(active || (done && !this.resultDismissed));
+    if (!active && (!done || this.resultDismissed)) return;
 
     // Cheap change detection: the HUD re-renders on state change, not per frame.
     const signature = [
@@ -296,6 +305,13 @@ export class CombatHud {
     this.resultEl.hidden = !done;
     if (!done) return;
     const victory = s.phase === 'resolved';
+    const trail = s.trail;
+    const trailPanel = trail ? `<section class="trail-progress" aria-label="Goblin trail progress">
+      <div class="trail-progress-head"><span>GOBLIN TRAIL</span><strong>${Math.round(trail.progressMetres)} m north-west</strong></div>
+      <div class="trail-progress-track"><i style="width:${Math.min(100, trail.progressMetres / 18.2)}%"></i></div>
+      <div class="trail-traps">${trail.traps.map(t => `<span class="trail-trap ${t.state}"><b>${escapeHtml(t.id === 'snare' ? 'Snare' : 'Pit')}</b><small>${escapeHtml(t.state === 'hidden' ? 'not reached' : t.state)}</small></span>`).join('')}</div>
+      <small class="trail-progress-note">Hold T while following the trail to search · C cuts a raised snare</small>
+    </section>` : '';
     this.resultEl.innerHTML = `
       <div class="result-panel ${victory ? 'won' : 'lost'}">
         <span class="result-eyebrow">${victory ? 'THE ROAD IS QUIET AGAIN' : 'YOU WAKE IN THE LEAF LITTER'}</span>
@@ -303,6 +319,7 @@ export class CombatHud {
         <p>${victory
           ? 'One goblin ran rather than die here, and it ran somewhere specific. The trail behind the northern thickets is worth following.'
           : 'The goblins took what they could carry and headed up the trail. You can go on to Phandalin, re-equip, and come back for them.'}</p>
+        ${trailPanel}
         <button data-action="finish" class="primary-action">${victory ? 'Search the site' : 'Get up'}</button>
       </div>`;
   }

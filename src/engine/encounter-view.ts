@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Encounter, type Combatant, type Vec2 } from '../game/encounter';
 import { AMBUSHERS, GOBLIN_TRAIL_MOUTH } from '../game/ambush';
 import { MONSTERS } from '../game/bestiary';
-import { feetToMetres, metresToFeet } from '../game/rules';
+import { feetToMetres, hasCondition, metresToFeet } from '../game/rules';
 import { WEAPONS, isRanged } from '../game/equipment';
 import { terrainHeight, type CollisionField } from './landscape';
 import { Humanoid, type HumanoidPose } from './actors/humanoid';
@@ -28,6 +28,7 @@ interface ActorView {
   actionPhase: number;
   actionPose: HumanoidPose;
   hidden: boolean;
+  revealed: boolean;
   revealT: number;
   selectionRing: THREE.Mesh;
   healthBar: { group: THREE.Group; fill: THREE.Mesh; back: THREE.Mesh };
@@ -167,6 +168,20 @@ export class EncounterView {
       body.bones[8].add(weapon);          // handL
     } else {
       body.weapon.add(weapon);
+      // The printed goblin stat block includes a shield. Give the melee
+      // variants a visible, battered one so their defensive animation reads
+      // as more than a floating sword hand.
+      const shield = new THREE.Mesh(
+        new THREE.CylinderGeometry(visual.height * .13, visual.height * .15, visual.height * .045, 14),
+        this.materials.leather,
+      );
+      shield.rotation.x = Math.PI / 2;
+      shield.position.set(0, 0, -.055);
+      shield.castShadow = true;
+      const boss = new THREE.Mesh(new THREE.SphereGeometry(visual.height * .032, 8, 6), this.materials.bronze);
+      boss.position.z = -.08;
+      shield.add(boss);
+      body.bones[8].add(shield); // off hand
     }
 
     const ring = new THREE.Mesh(
@@ -184,7 +199,7 @@ export class EncounterView {
     const view: ActorView = {
       combatant, body, visual: new THREE.Vector3(combatant.position.x, 0, combatant.position.z),
       velocity: 0, actionPhase: 0, actionPose: 'idle',
-      hidden: true, revealT: 0, selectionRing: ring, healthBar,
+      hidden: true, revealed: false, revealT: 0, selectionRing: ring, healthBar,
       override: null, holdUntil: 0, shownHp: combatant.health.hp, hpRevealed: false,
     };
     this.actors.set(combatant.id, view);
@@ -213,6 +228,7 @@ export class EncounterView {
   /** Goblins stay in the thicket until the ambush springs. */
   reveal() {
     for (const view of this.actors.values()) {
+      view.revealed = true;
       view.hidden = false;
     }
   }
@@ -230,6 +246,11 @@ export class EncounterView {
 
     for (const view of this.actors.values()) {
       const c = view.combatant;
+      // Nimble Escape and a successful Hide are visual state, not just a log
+      // line: the body fades back into a crouched thicket silhouette and can
+      // no longer be clicked as a target until it is revealed again.
+      const concealed = hasCondition(c.conditions, 'invisible');
+      view.hidden = !view.revealed || concealed;
       const target = new THREE.Vector3(c.position.x, 0, c.position.z);
       const gap = view.visual.distanceTo(target);
 
@@ -294,7 +315,7 @@ export class EncounterView {
 
       view.body.update(dt, {
         speed: view.velocity,
-        pose: view.actionPose === 'idle' ? (view.velocity > 0.3 ? 'walk' : 'idle') : view.actionPose,
+        pose: view.actionPose === 'idle' ? (view.velocity > 2.0 ? 'run' : view.velocity > 0.3 ? 'walk' : 'idle') : view.actionPose,
         crouch,
         lookAt: view.hidden ? undefined : playerPosition,
         actionPhase: view.actionPhase,

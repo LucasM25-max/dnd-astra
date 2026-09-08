@@ -53,7 +53,10 @@ function leafCard(b: Builder, center: THREE.Vector3, size: number, rng: Rng, tin
 }
 
 export function createTerrain(scene: THREE.Scene, mat: Materials) {
-  const size = 170, seg = 252;
+  // Large enough to keep the north-west trail grounded for the full opening
+  // approach. Vertex density stays close to the original tile, so extending
+  // the world does not multiply startup or draw cost.
+  const size = 3800, seg = 320;
   const geometry = new THREE.PlaneGeometry(size, size, seg, seg);
   geometry.rotateX(-Math.PI / 2);
   const positions = geometry.getAttribute('position'), uv = geometry.getAttribute('uv');
@@ -168,7 +171,10 @@ export function placeForest(collisions: CollisionField, densityScale = 1) {
   };
   trySpot(ring0, Math.floor(185 * densityScale), 0, 0, 80, 3.15, .12, .76, 1.3);
   trySpot(ring1, Math.floor(150 * densityScale), 36, 84, 0, 4.6, .34, .85, 1.5);
-  trySpot(ring2, Math.floor(150 * densityScale), 84, 152, 0, 7, .78, 1.5, 2.7);
+  // Sparse far woodland continues around the long trail. It is intentionally
+  // lower density than the opening grove so the route reads as open woodland
+  // at distance without turning a 1.8 km walk into a wall of geometry.
+  trySpot(ring2, Math.floor(420 * densityScale), 84, 1840, 0, 15, .78, 1.5, 2.7);
   for (const t of ring0) collisions.add({ x: t.x, z: t.z, radius: .4 * t.scale * 1.17, bottom: terrainHeight(t.x, t.z), top: terrainHeight(t.x, t.z) + 14 * t.scale });
   for (const t of ring1) collisions.add({ x: t.x, z: t.z, radius: .4 * t.scale * 1.15, bottom: terrainHeight(t.x, t.z), top: terrainHeight(t.x, t.z) + 14 * t.scale });
   return { ring0, ring1, ring2, rng };
@@ -245,7 +251,7 @@ export function placeRocks() {
   for (const path of [ROAD, TRAIL]) {
     for (let i = 3; i < path.length - 3; i++) {
       const p = path[i];
-      if (Math.abs(p.x) > 60 || Math.abs(p.z) > 60) continue;
+      if (Math.abs(p.x) > 1840 || Math.abs(p.z) > 1840) continue;
       const next = path[i + 1], length = Math.hypot(next.x - p.x, next.z - p.z);
       const nx = -(next.z - p.z) / length, nz = (next.x - p.x) / length;
       for (const sign of [-1, 1]) {
@@ -256,8 +262,8 @@ export function placeRocks() {
       }
     }
   }
-  for (let i = 0; i < 150; i++) {
-    const x = (rng() - .5) * 122, z = (rng() - .5) * 124;
+  for (let i = 0; i < 520; i++) {
+    const x = (rng() - .5) * 3600, z = (rng() - .5) * 3600;
     if (pathDistance(x, z) < .25) continue;
     points.push({ x, z, s: .3 + rng() * 1.18 });
   }
