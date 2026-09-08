@@ -61,6 +61,8 @@ interface FigureDef {
   columns: number;
   rows: number;
   height: number;
+  /** Typical standing width of the painted figure in metres (idle median). */
+  width?: number;
   states: Partial<Record<SpriteAnimState, StateClip>>;
 }
 
@@ -188,7 +190,10 @@ export class SpriteFigure implements FigureBody {
       new THREE.MeshBasicMaterial({ map: contactShadowTexture(), transparent: true, depthWrite: false, opacity: .62, polygonOffset: true, polygonOffsetFactor: -2 }),
     );
     this.shadow.rotation.x = -Math.PI / 2;
-    this.shadow.scale.set(this.worldWidth * 1.05, this.worldWidth * .72, 1);
+    // The blob shadow follows the FIGURE (idle median width), not the card:
+    // cards widen automatically when a pose reaches out (sword swings).
+    const figureWidth = def.width ?? this.worldWidth;
+    this.shadow.scale.set(figureWidth * 1.08, figureWidth * .74, 1);
     this.shadow.position.y = .02;
     this.root.add(this.shadow);
   }

@@ -31,10 +31,10 @@ const OUT = 'public/sprites';
 
 /** Per-character build table: atlas cell size (px) and world height (m). */
 const KINDS = {
-  player: { cellW: 128, cellH: 272, height: 1.78, states: { idle: ['idle', 0], walk: ['walk', 3.1] } },
-  goblin: { cellW: 136, cellH: 248, height: 1.24, states: { idle: ['idle', 0], walk: ['walk', 3.4] } },
-  horse: { cellW: 288, cellH: 240, height: 1.62, states: { idle: ['idle', 0], walk: ['walk', 2.6] } },
-  ox: { cellW: 304, cellH: 240, height: 1.4, states: { idle: ['idle', 0], walk: ['walk', 2.2] } },
+  player: { cellW: 128, cellH: 272, height: 1.78, states: { idle: ['idle', 0], walk: ['walk', 3.1], run: ['run', 5.6], attack: ['attack', 0], hurt: ['hurt', 0], down: ['down', 0] } },
+  goblin: { cellW: 136, cellH: 248, height: 1.24, states: { idle: ['idle', 0], walk: ['walk', 3.4], attack: ['attack', 0], hurt: ['hurt', 0], down: ['down', 0] } },
+  horse: { cellW: 288, cellH: 240, height: 1.62, states: { idle: ['idle', 0], walk: ['walk', 2.6], graze: ['graze', 0], alert: ['alert', 0] } },
+  ox: { cellW: 304, cellH: 240, height: 1.4, states: { idle: ['idle', 0], walk: ['walk', 2.2], graze: ['graze', 0], alert: ['alert', 0] } },
 };
 /** A state may be built from several ordered sheets (a multi-frame cycle). */
 const SHEETS_PER_STATE = { idle: ['idle'], walk: ['walk-0', 'walk-1', 'walk-2', 'walk-3'], run: ['run-0', 'run-1'], attack: ['attack'], hurt: ['hurt'], down: ['down'], graze: ['graze-0', 'graze-1'], alert: ['alert'] };
@@ -188,13 +188,20 @@ for (const [kind, cfg] of Object.entries(KINDS)) {
   });
   if (clipped) console.log(`  ! ${kind}: ${clipped}/16 cells clipped by the cell frame in some rows (check margins)`);
 
+  // Typical standing width of the figure (idle median blob width), in world
+  // metres at the same scale that maps cellH px -> cfg.height. The card may be
+  // much wider (auto-expanded for reach poses); effects like the contact
+  // shadow should follow the figure, not the card.
+  const idleWidths = idleCells.map(c => c.w).sort((a, b) => a - b);
+  const figureWidth = +(cfg.height * (idleWidths[8] * scale / cellH)).toFixed(2);
+
   const states = {};
   for (const [state, rowIndices] of Object.entries(stateRows)) {
     states[state] = { rows: rowIndices, fps: cfg.states[state]?.[1] ?? 3 };
   }
   await sharp(Buffer.from(atlas), { raw: { width: atlasW, height: atlasH, channels: 4 } })
     .webp({ quality: 92, alphaQuality: 100, effort: 6 }).toFile(`${OUT}/${kind}.webp`);
-  manifest.figures[kind] = { atlas: `${kind}.webp`, cellW, cellH, columns: 16, rows: rows.length, height: cfg.height, states };
+  manifest.figures[kind] = { atlas: `${kind}.webp`, cellW, cellH, columns: 16, rows: rows.length, height: cfg.height, width: figureWidth, states };
   console.log(`✓ ${kind}: atlas ${atlasW}x${atlasH}, rows [${rows.map(r => r.label.split('-').slice(1).join('-')).join(', ')}], scale ${scale.toFixed(2)}`);
   built++;
 }

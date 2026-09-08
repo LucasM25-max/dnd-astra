@@ -152,8 +152,12 @@ export class EncounterView {
     const visual = monster.visual;
 
     // Painted sprite figure first (16-direction card), skinned rig as fallback.
+    // Only true goblins (goblin / archer / boss, 1.16–1.34 m) reuse the card;
+    // the wolf and bugbear keep their 3D rigs.
     let body: FigureBody;
-    const sprite = this.sprites?.create('goblin', { tint: visual.skin, heightScale: visual.height / 1.2 });
+    const sprite = visual.archetype === 'goblinoid' && visual.height <= 1.45
+      ? this.sprites?.create('goblin', { heightScale: visual.height / 1.2 })
+      : null;
     if (sprite) {
       body = sprite;
     } else {

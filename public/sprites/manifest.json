@@ -3,11 +3,12 @@
   "figures": {
     "player": {
       "atlas": "player.webp",
-      "cellW": 128,
+      "cellW": 223,
       "cellH": 272,
       "columns": 16,
-      "rows": 3,
+      "rows": 6,
       "height": 1.78,
+      "width": 0.59,
       "states": {
         "idle": {
           "rows": [
@@ -21,16 +22,59 @@
             2
           ],
           "fps": 3.1
+        },
+        "run": {
+          "rows": [
+            3,
+            4
+          ],
+          "fps": 5.6
+        },
+        "attack": {
+          "rows": [
+            5
+          ],
+          "fps": 0
+        }
+      }
+    },
+    "goblin": {
+      "atlas": "goblin.webp",
+      "cellW": 194,
+      "cellH": 248,
+      "columns": 16,
+      "rows": 3,
+      "height": 1.24,
+      "width": 0.75,
+      "states": {
+        "idle": {
+          "rows": [
+            0
+          ],
+          "fps": 0
+        },
+        "walk": {
+          "rows": [
+            1
+          ],
+          "fps": 3.4
+        },
+        "attack": {
+          "rows": [
+            2
+          ],
+          "fps": 0
         }
       }
     },
     "horse": {
       "atlas": "horse.webp",
       "cellW": 288,
-      "cellH": 241,
+      "cellH": 243,
       "columns": 16,
-      "rows": 2,
+      "rows": 5,
       "height": 1.62,
+      "width": 1.2,
       "states": {
         "idle": {
           "rows": [
@@ -40,19 +84,33 @@
         },
         "walk": {
           "rows": [
-            1
+            1,
+            2
           ],
           "fps": 2.6
+        },
+        "graze": {
+          "rows": [
+            3
+          ],
+          "fps": 0
+        },
+        "alert": {
+          "rows": [
+            4
+          ],
+          "fps": 0
         }
       }
     },
     "ox": {
       "atlas": "ox.webp",
-      "cellW": 306,
+      "cellW": 307,
       "cellH": 262,
       "columns": 16,
-      "rows": 2,
+      "rows": 3,
       "height": 1.4,
+      "width": 1.38,
       "states": {
         "idle": {
           "rows": [
@@ -62,7 +120,8 @@
         },
         "walk": {
           "rows": [
-            1
+            1,
+            2
           ],
           "fps": 2.2
         }
