@@ -42,22 +42,37 @@ function loft(sections: Section[], sides: number, capTop: boolean, capBottom: bo
       uvs.push(j / sides, i / Math.max(1, sections.length - 1));
     }
   }
+  // The torso is authored feet-to-head, but limbs hang downwards: their
+  // sections run from the shoulder or hip to the hand or ankle. Winding is
+  // only "outward" relative to the direction the rings travel, so a downwards
+  // stack has to be wound the other way round.
+  const flip = sections.length > 1 && sections[sections.length - 1].y < sections[0].y;
   for (let i = 0; i < sections.length - 1; i++) {
     for (let j = 0; j < sides; j++) {
       const j2 = (j + 1) % sides;
       const a = i * sides + j, b = i * sides + j2, c = (i + 1) * sides + j, d = (i + 1) * sides + j2;
-      indices.push(a, c, b, b, c, d);
+      if (flip) indices.push(a, b, c, b, d, c);
+      else indices.push(a, c, b, b, c, d);
     }
   }
+  // Caps wind the other way round from the sides: the ring is generated
+  // counter-clockwise about +Y, so the bottom cap has to run (centre, j, j+1)
+  // to face down and the top cap (centre, j+1, j) to face up.
   if (capBottom) {
     const centre = positions.length / 3;
     positions.push(0, sections[0].y, sections[0].z); uvs.push(.5, 0);
-    for (let j = 0; j < sides; j++) indices.push(centre, (j + 1) % sides, j);
+    for (let j = 0; j < sides; j++) {
+      if (flip) indices.push(centre, (j + 1) % sides, j);     // stack runs down: this end faces up
+      else indices.push(centre, j, (j + 1) % sides);
+    }
   }
   if (capTop) {
     const last = sections.length - 1, centre = positions.length / 3;
     positions.push(0, sections[last].y, sections[last].z); uvs.push(.5, 1);
-    for (let j = 0; j < sides; j++) indices.push(centre, last * sides + j, last * sides + (j + 1) % sides);
+    for (let j = 0; j < sides; j++) {
+      if (flip) indices.push(centre, last * sides + j, last * sides + (j + 1) % sides);
+      else indices.push(centre, last * sides + (j + 1) % sides, last * sides + j);
+    }
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
@@ -124,6 +139,44 @@ function anatomyOf(shape: HumanoidShape): Anatomy {
     skullR: h * (shape.species === 'human' ? 0.086 : 0.092),
     headCentreY: hipY + h * 0.415,
   };
+}
+
+/**
+ * Where every joint sits, in the model's own space.
+ *
+ * The rig is a real skeleton: a bone's rest position is the joint it turns
+ * around. Leaving them all at the origin makes every limb swing about the
+ * creature's ankles, which looks correct only in the rest pose.
+ */
+function jointPositions(shape: HumanoidShape): THREE.Vector3[] {
+  const a = anatomyOf(shape);
+  const h = a.h;
+  const goblin = (shape.species ?? 'goblin') === 'goblin';
+  const hunch = goblin ? h * 0.045 : 0;
+  const neckRake = goblin ? h * 0.02 : h * 0.008;
+  /** The torso drifts forward with height; the spine has to drift with it. */
+  const lean = (y: number) => ((y - a.hipY) / h) * hunch * 1.6;
+  const shoulderY = a.shoulderY + h * 0.015;
+  const headZ = h * 0.018 + neckRake;
+
+  const layout = new Array<THREE.Vector3>(BONE_COUNT);
+  layout[BONES.root] = new THREE.Vector3(0, 0, 0);
+  layout[BONES.pelvis] = new THREE.Vector3(0, a.hipY, lean(a.hipY));
+  layout[BONES.spine] = new THREE.Vector3(0, a.waistY - a.hipY, lean(a.waistY) - lean(a.hipY));
+  layout[BONES.chest] = new THREE.Vector3(0, a.chestY - a.waistY, lean(a.chestY) - lean(a.waistY));
+  layout[BONES.neck] = new THREE.Vector3(0, a.neckY - a.chestY, lean(a.neckY) - lean(a.chestY));
+  layout[BONES.head] = new THREE.Vector3(0, a.headCentreY - a.skullR * 0.55 - a.neckY, headZ - lean(a.neckY));
+  for (const [shoulder, elbow, hand, side] of [[BONES.shoulderL, BONES.elbowL, BONES.handL, -1], [BONES.shoulderR, BONES.elbowR, BONES.handR, 1]] as const) {
+    layout[shoulder] = new THREE.Vector3(side * a.shoulderX, shoulderY - a.chestY, lean(shoulderY) - lean(a.chestY));
+    layout[elbow] = new THREE.Vector3(0, -a.upperArm, 0);
+    layout[hand] = new THREE.Vector3(0, -a.foreArm, 0);
+  }
+  for (const [hip, knee, foot, side] of [[BONES.hipL, BONES.kneeL, BONES.footL, -1], [BONES.hipR, BONES.kneeR, BONES.footR, 1]] as const) {
+    layout[hip] = new THREE.Vector3(side * a.hipX, 0, 0);
+    layout[knee] = new THREE.Vector3(0, -a.thigh, 0);
+    layout[foot] = new THREE.Vector3(0, -a.shin, 0);
+  }
+  return layout;
 }
 
 function buildGeometry(shape: HumanoidShape, detail: number) {
@@ -410,8 +463,12 @@ export class Humanoid {
     const bones: THREE.Bone[] = [];
     for (let i = 0; i < BONE_COUNT; i++) bones.push(new THREE.Bone());
     const B = BONES;
+    // Put every joint where the anatomy says it is. Without this the rest pose
+    // is right and every animated pose tears its own limbs off.
+    const joints = jointPositions(shape);
+    for (let i = 0; i < BONE_COUNT; i++) bones[i].position.copy(joints[i]);
     bones[B.root].name = 'root';
-    bones[B.pelvis].name = 'pelvis'; bones[B.pelvis].position.set(0, 0, 0);
+    bones[B.pelvis].name = 'pelvis';
     bones[B.spine].name = 'spine'; bones[B.chest].name = 'chest';
     bones[B.neck].name = 'neck'; bones[B.head].name = 'head';
     bones[B.root].add(bones[B.pelvis]);
@@ -443,11 +500,37 @@ export class Humanoid {
     this.root.add(this.mesh);
     this.root.rotation.order = 'YXZ';
 
+    // From here on every attachment is authored in model space and folded into
+    // whichever bone it rides on, so moving the joints never moves the props.
+    this.root.updateMatrixWorld(true);
     this.addFace(materials, goblin);
     this.addOutfit(materials, clothTint, goblin);
 
     // The weapon rides in the right hand; the encounter fills it in.
     bones[B.handR].add(this.weapon);
+  }
+
+  /**
+   * Parent objects to a bone without moving them.
+   *
+   * Attachments (eyes, teeth, garments, carried kit) are easiest to author in
+   * the model's own coordinates. `attach` converts that world placement into
+   * the bone's local frame, so the piece stays exactly where it was drawn no
+   * matter where the joint ended up.
+   */
+  attach(bone: THREE.Bone, ...objects: THREE.Object3D[]) {
+    bone.updateWorldMatrix(true, false);
+    const inverse = new THREE.Matrix4().copy(bone.matrixWorld).invert();
+    for (const object of objects) {
+      object.applyMatrix4(inverse);
+      bone.add(object);
+    }
+  }
+
+  /** Same conversion for callers that address a bone by index. */
+  attachToBone(index: number, ...objects: THREE.Object3D[]) {
+    const bone = this.bones[index];
+    if (bone) this.attach(bone, ...objects);
   }
 
   /** Eyes with depth, a mouth, teeth on a goblin, hair on a hero. */
@@ -466,7 +549,7 @@ export class Humanoid {
       eye.scale.set(1, goblin ? 1.15 : 0.95, 0.72);
       eye.position.set(side * eyeX, eyeY, faceZ + skullR * 0.06);
       eye.rotation.y = side * -0.22;
-      head.add(eye);
+      this.attach(head, eye);
       const iris = new THREE.Mesh(new THREE.SphereGeometry(eyeR * 0.52, 10, 8), irisMat);
       iris.scale.set(1, 1, 0.5);
       iris.position.set(0, 0, -eyeR * 0.62);
@@ -479,7 +562,7 @@ export class Humanoid {
       brow.position.set(side * eyeX, eyeY + eyeR * 1.35, faceZ + skullR * 0.10);
       brow.rotation.set(0.25, side * -0.2, side * -0.10);
       brow.scale.z = goblin ? 1.5 : 1;
-      head.add(brow);
+      this.attach(head, brow);
     }
 
     // Mouth: a dark slit; goblins get an underbite with real teeth.
@@ -487,7 +570,7 @@ export class Humanoid {
     const mouth = new THREE.Mesh(new THREE.BoxGeometry(skullR * (goblin ? 0.62 : 0.5), skullR * 0.05, skullR * 0.10),
       new THREE.MeshStandardMaterial({ color: goblin ? '#3a1210' : '#7a4a40', roughness: 0.6 }));
     mouth.position.set(0, mouthY, faceZ - skullR * (goblin ? 0.28 : 0.16));
-    head.add(mouth);
+    this.attach(head, mouth);
     if (goblin) {
       const toothMat = new THREE.MeshStandardMaterial({ color: '#d8c98e', roughness: 0.45 });
       for (let i = -2; i <= 2; i++) {
@@ -495,14 +578,14 @@ export class Humanoid {
         const tooth = new THREE.Mesh(new THREE.ConeGeometry(skullR * 0.045, skullR * 0.16, 5), toothMat);
         tooth.position.set(i * skullR * 0.14, mouthY + skullR * 0.06, faceZ - skullR * 0.32);
         tooth.rotation.x = Math.PI;
-        head.add(tooth);
+        this.attach(head, tooth);
       }
       // Two lower tusks pushing up past the lip.
       for (const side of [-1, 1]) {
         const tusk = new THREE.Mesh(new THREE.ConeGeometry(skullR * 0.05, skullR * 0.20, 5), toothMat);
         tusk.position.set(side * skullR * 0.24, mouthY - skullR * 0.02, faceZ - skullR * 0.34);
         tusk.rotation.x = -0.25;
-        head.add(tusk);
+        this.attach(head, tusk);
       }
     }
 
@@ -514,14 +597,14 @@ export class Humanoid {
         const tuft = new THREE.Mesh(new THREE.ConeGeometry(skullR * 0.09, skullR * (0.3 + this.rng() * 0.25), 5), tuftMat);
         tuft.position.set(Math.cos(a) * skullR * 0.5, hc + skullR * 0.92, h * 0.018 + Math.sin(a) * skullR * 0.45 + skullR * 0.1);
         tuft.rotation.set(0.3 + Math.sin(a) * 0.5, 0, Math.cos(a) * 0.5);
-        head.add(tuft);
+        this.attach(head, tuft);
       }
     } else if (this.shape.hair !== 'bald') {
       const crop = new THREE.Mesh(new THREE.SphereGeometry(skullR * 1.04, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.62),
         new THREE.MeshStandardMaterial({ color: this.shape.hair ?? '#4a351f', roughness: 0.95 }));
       crop.position.set(0, hc + skullR * 0.02, h * 0.018);
       crop.rotation.x = -0.22;
-      head.add(crop);
+      this.attach(head, crop);
     }
   }
 
@@ -564,10 +647,10 @@ export class Humanoid {
       pad.castShadow = true;
       group.add(pad);
 
-      this.bones[BONES.pelvis].add(skirt, belt, pouch);
-      this.bones[BONES.chest].add(vest, strap);
-      this.bones[BONES.elbowR].add(bracer);
-      this.bones[BONES.shoulderL].add(pad);
+      this.attach(this.bones[BONES.pelvis], skirt, belt, pouch);
+      this.attach(this.bones[BONES.chest], vest, strap);
+      this.attach(this.bones[BONES.elbowR], bracer);
+      this.attach(this.bones[BONES.shoulderL], pad);
     } else {
       // Hero kit, per class.
       const leather = materials.leather;
@@ -586,10 +669,10 @@ export class Humanoid {
             pauldron.position.set(side * shoulderX * 0.96, shoulderY + h * 0.012, 0);
             pauldron.rotation.z = side * 0.35;
             pauldron.castShadow = true;
-            this.bones[side < 0 ? BONES.shoulderL : BONES.shoulderR].add(pauldron);
+            this.attach(this.bones[side < 0 ? BONES.shoulderL : BONES.shoulderR], pauldron);
           }
-          this.bones[BONES.chest].add(shirt);
-          this.bones[BONES.pelvis].add(skirt, belt);
+          this.attach(this.bones[BONES.chest], shirt);
+          this.attach(this.bones[BONES.pelvis], skirt, belt);
           break;
         }
         case 'wizard': {
@@ -600,7 +683,7 @@ export class Humanoid {
           robe.castShadow = true;
           const sash = new THREE.Mesh(new THREE.TorusGeometry(w * 0.98, h * 0.011, 6, 16), materials.leather);
           sash.rotation.x = Math.PI / 2; sash.position.y = hipY + h * 0.09;
-          this.bones[BONES.chest].add(robe, sash);
+          this.attach(this.bones[BONES.chest], robe, sash);
           break;
         }
         case 'rogue': {
@@ -609,8 +692,8 @@ export class Humanoid {
           vest.castShadow = true;
           const belt = new THREE.Mesh(new THREE.TorusGeometry(w * 1.02, h * 0.012, 6, 16), leather);
           belt.rotation.x = Math.PI / 2; belt.position.y = hipY + h * 0.015;
-          this.bones[BONES.chest].add(vest);
-          this.bones[BONES.pelvis].add(belt);
+          this.attach(this.bones[BONES.chest], vest);
+          this.attach(this.bones[BONES.pelvis], belt);
           break;
         }
         case 'cleric': {
@@ -620,7 +703,7 @@ export class Humanoid {
           const mantle = new THREE.Mesh(new THREE.SphereGeometry(w * 0.62, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.5), cloth);
           mantle.position.y = shoulderY + h * 0.005;
           mantle.castShadow = true;
-          this.bones[BONES.chest].add(robe, mantle);
+          this.attach(this.bones[BONES.chest], robe, mantle);
           break;
         }
         case 'ranger': {
@@ -633,10 +716,10 @@ export class Humanoid {
             const bracer = new THREE.Mesh(new THREE.CylinderGeometry(w * 0.15, w * 0.18, h * 0.085, 9, 1, true), leather);
             bracer.position.set(0, -foreArm * 0.45, 0);
             bracer.castShadow = true;
-            this.bones[side < 0 ? BONES.elbowL : BONES.elbowR].add(bracer);
+            this.attach(this.bones[side < 0 ? BONES.elbowL : BONES.elbowR], bracer);
           }
-          this.bones[BONES.chest].add(cuirass);
-          this.bones[BONES.pelvis].add(belt);
+          this.attach(this.bones[BONES.chest], cuirass);
+          this.attach(this.bones[BONES.pelvis], belt);
           break;
         }
         default: {
@@ -646,8 +729,8 @@ export class Humanoid {
           tunic.castShadow = true;
           const belt = new THREE.Mesh(new THREE.TorusGeometry(w * 1.02, h * 0.012, 6, 16), leather);
           belt.rotation.x = Math.PI / 2; belt.position.y = hipY + h * 0.015;
-          this.bones[BONES.chest].add(tunic);
-          this.bones[BONES.pelvis].add(belt);
+          this.attach(this.bones[BONES.chest], tunic);
+          this.attach(this.bones[BONES.pelvis], belt);
         }
       }
     }
@@ -688,9 +771,13 @@ export class Humanoid {
     const bob = Math.abs(Math.sin(this.stride)) * h * 0.022 * swing;
     const crouchDrop = this.crouchBlend * h * 0.16;
 
-    B[BONES.root].position.y = breathe + bob - crouchDrop - this.deathBlend * h * 0.40;
-    B[BONES.root].rotation.z = Math.sin(this.stride) * 0.035 * swing + this.deathBlend * 1.35;
-    B[BONES.root].rotation.x = this.deathBlend * 0.28;
+    // Falling is a rotation about the feet, not a translation: the body tips
+    // over onto its side and then rides at half its own thickness so it lies
+    // on the ground instead of through it.
+    const fallen = this.deathBlend;
+    B[BONES.root].position.y = breathe + bob - crouchDrop + fallen * (m.w * 0.95 + h * 0.015);
+    B[BONES.root].rotation.z = Math.sin(this.stride) * 0.035 * swing + fallen * 1.45;
+    B[BONES.root].rotation.x = fallen * 0.22;
 
     B[BONES.pelvis].rotation.y = -Math.sin(this.stride) * 0.13 * swing;
     B[BONES.pelvis].rotation.x = this.crouchBlend * 0.30;
@@ -826,9 +913,10 @@ export class Humanoid {
         kneeX = THREE.MathUtils.lerp(kneeX, kneeX - 0.25, lunge * 0.6);
       }
       if (dying) {
-        hipX = THREE.MathUtils.lerp(hipX, -0.95, this.deathBlend);
-        kneeX = THREE.MathUtils.lerp(kneeX, -1.25, this.deathBlend);
-        footX = THREE.MathUtils.lerp(footX, 0.4, this.deathBlend);
+        // The legs fold up as the body goes over, rather than staying straight.
+        hipX = THREE.MathUtils.lerp(hipX, 0.62, this.deathBlend);
+        kneeX = THREE.MathUtils.lerp(kneeX, -1.15, this.deathBlend);
+        footX = THREE.MathUtils.lerp(footX, 0.25, this.deathBlend);
       }
 
       this.bones[hip].rotation.x = hipX;

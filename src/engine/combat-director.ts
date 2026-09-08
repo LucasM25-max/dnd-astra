@@ -380,6 +380,8 @@ export class CombatDirector {
     // Presentation runs on wall clock (capped), so slow frames slow nothing:
     // a goblin's windup takes as long as it takes, not ten times it.
     this.view.update(Math.min(realDelta, 0.25), this.camera, playerPosition);
+    // Settled numerals stand up to whatever the camera is looking from.
+    this.dice?.setViewDirection(this.camera.getWorldDirection(new THREE.Vector3()));
     this.dice?.update(Math.min(realDelta, 0.25));
 
     if (this.cluster) {
@@ -525,12 +527,13 @@ export class CombatDirector {
     }, () => {
       if (cluster.phase !== 'dice') return;
       if (cluster.attack.hit && cluster.attack.damageDice.length && this.dice) {
-        // Damage dice follow the fate die, then the blade falls.
+        // Damage dice follow the fate die, then the blade falls. The d20 stays
+        // where it landed; only the damage dice are added to the tray.
         this.audio.diceClatter(cluster.attack.damageDice.length);
         this.dice.roll({
-          d20: cluster.attack.kept,
           damage: { dice: cluster.attack.damageDice, sides: cluster.attack.damageSides, bonus: cluster.attack.damageBonus },
           anchor,
+          keep: true,
         }, () => {
           if (cluster.phase === 'dice') this.beginStrikeWindup(cluster);
         });
