@@ -432,6 +432,12 @@ export class Encounter {
       entries.push(...this.beginTurn());
       break;
     }
+    // Check the end here as well as after every blow. An enemy that goes down
+    // outside an attack — withdrawn, or killed by something other than the
+    // active combatant's swing — used to leave the encounter running with
+    // nothing left to fight: the log said the fight was over but the engine
+    // kept handing out turns.
+    this.checkEnd(entries);
     this.onChange();
     return entries;
   }
@@ -529,6 +535,7 @@ export class Encounter {
     let finalRoll = roll;
     // Roll the second swing first, then decide whether it cost anything. A
     // reroll that misses anyway leaves the hero's luck untouched.
+    let luckNote: LogEntry | null = null;
     if (!finalRoll.success && this.luckLeft() > 0) {
       const reroll = resolveCheck({
         kind: 'attack', actor: attacker.actor, ability: 'str',
@@ -538,7 +545,7 @@ export class Encounter {
         stream: this.stream,
       });
       if (this.chargeLuck(attacker, reroll.success)) {
-        entries.push(this.stage('info', `${attacker.name} refuses the miss and swings again.`, { actorId: attacker.id, roll: reroll }));
+        luckNote = this.stage('info', `${attacker.name} refuses the miss and swings again.`, { actorId: attacker.id, roll: reroll });
         finalRoll = reroll;
       }
     }
@@ -590,7 +597,18 @@ export class Encounter {
         entries.push(this.entry('condition', `${target.name} is knocked ${monsterAction.condition}.`, { actorId: attacker.id, targetId: target.id, roll: save }));
       }
     }
-    this.publish(entries);
+    // Two orders, deliberately. The queue wants the attack first so the
+    // director can stage a strike from it; a reader wants the reroll that made
+    // the hit possible to come before the hit.
+    if (luckNote) {
+      const attackEntry = entries[0];
+      const rest = entries.filter(e => e !== attackEntry && e !== luckNote);
+      entries.length = 0;
+      entries.push(attackEntry, luckNote, ...rest);
+      this.publish([luckNote, attackEntry, ...rest]);
+    } else {
+      this.publish(entries);
+    }
     return entries;
   }
 

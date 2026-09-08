@@ -763,6 +763,27 @@ export class CombatDirector {
 
   // -- resolution -----------------------------------------------------------
 
+  /**
+   * Abandon whatever is being staged and settle the fight now.
+   *
+   * Only the dev/test hook uses this. The victory and defeat branches it
+   * exercises — experience, the after-action panel, the save — do not depend
+   * on the choreography, and a software renderer that manages a frame every
+   * few seconds would otherwise take minutes to walk the queue.
+   */
+  finishNow() {
+    if (!this.encounter) return false;
+    this.cluster = null;
+    this.presenting = false;
+    this.queue.length = 0;
+    this.pendingEnemyTurn = false;
+    const entries = this.encounter.endTurn();
+    this.queue.push(...entries);
+    this.runQueue();
+    if (this.encounter.finished && this.phase === 'active') this.resolve();
+    return true;
+  }
+
   private resolve() {
     if (!this.encounter) return;
     this.view?.revealAllHealth();

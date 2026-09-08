@@ -206,9 +206,9 @@ describe('the luck of the solo hero', () => {
       for (let i = 0; i < fight.log.length; i++) {
         if (!/refuses the miss/.test(fight.log[i].text)) continue;
         rerolls++;
-        // The attack entry is unshifted ahead of the reroll notice, so the
-        // swing that justified the spend is the entry immediately before it.
-        const swung = fight.log[i - 1];
+        // The reroll notice is published ahead of the swing it produced, so
+        // the strike that justified the spend is the entry immediately after.
+        const swung = fight.log[i + 1];
         expect(swung, 'a reroll notice with no attack before it').toBeDefined();
         expect(swung.kind).toBe('attack');
         expect(swung.attack?.hit, `luck was spent on a swing that still missed (seed ${seed})`).toBe(true);
