@@ -3,8 +3,8 @@ import {
   AMBUSHERS, AMBUSH_CENTRE, AMBUSH_TRIGGER_RADIUS, AFTERMATH_NOTE, CAPTURE,
   DEFEAT_OUTCOME, GOBLIN_TRAIL_MOUTH, TRAIL_DISCOVERY,
 } from '../game/ambush';
-import { Encounter, distanceFeet, type ActionId, type Combatant, type LogEntry } from '../game/encounter';
-import { WEAPONS, isRanged } from '../game/equipment';
+import { Encounter, distanceFeet, type ActionId, type AttackPresentation, type Combatant, type LogEntry } from '../game/encounter';
+import { WEAPONS } from '../game/equipment';
 import { SPELLS } from '../game/spells';
 import { feetToMetres, metresToFeet, resolveCheck, type Cover } from '../game/rules';
 import { addExperience } from '../game/progression';
@@ -14,9 +14,12 @@ import { saveCharacter, type CharacterSheet } from '../game/character';
 import { EncounterView, chooseWeapon, makeVisibility } from './encounter-view';
 import { AmbushSite, buildTrailMarker } from './ambush-props';
 import type { CombatMaterials } from './actors/combat-materials';
+import { DiceTray } from './actors/dice';
+import { CombatFx } from './combat-fx';
 import type { CollisionField } from './landscape';
 import { terrainHeight } from './landscape';
 import type { PlayerController } from './controller';
+import type { CombatAudio } from './audio';
 
 /**
  * Runs the Cragmaw ambush as a real event in the 3D world.
@@ -29,6 +32,39 @@ import type { PlayerController } from './controller';
  */
 
 export type CombatPhase = 'dormant' | 'sprung' | 'active' | 'resolved' | 'lost';
+
+/**
+ * One staged attack in the presentation timeline: the engine resolved it
+ * instantly; the director now replays it as a physical event — movement
+ * finishes, dice tumble (the hero's rolls), the body winds up, an arrow
+ * flies, and only then do the log, the blood, the number and the health
+ * bar land, all on the same frame the blow connects.
+ */
+interface StrikeCluster {
+  attackerId: string;
+  attackerIsHero: boolean;
+  targetId: string | null;
+  attack: AttackPresentation;
+  attackEntry: LogEntry;
+  followEntries: LogEntry[];
+  phase: 'waitMove' | 'dice' | 'windup' | 'flight' | 'linger';
+  timer: number;
+  windupDuration: number;
+  flightDuration: number;
+  damageKind: 'fire' | 'frost' | 'force' | 'arrow' | 'melee';
+}
+
+/** A staged spell: cast pose, bolt flight, then the effects reveal at arrival. */
+interface SpellCluster {
+  casterId: string;
+  casterIsHero: boolean;
+  targets: { id: string }[];
+  kind: 'fire' | 'frost' | 'force';
+  entries: LogEntry[];
+  phase: 'windup' | 'flight' | 'linger';
+  timer: number;
+  flight: number;
+}
 
 export interface CombatSnapshot {
   phase: CombatPhase;
@@ -75,6 +111,13 @@ export class CombatDirector {
   private capturedIds = new Set<string>();
   private raycaster = new THREE.Raycaster();
   private pointer = new THREE.Vector2();
+  // -- presentation timeline ------------------------------------------------
+  private queue: LogEntry[] = [];
+  private cluster: StrikeCluster | SpellCluster | null = null;
+  private presenting = false;
+  private dice: DiceTray | null = null;
+  private shakeAmplitude = 0;
+  private audio: CombatAudio;
 
   onNotice: (message: string) => void = () => {};
   onLog: (entries: LogEntry[]) => void = () => {};
@@ -84,11 +127,26 @@ export class CombatDirector {
   constructor(
     private scene: THREE.Scene,
     private camera: THREE.PerspectiveCamera,
+    private renderer: THREE.WebGLRenderer,
     private controller: PlayerController,
     private collision: CollisionField,
     private materials: CombatMaterials,
     private quality: 'performance' | 'balanced' | 'high',
-  ) {}
+    audio: CombatAudio,
+  ) {
+    this.audio = audio;
+    this.dice = new DiceTray(scene);
+  }
+
+  /** Camera shake amplitude, consumed by the world each frame. */
+  takeShake(): number {
+    const value = this.shakeAmplitude;
+    return value;
+  }
+
+  private addShake(amount: number) {
+    this.shakeAmplitude = Math.min(0.5, Math.max(this.shakeAmplitude, amount));
+  }
 
   /** Build the evidence at the site; the goblins spawn hidden with it. */
   prepare() {
@@ -147,6 +205,20 @@ export class CombatDirector {
     this.view.spawnAll(this.scene);
     this.view.onFootfall = undefined;
 
+    // Compile every program the fight will use while the ambush beat still
+    // covers the screen — no hit, spell, or dice roll may stall on shaders.
+    // Software renderers compile hundreds of times slower and gain nothing
+    // (their stall just moves), so only real GPUs warm up.
+    try {
+      const gl = this.renderer.getContext();
+      const ext = gl.getExtension('WEBGL_debug_renderer_info');
+      const gpu = String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : '');
+      if (!/swiftshader|llvmpipe|softpipe|software/i.test(gpu)) {
+        this.dice?.precompile(this.renderer, this.scene, this.camera);
+        CombatFx.precompile(this.renderer, this.scene, this.camera);
+      }
+    } catch { /* A warm-up failure must never block the fight. */ }
+
     encounter.start();
     this.encounter = encounter;
     this.phase = 'sprung';
@@ -203,19 +275,12 @@ export class CombatDirector {
     const gap = this.encounter.gapFeet(hero, target);
     const weaponId = chooseWeapon(hero, gap);
     const weapon = WEAPONS[weaponId];
+    void weapon;
 
-    const before = target.health.hp;
     const outcome = this.encounter.perform({ type: 'attack', targetId, weaponId });
     if (!outcome.ok) { this.notice(outcome.reason ?? 'You cannot do that.'); return false; }
 
-    // Show the shot travelling, and only then let the log land.
-    if (weapon && isRanged(weapon) && this.view) {
-      const from = new THREE.Vector3(hero.position.x, terrainHeight(hero.position.x, hero.position.z) + 1.3, hero.position.z);
-      const to = this.view.positionOf(targetId);
-      if (to) this.view.spawnTracer(from, to.clone().setY(to.y + 0.9), 'arrow');
-    }
-    void before;
-    this.onLog(outcome.entries);
+    this.enqueue(outcome.entries);
     this.afterPlayerAction();
     return true;
   }
@@ -224,19 +289,11 @@ export class CombatDirector {
     if (!this.encounter?.isPlayerTurn) return false;
     const hero = this.hero;
     if (!hero) return false;
-    const spell = SPELLS[spellId];
+    void hero;
     const outcome = this.encounter.perform({ type: 'cast', spellId, targetIds, slotLevel });
     if (!outcome.ok) { this.notice(outcome.reason ?? 'The spell fails.'); return false; }
 
-    if (this.view && spell?.damageType) {
-      const from = new THREE.Vector3(hero.position.x, terrainHeight(hero.position.x, hero.position.z) + 1.4, hero.position.z);
-      const kind = spell.damageType === 'fire' ? 'fire' : spell.damageType === 'cold' ? 'frost' : 'force';
-      for (const id of targetIds) {
-        const to = this.view.positionOf(id);
-        if (to) this.view.spawnTracer(from, to.clone().setY(to.y + 0.9), kind);
-      }
-    }
-    this.onLog(outcome.entries);
+    this.enqueue(outcome.entries);
     this.afterPlayerAction();
     return true;
   }
@@ -246,30 +303,28 @@ export class CombatDirector {
     if (!this.encounter?.isPlayerTurn) return false;
     const outcome = this.encounter.perform(action);
     if (!outcome.ok) { this.notice(outcome.reason ?? 'You cannot do that.'); return false; }
-    this.onLog(outcome.entries);
+    this.enqueue(outcome.entries);
     this.afterPlayerAction();
     return true;
   }
 
   endTurn() {
     if (!this.encounter?.isPlayerTurn) return false;
-    const entries = this.encounter.endTurn();
-    this.onLog(entries);
+    this.enqueue(this.encounter.endTurn());
     this.afterPlayerAction();
     return true;
   }
 
   private afterPlayerAction() {
     if (!this.encounter) return;
-    this.checkFleeCondition();
-    if (this.encounter.finished) { this.resolve(); return; }
-    // If the player has nothing left, roll straight into the enemy turns.
+    // If the player has nothing left, roll straight into the enemy turns —
+    // but the end-turn entries still queue behind any strike in flight.
     const hero = this.hero;
     if (hero && this.encounter.isPlayerTurn && !hero.budget.action && !hero.budget.bonusAction
       && hero.budget.movementUsed >= hero.budget.movement - 0.5) {
-      this.onLog(this.encounter.endTurn());
+      this.queue.push(...this.encounter.endTurn());
     }
-    this.scheduleEnemyTurnIfNeeded();
+    this.runQueue();
   }
 
   private scheduleEnemyTurnIfNeeded() {
@@ -277,8 +332,9 @@ export class CombatDirector {
     const active = this.encounter.active;
     if (active && active.side === 'enemy') {
       this.pendingEnemyTurn = true;
-      // A short beat so the player can read what just happened.
-      this.enemyTurnTimer = 0.75;
+      // A deliberate beat: the player reads the banner, the goblin turns,
+      // and then it comes. Long enough to feel like a turn, not a flicker.
+      this.enemyTurnTimer = 1.05;
       this.onCameraFocus(this.view?.positionOf(active.id) ?? null);
     } else {
       this.pendingEnemyTurn = false;
@@ -305,13 +361,15 @@ export class CombatDirector {
     );
     this.view?.fleeToTrail(last.id);
     this.notice('The last goblin breaks and runs northwest into the trees.');
-    this.onLog(entries);
+    this.queue.push(...entries);
   }
 
   // -- per-frame ------------------------------------------------------------
 
   update(dt: number, playerPosition: THREE.Vector3, character: CharacterSheet | null, onFoot: boolean, realDelta = dt) {
     this.site?.update(dt, playerPosition, this.phase === 'dormant' || this.phase === 'resolved');
+    // Camera shake decays on the presentation clock.
+    this.shakeAmplitude = Math.max(0, this.shakeAmplitude - realDelta * 1.6);
 
     if (this.phase === 'dormant') {
       this.checkTrigger(playerPosition, character, onFoot);
@@ -319,23 +377,360 @@ export class CombatDirector {
     }
     if (!this.encounter || !this.view) return;
 
-    this.view.update(dt, this.camera, playerPosition);
+    // Presentation runs on wall clock (capped), so slow frames slow nothing:
+    // a goblin's windup takes as long as it takes, not ten times it.
+    this.view.update(Math.min(realDelta, 0.25), this.camera, playerPosition);
+    this.dice?.update(Math.min(realDelta, 0.25));
+
+    if (this.cluster) {
+      this.updateCluster(Math.min(realDelta, 0.25));
+      return;
+    }
+
+    if (this.queue.length) { this.runQueue(); return; }
 
     if (this.phase === 'active' && this.pendingEnemyTurn) {
       // Pacing is wall-clock, not frame-clock: a slow frame must not stretch
-      // the beat between enemy turns into a stall.
+      // the beat between enemy turns into a stall. The gap is long enough to
+      // read whose turn it is and watch them come.
       this.enemyTurnTimer -= Math.min(realDelta, 0.5);
       if (this.enemyTurnTimer <= 0) {
-        const entries = this.encounter.runEnemyTurn();
-        this.onLog(entries);
-        // Show any arrows the goblins loosed.
-        const active = this.encounter.active;
-        void active;
-        this.checkFleeCondition();
-        if (this.encounter.finished) this.resolve();
-        else this.scheduleEnemyTurnIfNeeded();
+        this.pendingEnemyTurn = false;
+        this.enqueue(this.encounter.runEnemyTurn());
+        this.runQueue();
       }
     }
+  }
+
+  // -- presentation timeline ------------------------------------------------
+
+  /** Queue log entries for staged reveal. */
+  private enqueue(entries: LogEntry[]) {
+    this.queue.push(...entries);
+  }
+
+  /**
+   * Walk the queued entries. Most reveal immediately; an attack or a spell
+   * becomes a staged cluster and pauses the walk until it has landed.
+   */
+  private runQueue() {
+    if (this.cluster || this.presenting) return;
+    this.presenting = true;
+    try {
+      while (this.queue.length) {
+        const entry = this.queue.shift()!;
+        if (entry.kind === 'attack' && entry.attack) {
+          this.startStrikeCluster(entry);
+          return;
+        }
+        if (entry.kind === 'spell') {
+          this.startSpellCluster(entry);
+          return;
+        }
+        this.onLog([entry]);
+      }
+      this.presenting = false;
+      this.onPresentationDone();
+      return;
+    } finally {
+      // If a cluster started, presenting stays effectively paused until it lands.
+      if (!this.cluster) this.presenting = false;
+    }
+  }
+
+  /** Everything the presentation layer needs to know once the queue drains. */
+  private onPresentationDone() {
+    if (!this.encounter) return;
+    this.checkFleeCondition();
+    if (this.queue.length) { this.runQueue(); return; }
+    if (this.encounter.finished) { this.resolve(); return; }
+    this.scheduleEnemyTurnIfNeeded();
+  }
+
+  private damageKindOf(attack: AttackPresentation): StrikeCluster['damageKind'] {
+    if (!attack.ranged) return 'melee';
+    if (attack.damageType === 'fire') return 'fire';
+    if (attack.damageType === 'cold') return 'frost';
+    if (attack.damageType === 'force' || attack.damageType === 'radiant' || attack.damageType === 'psychic') return 'force';
+    return 'arrow';
+  }
+
+  private startStrikeCluster(entry: LogEntry) {
+    const attack = entry.attack!;
+    const hero = this.hero;
+    const attackerIsHero = !!hero && entry.actorId === hero.id;
+    const cluster: StrikeCluster = {
+      attackerId: entry.actorId ?? '',
+      attackerIsHero,
+      targetId: entry.targetId ?? null,
+      attack, attackEntry: entry,
+      followEntries: [],
+      phase: attackerIsHero ? 'dice' : 'waitMove',
+      timer: 0, windupDuration: 0, flightDuration: 0,
+      damageKind: this.damageKindOf(attack),
+    };
+    // Entries that belong to this blow (damage, condition, death) reveal with it.
+    while (this.queue.length) {
+      const next = this.queue[0];
+      if (next.kind === 'attack' || next.kind === 'spell' || next.kind === 'turn' || next.kind === 'round') break;
+      cluster.followEntries.push(this.queue.shift()!);
+    }
+    this.cluster = cluster;
+
+    if (cluster.phase === 'waitMove') {
+      // Let the goblin finish running before it starts swinging.
+      const remaining = this.view?.remainingMove(cluster.attackerId) ?? 0;
+      cluster.timer = Math.min(2.8, remaining / Math.max(0.5, feetToMetres(30) / 6));
+      if (remaining < 0.1) this.beginStrikeWindup(cluster);
+    } else {
+      cluster.timer = 0;
+      // The hero's fate dice hit the ground before the blade moves.
+      this.beginStrikeDice(cluster);
+    }
+  }
+
+  private beginStrikeWindup(cluster: StrikeCluster) {
+    const windup = cluster.attackerIsHero ? 0.46 : 0.58;
+    cluster.phase = 'windup';
+    cluster.timer = 0;
+    cluster.windupDuration = windup;
+    const targetId = cluster.targetId;
+
+    if (cluster.attackerIsHero) {
+      const kind = cluster.damageKind === 'melee' ? 'melee' : 'ranged';
+      this.controller.playAttack(kind);
+    } else if (this.view) {
+      const pose = cluster.damageKind === 'melee' ? 'attack' : 'shoot';
+      this.view.playPose(cluster.attackerId, pose, windup * 2.3, 0.46);
+    }
+    // The target's hurt/fall must not leak before the blow connects.
+    if (targetId && this.view) this.view.holdPose(targetId, windup + 1.1);
+    if (cluster.damageKind === 'melee') this.audio.whoosh(cluster.attack.critical ? 1.25 : 1);
+  }
+
+  private beginStrikeDice(cluster: StrikeCluster) {
+    cluster.phase = 'dice';
+    cluster.timer = 0;
+    if (!this.dice || !this.view || !this.hero) { this.beginStrikeWindup(cluster); return; }
+    // The fate die lands just ahead of the hero, on open ground in view.
+    const yaw = this.controller.yaw;
+    const x = this.hero.position.x - Math.sin(yaw) * 1.25;
+    const z = this.hero.position.z - Math.cos(yaw) * 1.25;
+    const anchor = new THREE.Vector3(x, terrainHeight(x, z), z);
+    this.audio.diceClatter(1);
+    this.dice.roll({
+      d20: cluster.attack.kept,
+      d20Pool: cluster.attack.d20,
+      anchor,
+    }, () => {
+      if (cluster.phase !== 'dice') return;
+      if (cluster.attack.hit && cluster.attack.damageDice.length && this.dice) {
+        // Damage dice follow the fate die, then the blade falls.
+        this.audio.diceClatter(cluster.attack.damageDice.length);
+        this.dice.roll({
+          d20: cluster.attack.kept,
+          damage: { dice: cluster.attack.damageDice, sides: cluster.attack.damageSides, bonus: cluster.attack.damageBonus },
+          anchor,
+        }, () => {
+          if (cluster.phase === 'dice') this.beginStrikeWindup(cluster);
+        });
+      } else {
+        this.beginStrikeWindup(cluster);
+      }
+    });
+  }
+
+  private updateCluster(dt: number) {
+    const cluster = this.cluster;
+    if (!cluster) return;
+    cluster.timer += dt;
+
+    if ('attackEntry' in cluster) {
+      switch (cluster.phase) {
+        case 'waitMove': {
+          const settled = this.view?.settled(cluster.attackerId) ?? true;
+          if (settled || cluster.timer > 3.2) {
+            if (cluster.attackerIsHero) this.beginStrikeDice(cluster);
+            else this.beginStrikeWindup(cluster);
+          }
+          break;
+        }
+        case 'dice': {
+          // The dice callbacks drive this phase; the cap only unstick it.
+          if (cluster.timer > 3.8) this.beginStrikeWindup(cluster);
+          break;
+        }
+        case 'windup': {
+          if (cluster.timer >= cluster.windupDuration) {
+            if (cluster.damageKind === 'melee' || !this.view) {
+              this.impactStrike(cluster);
+            } else {
+              const targetId = cluster.targetId;
+              const flight = cluster.damageKind === 'arrow' && targetId
+                ? this.view.fireArrow(cluster.attackerId, targetId)
+                : targetId ? this.view.fireBolt(cluster.attackerId, targetId, cluster.damageKind === 'fire' ? 'fire' : cluster.damageKind === 'frost' ? 'frost' : 'force') : 0.3;
+              cluster.phase = 'flight';
+              cluster.timer = 0;
+              cluster.flightDuration = flight;
+              this.audio.bowRelease();
+            }
+          }
+          break;
+        }
+        case 'flight': {
+          if (cluster.timer >= cluster.flightDuration) this.impactStrike(cluster);
+          break;
+        }
+        case 'linger': {
+          if (cluster.timer >= 0.4) {
+            // Hand the stage back: the presenting guard must drop with the
+            // cluster, or runQueue would refuse every entry from here on.
+            this.cluster = null;
+            this.presenting = false;
+            this.runQueue();
+          }
+          break;
+        }
+      }
+      return;
+    }
+
+    // Spell cluster.
+    switch (cluster.phase) {
+      case 'windup': {
+        if (cluster.timer >= 0.6) {
+          const damaging = cluster.entries.some(e => e.kind === 'damage');
+          if (damaging && this.view && cluster.targets.length) {
+            let flight = 0.3;
+            for (const t of cluster.targets) flight = Math.max(flight, this.view.fireBolt(cluster.casterId, t.id, cluster.kind));
+            cluster.flight = flight;
+            cluster.phase = 'flight';
+            cluster.timer = 0;
+          } else {
+            this.impactSpell(cluster);
+          }
+        }
+        break;
+      }
+      case 'flight': {
+        if (cluster.timer >= cluster.flight) this.impactSpell(cluster);
+        break;
+      }
+      case 'linger': {
+        if (cluster.timer >= 0.5) {
+          // Same hand-back as strikes: drop the presenting guard.
+          this.cluster = null;
+          this.presenting = false;
+          this.runQueue();
+        }
+        break;
+      }
+    }
+  }
+
+  /** The blow connects: reveal the log, draw the effects, move the body. */
+  private impactStrike(cluster: StrikeCluster) {
+    const attack = cluster.attack;
+    this.onLog([cluster.attackEntry, ...cluster.followEntries]);
+
+    const view = this.view;
+    const chest = cluster.targetId ? view?.chestOf(cluster.targetId) : null;
+    if (chest && view) {
+      if (attack.hit) {
+        const attackerChest = view.chestOf(cluster.attackerId);
+        if (cluster.damageKind === 'melee' && attackerChest) {
+          view.fx.slashArc(attackerChest, chest, attack.critical);
+        } else if (cluster.damageKind === 'arrow') {
+          view.fx.impact(chest, '#e8dcc0', 9, 1.8, 0.3);
+        } else {
+          const colour = cluster.damageKind === 'fire' ? '#ff8b3c' : cluster.damageKind === 'frost' ? '#9fd8ff' : '#c4a6ff';
+          view.fx.impact(chest, colour, 20, 3.0, 0.45);
+        }
+        view.fx.blood(chest, Math.min(1.5, 0.45 + attack.damage / 9));
+        view.fx.floater(chest, attack.critical ? `CRITICAL ${attack.damage}!` : String(attack.damage),
+          attack.critical ? 'crit' : 'damage');
+        if (attack.critical && cluster.targetId) {
+          const ground = view.positionOf(cluster.targetId);
+          if (ground) view.fx.shockRing(ground, 1.25);
+        }
+        this.audio.impact(attack.critical ? 1.35 : 1);
+        if (attack.killed) this.audio.deathCry();
+        this.addShake(attack.critical ? 0.3 : cluster.attackerIsHero ? 0.14 : 0.2);
+        if (cluster.targetId) view.reactToHit(cluster.targetId, attack.killed);
+      } else {
+        view.fx.floater(chest, 'MISS', 'miss');
+        this.audio.parry();
+      }
+    }
+    cluster.phase = 'linger';
+    cluster.timer = 0;
+  }
+
+  /** The spell arrives: reveal effects, burst on targets, floaters for numbers. */
+  private impactSpell(cluster: SpellCluster) {
+    this.onLog(cluster.entries);
+    const view = this.view;
+    if (view) {
+      const colour = cluster.kind === 'fire' ? '#ff8b3c' : cluster.kind === 'frost' ? '#9fd8ff' : '#c4a6ff';
+      for (const entry of cluster.entries) {
+        if (entry.kind === 'damage' && entry.targetId) {
+          const chest = view.chestOf(entry.targetId);
+          if (chest) {
+            view.fx.impact(chest, colour, 22, 3.2, 0.5);
+            view.fx.blood(chest, Math.min(1.4, 0.4 + (entry.amount ?? 4) / 9));
+            view.fx.floater(chest, String(entry.amount ?? ''), 'spell');
+            const dropped = (this.encounter?.byId(entry.targetId)?.health.hp ?? 1) <= 0;
+            view.reactToHit(entry.targetId, dropped);
+            this.audio.impact(1);
+          }
+        } else if (entry.kind === 'heal' && entry.targetId) {
+          const chest = view.chestOf(entry.targetId);
+          if (chest) {
+            view.fx.impact(chest, '#9fe08a', 14, 1.2, 0.7);
+            view.fx.floater(chest, `+${entry.amount ?? ''}`, 'heal');
+          }
+        }
+      }
+      this.addShake(0.16);
+    }
+    cluster.phase = 'linger';
+    cluster.timer = 0;
+  }
+
+  private startSpellCluster(entry: LogEntry) {
+    const hero = this.hero;
+    const casterIsHero = !!hero && entry.actorId === hero.id;
+    const targets: { id: string }[] = [];
+    const effects: LogEntry[] = [];
+    while (this.queue.length) {
+      const next = this.queue[0];
+      if (next.kind === 'attack' || next.kind === 'spell' || next.kind === 'turn' || next.kind === 'round') break;
+      const e = this.queue.shift()!;
+      if (e.targetId && !targets.some(t => t.id === e.targetId)) targets.push({ id: e.targetId });
+      effects.push(e);
+    }
+    const damageEntry = effects.find(e => e.kind === 'damage');
+    const kind: SpellCluster['kind'] = damageEntry
+      ? (/fire|flame|burn|scorch/i.test(damageEntry.text) ? 'fire'
+        : /cold|frost|ice|chill/i.test(damageEntry.text) ? 'frost' : 'force')
+      : 'force';
+    const cluster: SpellCluster = {
+      casterId: entry.actorId ?? '', casterIsHero, targets, kind,
+      entries: [entry, ...effects], phase: 'windup', timer: 0, flight: 0.35,
+    };
+    this.cluster = cluster;
+    if (casterIsHero) this.controller.playAttack('cast');
+    else this.view?.playPose(cluster.casterId, 'cast', 1.1, 0.5);
+    for (const t of targets) this.view?.holdPose(t.id, 1.7);
+    if (damageEntry) this.audio.cast();
+  }
+
+  dispose() {
+    this.dice?.dispose(); this.dice = null;
+    this.view?.dispose(this.scene);
+    this.site?.dispose(this.scene);
+    if (this.trailMarker) this.scene.remove(this.trailMarker);
+    this.view = null; this.site = null; this.encounter = null;
   }
 
   /** Cursor targeting, so the player aims with the mouse in the 3D world. */
@@ -356,6 +751,7 @@ export class CombatDirector {
 
   private resolve() {
     if (!this.encounter) return;
+    this.view?.revealAllHealth();
     if (this.encounter.outcome === 'victory') {
       this.phase = 'resolved';
       this.revealTrail();
@@ -493,12 +889,6 @@ export class CombatDirector {
     };
   }
 
-  dispose() {
-    this.view?.dispose(this.scene);
-    this.site?.dispose(this.scene);
-    if (this.trailMarker) this.scene.remove(this.trailMarker);
-    this.view = null; this.site = null; this.encounter = null;
-  }
 }
 
 /** A stable 32-bit hash, so a character always fights the same ambush. */

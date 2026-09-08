@@ -11,6 +11,10 @@ const PLATES = [
   { name: 'forged-steel', size: 1024, bump: 2.0 },
   { name: 'cave-rock', size: 1024, bump: 3.4 },
   { name: 'parchment', size: 1024, bump: 1.4 },
+  // Creature-specific plates, generated for the photoreal model pass.
+  { name: 'human-skin', size: 1024, bump: 1.2 },
+  { name: 'ox-hide', size: 1024, bump: 1.1 },
+  { name: 'horse-coat', size: 1024, bump: 1.0 },
 ];
 
 await mkdir('public/textures', { recursive: true });

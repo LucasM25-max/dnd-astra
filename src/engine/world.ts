@@ -259,6 +259,16 @@ export class WoodlandWorld {
     const dt = Math.min(realDelta, .1); this.lastFrame = now; this.elapsed += dt;
     this.adventure.update(dt, realDelta);
     this.controller.update(dt);
+    // Combat camera shake lands after the controller positions the camera.
+    {
+      const shake = this.adventure.combatDirector.takeShake();
+      if (shake > 0.001) {
+        this.camera.position.x += (Math.random() - .5) * shake;
+        this.camera.position.y += (Math.random() - .5) * shake * .7;
+        this.camera.position.z += (Math.random() - .5) * shake;
+        this.renderDirty = true;
+      }
+    }
     this.material.wind.value = this.elapsed;
     this.life.update(dt, this.elapsed);
     const particleMat = this.particles.material as THREE.ShaderMaterial;

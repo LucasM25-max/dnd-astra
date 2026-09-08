@@ -5,13 +5,17 @@ import { smoothNormals } from './geometry';
 import type { CombatMaterials } from './combat-materials';
 
 /**
- * Skinned bipedal creatures (goblins, and the larger goblinoids that use the
- * same skeleton). The body is lofted from elliptical cross-sections so the
- * silhouette is continuous rather than a stack of boxes, then bound to a
- * fifteen-bone rig with procedural locomotion, per-foot terrain contact, and
- * layered idle life.
+ * Skinned bipedal creatures — goblins, and the hero who fights them.
  *
- * Faces -Z, up is +Y, metres.
+ * Bodies are lofted from anatomically-placed elliptical cross-sections (hip
+ * flare, waist pinch, ribcage, chest, shoulder slope) so the silhouette reads
+ * as a creature rather than a stack of capsules. Heads are sculpted from a
+ * modified sphere: brow ridge, eye sockets, cheekbones, jaw and chin, with a
+ * separate nose, ears, teeth and eyes parented to the head bone. Clothing and
+ * armour are real geometry — vests, robes, pauldrons, bracers — so every
+ * character reads at a glance even before the texture set lands.
+ *
+ * Faces -Z, up is +Y, metres. Rig: 18 bones, two-bone limbs, terrain IK.
  */
 
 export type HumanoidPose = 'idle' | 'crouch' | 'walk' | 'run' | 'attack' | 'shoot' | 'cast' | 'hurt' | 'down' | 'dead';
@@ -63,6 +67,24 @@ function loft(sections: Section[], sides: number, capTop: boolean, capBottom: bo
   return g;
 }
 
+/** A squashed ellipsoid, used for joint caps, pauldrons and skulls. */
+function blob(radiusX: number, radiusY: number, radiusZ: number, segments = 14) {
+  const g = new THREE.SphereGeometry(1, segments, Math.max(8, Math.round(segments * 0.7)));
+  g.scale(radiusX, radiusY, radiusZ);
+  return g;
+}
+
+/** Catmull-Rom resample of sparse limb profiles into smooth muscle curves. */
+function resample(profile: { y: number; r: number }[], count: number) {
+  const curve = new THREE.CatmullRomCurve3(profile.map(p => new THREE.Vector3(p.r, p.y, 0)));
+  const out: { y: number; r: number }[] = [];
+  for (let i = 0; i < count; i++) {
+    const p = curve.getPoint(i / (count - 1));
+    out.push({ y: p.y, r: Math.max(0.001, p.x) });
+  }
+  return out;
+}
+
 interface Piece { geometry: THREE.BufferGeometry; bone: number; secondary?: number; blend?: (v: THREE.Vector3) => number }
 
 export interface HumanoidShape {
@@ -71,135 +93,219 @@ export interface HumanoidShape {
   build: 'lean' | 'stocky';
   earLength: number;
   noseLength: number;
+  /** Which texture family and detail set to use. Defaults to goblin. */
+  species?: 'goblin' | 'human';
+  /** Hero outfits are cut per class; goblins wear rags. */
+  classId?: 'fighter' | 'wizard' | 'rogue' | 'cleric' | 'ranger' | null;
+  hair?: string;
+}
+
+interface Anatomy {
+  h: number; w: number; d: number;
+  hipY: number; waistY: number; chestY: number; shoulderY: number; neckY: number; headY: number;
+  thigh: number; shin: number; upperArm: number; foreArm: number; footY: number;
+  hipX: number; shoulderX: number; skullR: number; headCentreY: number;
+}
+
+function anatomyOf(shape: HumanoidShape): Anatomy {
+  const h = shape.height;
+  const stocky = shape.build === 'stocky';
+  const w = h * (stocky ? 0.155 : 0.125);   // torso half width
+  const d = h * (stocky ? 0.115 : 0.085);   // torso half depth
+  const thigh = h * 0.225, shin = h * 0.205;
+  const upperArm = h * 0.16, foreArm = h * 0.15;
+  const hipY = thigh + shin + h * 0.055;    // legs meet the pelvis honestly
+  return {
+    h, w, d,
+    hipY, waistY: hipY + h * 0.085, chestY: hipY + h * 0.21, shoulderY: hipY + h * 0.30,
+    neckY: hipY + h * 0.335, headY: hipY + h * 0.36,
+    thigh, shin, upperArm, foreArm, footY: 0,
+    hipX: w * 0.52, shoulderX: w * 1.04 + h * 0.035,
+    skullR: h * (shape.species === 'human' ? 0.086 : 0.092),
+    headCentreY: hipY + h * 0.415,
+  };
 }
 
 function buildGeometry(shape: HumanoidShape, detail: number) {
-  const h = shape.height;
-  const sides = Math.max(7, Math.round(11 * detail));
-  const stocky = shape.build === 'stocky';
-  const w = h * (stocky ? 0.16 : 0.135);       // torso half width
-  const d = h * (stocky ? 0.11 : 0.095);       // torso half depth
-
-  const hipY = h * 0.46, chestY = h * 0.70, shoulderY = h * 0.78, neckY = h * 0.82, headY = h * 0.88;
+  const a = anatomyOf(shape);
+  const { h, w, d } = a;
+  const sides = Math.max(9, Math.round(15 * detail));
+  const limbSides = Math.max(7, Math.round(11 * detail));
+  const goblin = (shape.species ?? 'goblin') === 'goblin';
+  const hunch = goblin ? h * 0.045 : 0;   // goblins carry themselves hunched forward
   const pieces: Piece[] = [];
 
-  // --- torso: hips -> chest -> shoulders, with a real waist ----------------
+  // --- torso: hips -> waist -> ribcage -> chest -> shoulders ---------------
+  const T = (y: number, zf: number, wf: number, df: number): Section =>
+    ({ y, z: zf + ((y - a.hipY) / h) * hunch * 1.6, halfWidth: w * wf, halfDepth: d * df });
   const torso = loft([
-    { y: hipY - h * 0.06, z: 0, halfWidth: w * 0.86, halfDepth: d * 0.88 },
-    { y: hipY, z: 0, halfWidth: w * 0.95, halfDepth: d * 0.95 },
-    { y: hipY + (chestY - hipY) * 0.35, z: -h * 0.006, halfWidth: w * 0.80, halfDepth: d * 0.80 },
-    { y: hipY + (chestY - hipY) * 0.70, z: -h * 0.004, halfWidth: w * 0.93, halfDepth: d * 0.92 },
-    { y: chestY, z: 0, halfWidth: w, halfDepth: d },
-    { y: shoulderY, z: 0, halfWidth: w * 0.94, halfDepth: d * 0.86 },
-    { y: neckY, z: 0, halfWidth: w * 0.50, halfDepth: d * 0.55 },
+    T(a.hipY - h * 0.055, 0, 0.86, 0.84),          // under-pelvis
+    T(a.hipY, 0, 1.02, 0.96),                      // hip flare
+    T(a.waistY - h * 0.035, -h * 0.004, 0.87, 0.86),
+    T(a.waistY, -h * 0.006, 0.80, 0.80),           // waist pinch
+    T(a.chestY - h * 0.075, -h * 0.004, 0.93, 0.96),
+    T(a.chestY - h * 0.02, -h * 0.001, 0.99, 1.02),// ribcage
+    T(a.chestY, h * 0.002, 1.0, 1.07),             // chest, pecs forward
+    T(a.shoulderY - h * 0.045, 0, 0.95, 0.94),
+    T(a.shoulderY, h * 0.004, 0.80, 0.80),         // shoulder slope
+    T(a.shoulderY + h * 0.028, h * 0.006, 0.46, 0.55), // trapezius
   ], sides, true, true);
   pieces.push({
     geometry: torso, bone: BONES.spine, secondary: BONES.pelvis,
-    blend: v => THREE.MathUtils.clamp((v.y - hipY) / Math.max(0.001, chestY - hipY), 0, 1),
+    blend: v => THREE.MathUtils.clamp((v.y - a.hipY) / Math.max(0.001, a.chestY - a.hipY), 0, 1),
   });
 
-  // --- neck and head -------------------------------------------------------
+  // Neck: a thick confident column, raked forward.
+  const neckRake = goblin ? h * 0.02 : h * 0.008;
   const neck = loft([
-    { y: neckY - h * 0.02, z: 0, halfWidth: w * 0.34, halfDepth: d * 0.40 },
-    { y: headY - h * 0.03, z: -h * 0.004, halfWidth: w * 0.30, halfDepth: d * 0.36 },
-  ], sides, false, false);
-  pieces.push({ geometry: neck, bone: BONES.neck, secondary: BONES.chest, blend: v => THREE.MathUtils.clamp((v.y - neckY) / (h * 0.04), 0, 1) });
+    { y: a.shoulderY + h * 0.022, z: h * 0.010 + neckRake * 0.4, halfWidth: w * 0.36, halfDepth: d * 0.44 },
+    { y: a.neckY, z: h * 0.014 + neckRake * 0.8, halfWidth: w * 0.30, halfDepth: d * 0.37 },
+    { y: a.headCentreY - a.skullR * 0.75, z: h * 0.016 + neckRake, halfWidth: w * 0.27, halfDepth: d * 0.34 },
+  ], Math.max(7, sides - 3), false, false);
+  pieces.push({
+    geometry: neck, bone: BONES.neck, secondary: BONES.chest,
+    blend: v => THREE.MathUtils.clamp((v.y - a.shoulderY - h * 0.02) / (h * 0.05), 0, 1),
+  });
 
-  // A goblin skull: wide at the jaw hinge, tapering to a long snout.
-  const skull = loft([
-    { y: headY - h * 0.035, z: 0, halfWidth: w * 0.38, halfDepth: d * 0.44 },
-    { y: headY, z: -h * 0.005, halfWidth: w * 0.56, halfDepth: d * 0.64 },
-    { y: headY + h * 0.032, z: -h * 0.010, halfWidth: w * 0.60, halfDepth: d * 0.66 },
-    { y: headY + h * 0.058, z: -h * 0.004, halfWidth: w * 0.48, halfDepth: d * 0.54 },
-    { y: headY + h * 0.074, z: h * 0.006, halfWidth: w * 0.26, halfDepth: d * 0.30 },
-  ], sides, true, false);
+  // --- skull: a sphere sculpted into brow, sockets, cheekbones and jaw -----
+  const skull = blob(a.skullR, a.skullR * 1.08, a.skullR * 0.98, Math.max(12, Math.round(18 * detail)));
+  skull.translate(0, a.headCentreY, h * 0.018 + neckRake);
+  const sp = skull.getAttribute('position') as THREE.BufferAttribute;
+  const jawForward = goblin ? 0.34 : 0.16;       // how far the jaw juts
+  const jawDrop = goblin ? 1.28 : 1.06;          // how deep the jaw hangs
+  for (let i = 0; i < sp.count; i++) {
+    const x = sp.getX(i), y = sp.getY(i) - a.headCentreY, z = sp.getZ(i) - (h * 0.018 + neckRake);
+    const lat = Math.asin(THREE.MathUtils.clamp(y / (a.skullR * 1.08), -1, 1));   // + up
+    const lon = Math.atan2(x, -z);                                                 // 0 = facing forward
+    let px = x, py = y, pz = z;
+    // Brow ridge above the eyes.
+    const brow = Math.exp(-Math.pow((lat - 0.18) / 0.16, 2)) * Math.exp(-Math.pow(lon / 1.1, 2));
+    pz -= brow * a.skullR * (goblin ? 0.22 : 0.10);
+    // Eye sockets: a soft inward dimple so the eyes sit in shadow.
+    for (const side of [-1, 1]) {
+      const el = Math.exp(-Math.pow((lat - 0.02) / 0.12, 2)) * Math.exp(-Math.pow((lon - side * 0.52) / 0.34, 2));
+      pz += el * a.skullR * 0.10;
+    }
+    // Cheekbones.
+    const cheek = Math.exp(-Math.pow((lat + 0.10) / 0.14, 2)) * Math.exp(-Math.pow((Math.abs(lon) - 0.75) / 0.30, 2));
+    px += Math.sign(x || 1) * cheek * a.skullR * 0.10;
+    // Jaw and chin: heavy below and ahead, tapering to a rounded chin.
+    const jawZone = THREE.MathUtils.clamp(-lat / 1.1, 0, 1) * Math.exp(-Math.pow(lon / 1.35, 2));
+    pz -= jawZone * a.skullR * jawForward * 0.5;
+    py -= jawZone * a.skullR * (jawDrop - 1) * 0.55;
+    const chin = Math.exp(-Math.pow((lat + 0.62) / 0.20, 2)) * Math.exp(-Math.pow(lon / 0.5, 2));
+    pz -= chin * a.skullR * jawForward * 0.42;
+    // Flatten the back of a goblin skull slightly; crown the human rounder.
+    if (lon > 1.9 || lon < -1.9) px *= goblin ? 0.97 : 1.0;
+    sp.setXYZ(i, px, py + a.headCentreY, pz + h * 0.018 + neckRake);
+  }
   pieces.push({ geometry: skull, bone: BONES.head });
 
-  // Snout / muzzle, pushed forward from the face.
-  const snout = loft([
-    { y: headY + h * 0.014, z: -d * 0.55, halfWidth: w * 0.26, halfDepth: d * 0.18 },
-    { y: headY + h * 0.006, z: -d * 0.55 - shape.noseLength * 0.55, halfWidth: w * 0.17, halfDepth: d * 0.13 },
-    { y: headY - h * 0.004, z: -d * 0.55 - shape.noseLength, halfWidth: w * 0.08, halfDepth: d * 0.07 },
-  ], Math.max(6, sides - 3), true, false);
-  pieces.push({ geometry: snout, bone: BONES.head });
+  // Nose: bridge to tip, broader and longer on a goblin.
+  const noseBase = a.headCentreY + a.skullR * 0.05;
+  const noseLen = shape.noseLength;
+  const nose = loft([
+    { y: noseBase + a.skullR * 0.16, z: -a.skullR * 0.62, halfWidth: a.skullR * 0.16, halfDepth: a.skullR * 0.10 },
+    { y: noseBase, z: -a.skullR * 0.78 - noseLen * 0.35, halfWidth: a.skullR * 0.20, halfDepth: a.skullR * 0.13 },
+    { y: noseBase - a.skullR * 0.10, z: -a.skullR * 0.82 - noseLen * 0.8, halfWidth: a.skullR * 0.23, halfDepth: a.skullR * 0.15 },
+    { y: noseBase - a.skullR * 0.20, z: -a.skullR * 0.72 - noseLen, halfWidth: a.skullR * 0.12, halfDepth: a.skullR * 0.09 },
+  ], Math.max(6, sides - 4), true, false);
+  pieces.push({ geometry: nose, bone: BONES.head });
 
-  // Long swept-back ears — the goblin read at a glance.
+  // Ears: a flattened cone with a darker inner leaf. Goblin ears sweep long.
   for (const side of [-1, 1]) {
-    const ear = new THREE.BufferGeometry();
-    const tipY = headY + h * 0.075, tipX = side * (w * 0.55 + shape.earLength);
-    const verts = new Float32Array([
-      side * w * 0.50, headY + h * 0.030, -d * 0.10,
-      side * w * 0.48, headY - h * 0.005, d * 0.06,
-      tipX, tipY, d * 0.22,
-      side * w * 0.52, headY + h * 0.014, d * 0.02,
-    ]);
-    ear.setAttribute('position', new THREE.BufferAttribute(verts, 3));
-    ear.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 0, 1, 1, 1, .5, .5], 2));
-    ear.setIndex(side > 0 ? [0, 1, 2, 0, 2, 3] : [0, 2, 1, 0, 3, 2]);
-    ear.computeVertexNormals();
+    const earLen = shape.earLength;
+    const earProfile: [number, number][] = [
+      [0.001, 0], [a.skullR * 0.16, a.skullR * 0.10], [a.skullR * 0.13, a.skullR * 0.38],
+      [a.skullR * 0.08, a.skullR * 0.72], [0.012, earLen], [0.001, earLen + a.skullR * 0.04],
+    ];
+    const ear = new THREE.LatheGeometry(earProfile.map(([r, y]) => new THREE.Vector2(r, y)), Math.max(5, sides - 5));
+    ear.scale(1, 1, 0.42);
+    ear.rotateZ(side * -0.35);
+    ear.rotateY(Math.PI / 2);
+    ear.translate(side * a.skullR * 0.86, a.headCentreY + a.skullR * 0.06, h * 0.018 + neckRake + a.skullR * 0.08);
     pieces.push({ geometry: ear, bone: BONES.head });
   }
 
-  // --- limbs ---------------------------------------------------------------
-  const armSides = Math.max(6, sides - 3);
-  const upperArm = h * 0.155, foreArm = h * 0.145;
+  // --- arms: deltoid cap, bicep swell, forearm taper, real hands ----------
+  const armProfiles = resample([
+    { y: a.shoulderY + h * 0.015, r: w * 0.30 },
+    { y: a.shoulderY - a.upperArm * 0.18, r: w * 0.27 },
+    { y: a.shoulderY - a.upperArm * 0.62, r: w * 0.215 },
+    { y: a.shoulderY - a.upperArm, r: w * 0.175 },
+  ], Math.max(4, Math.round(5 * detail)));
+  const foreProfiles = resample([
+    { y: a.shoulderY - a.upperArm, r: w * 0.185 },
+    { y: a.shoulderY - a.upperArm - a.foreArm * 0.30, r: w * 0.16 },
+    { y: a.shoulderY - a.upperArm - a.foreArm * 0.72, r: w * 0.135 },
+    { y: a.shoulderY - a.upperArm - a.foreArm, r: w * 0.115 },
+  ], Math.max(4, Math.round(5 * detail)));
   for (const side of [-1, 1]) {
     const shoulder = side < 0 ? BONES.shoulderL : BONES.shoulderR;
     const elbow = side < 0 ? BONES.elbowL : BONES.elbowR;
     const hand = side < 0 ? BONES.handL : BONES.handR;
-    const sx = side * w * 0.92;
+    const sx = side * a.shoulderX;
+    const y0 = a.shoulderY;
 
-    const upper = loft([
-      { y: shoulderY, z: 0, halfWidth: w * 0.26, halfDepth: w * 0.26 },
-      { y: shoulderY - upperArm * 0.5, z: 0, halfWidth: w * 0.21, halfDepth: w * 0.21 },
-      { y: shoulderY - upperArm, z: 0, halfWidth: w * 0.18, halfDepth: w * 0.18 },
-    ], armSides, false, true).translate(sx, 0, 0);
+    const upper = loft(armProfiles.map(p => ({ y: p.y, z: 0, halfWidth: p.r, halfDepth: p.r })), limbSides, false, true)
+      .translate(sx, 0, 0);
     pieces.push({ geometry: upper, bone: shoulder });
 
-    const lower = loft([
-      { y: shoulderY - upperArm, z: 0, halfWidth: w * 0.18, halfDepth: w * 0.18 },
-      { y: shoulderY - upperArm - foreArm * 0.6, z: 0, halfWidth: w * 0.15, halfDepth: w * 0.15 },
-      { y: shoulderY - upperArm - foreArm, z: 0, halfWidth: w * 0.13, halfDepth: w * 0.13 },
-    ], armSides, false, false).translate(sx, 0, 0);
+    const lower = loft(foreProfiles.map(p => ({ y: p.y, z: 0, halfWidth: p.r, halfDepth: p.r })), limbSides, false, false)
+      .translate(sx, 0, 0);
     pieces.push({ geometry: lower, bone: elbow });
 
-    // A blunt three-finger fist rather than a sphere.
-    const fist = loft([
-      { y: shoulderY - upperArm - foreArm, z: 0, halfWidth: w * 0.15, halfDepth: w * 0.14 },
-      { y: shoulderY - upperArm - foreArm - h * 0.030, z: -w * 0.05, halfWidth: w * 0.17, halfDepth: w * 0.17 },
-      { y: shoulderY - upperArm - foreArm - h * 0.055, z: -w * 0.07, halfWidth: w * 0.10, halfDepth: w * 0.12 },
-    ], armSides, true, false).translate(sx, 0, 0);
-    pieces.push({ geometry: fist, bone: hand });
+    // A mitt with a palm, knuckles and an opposable thumb.
+    const handY = y0 - a.upperArm - a.foreArm;
+    const palm = loft([
+      { y: handY + h * 0.008, z: -h * 0.004, halfWidth: w * 0.145, halfDepth: w * 0.115 },
+      { y: handY - h * 0.020, z: -h * 0.012, halfWidth: w * 0.155, halfDepth: w * 0.105 },
+      { y: handY - h * 0.046, z: -h * 0.016, halfWidth: w * 0.115, halfDepth: w * 0.085 },
+    ], Math.max(6, limbSides - 2), true, false).translate(side * a.shoulderX, 0, 0);
+    pieces.push({ geometry: palm, bone: hand });
+    const thumb = blob(w * 0.055, w * 0.075, w * 0.055, 8);
+    thumb.translate(side * (a.shoulderX + w * 0.10), handY - h * 0.012, -h * 0.018);
+    pieces.push({ geometry: thumb, bone: hand });
   }
 
-  const thigh = h * 0.215, shin = h * 0.195;
+  // --- legs: quad bulge, calf, wedge foot ----------------------------------
+  const hipX = a.hipX;
+  const kneeY = a.hipY - a.thigh, ankleY = kneeY - a.shin;
+  const thighProfiles = resample([
+    { y: a.hipY - h * 0.01, r: w * 0.42 },
+    { y: a.hipY - a.thigh * 0.30, r: w * 0.37 },
+    { y: a.hipY - a.thigh * 0.68, r: w * 0.28 },
+    { y: kneeY, r: w * 0.215 },
+  ], Math.max(4, Math.round(6 * detail)));
+  const shinProfiles = resample([
+    { y: kneeY, r: w * 0.225 },
+    { y: kneeY - a.shin * 0.28, r: w * 0.19 },
+    { y: kneeY - a.shin * 0.66, r: w * 0.12 },
+    { y: ankleY, r: w * 0.095 },
+  ], Math.max(4, Math.round(5 * detail)));
   for (const side of [-1, 1]) {
     const hip = side < 0 ? BONES.hipL : BONES.hipR;
     const knee = side < 0 ? BONES.kneeL : BONES.kneeR;
     const foot = side < 0 ? BONES.footL : BONES.footR;
-    const sx = side * w * 0.46;
+    const sx = side * hipX;
 
-    const upperLeg = loft([
-      { y: hipY - h * 0.02, z: 0, halfWidth: w * 0.34, halfDepth: w * 0.34 },
-      { y: hipY - h * 0.02 - thigh * 0.5, z: 0, halfWidth: w * 0.27, halfDepth: w * 0.28 },
-      { y: hipY - h * 0.02 - thigh, z: 0, halfWidth: w * 0.21, halfDepth: w * 0.22 },
-    ], armSides, false, true).translate(sx, 0, 0);
-    pieces.push({ geometry: upperLeg, bone: hip });
+    const upper = loft(thighProfiles.map(p => ({ y: p.y, z: 0, halfWidth: p.r, halfDepth: p.r * 1.06 })), limbSides, false, true)
+      .translate(sx, 0, 0);
+    pieces.push({ geometry: upper, bone: hip });
 
-    // A digitigrade calf: heavy at the top, thin at the ankle.
-    const lowerLeg = loft([
-      { y: hipY - h * 0.02 - thigh, z: 0, halfWidth: w * 0.22, halfDepth: w * 0.24 },
-      { y: hipY - h * 0.02 - thigh - shin * 0.4, z: -w * 0.02, halfWidth: w * 0.18, halfDepth: w * 0.20 },
-      { y: hipY - h * 0.02 - thigh - shin, z: 0, halfWidth: w * 0.11, halfDepth: w * 0.12 },
-    ], armSides, false, false).translate(sx, 0, 0);
-    pieces.push({ geometry: lowerLeg, bone: knee });
+    // The calf kicks backward below the knee.
+    const lower = loft(shinProfiles.map((p, i) => ({
+      y: p.y, z: i === 1 ? h * 0.012 : i === 2 ? h * 0.006 : 0, halfWidth: p.r, halfDepth: p.r * (i === 1 ? 1.22 : 1.0),
+    })), limbSides, false, false).translate(sx, 0, 0);
+    pieces.push({ geometry: lower, bone: knee });
 
-    const footY = hipY - h * 0.02 - thigh - shin;
+    // A real foot: heel, arch, toes.
     const footGeo = loft([
-      { y: footY, z: 0, halfWidth: w * 0.12, halfDepth: w * 0.14 },
-      { y: footY - h * 0.030, z: -w * 0.14, halfWidth: w * 0.15, halfDepth: w * 0.32 },
-      { y: footY - h * 0.048, z: -w * 0.18, halfWidth: w * 0.14, halfDepth: w * 0.36 },
-    ], armSides, true, false).translate(sx, 0, 0);
+      { y: h * 0.002, z: -h * 0.026, halfWidth: w * 0.16, halfDepth: w * 0.30 },
+      { y: h * 0.016, z: -h * 0.028, halfWidth: w * 0.165, halfDepth: w * 0.28 },
+      { y: h * 0.030, z: -h * 0.010, halfWidth: w * 0.135, halfDepth: w * 0.17 },
+      { y: h * 0.046, z: h * 0.002, halfWidth: w * 0.11, halfDepth: w * 0.12 },
+    ], Math.max(6, limbSides - 2), true, false).translate(sx, 0, 0);
     pieces.push({ geometry: footGeo, bone: foot });
   }
 
@@ -240,7 +346,7 @@ function buildGeometry(shape: HumanoidShape, detail: number) {
   smoothNormals(merged);
   merged.computeBoundingSphere();
   merged.computeBoundingBox();
-  return { geometry: merged, metrics: { hipY, chestY, shoulderY, neckY, headY, thigh, shin, upperArm, foreArm, w, d } };
+  return { geometry: merged, metrics: a };
 }
 
 export interface HumanoidCommand {
@@ -253,6 +359,7 @@ export interface HumanoidCommand {
   lookAt?: THREE.Vector3;
   /** 0..1 progress through a one-shot action, driven by the encounter. */
   actionPhase: number;
+  /** Pose name only matters again when actionPhase < 0 (self-advancing). */
 }
 
 export class Humanoid {
@@ -264,7 +371,7 @@ export class Humanoid {
   /** Public so the encounter renderer can hang health bars at the right place. */
   readonly headHeight: number;
 
-  private metrics: ReturnType<typeof buildGeometry>['metrics'];
+  private metrics: Anatomy;
   private rng: () => number;
   private t: number;
   private stride = 0;
@@ -279,6 +386,8 @@ export class Humanoid {
   private footPlant: [number, number] = [0, 0];
   private lookTarget = new THREE.Vector3();
   private hasLook = false;
+  private eyeL: THREE.Mesh | null = null;
+  private eyeR: THREE.Mesh | null = null;
   onFootfall?: (side: number, x: number, z: number, strength: number) => void;
 
   constructor(shape: HumanoidShape, materials: CombatMaterials, skinTint: string, clothTint: string, seed = 0, detail = 1) {
@@ -287,12 +396,13 @@ export class Humanoid {
     this.t = this.rng() * 8;
     this.breath = this.rng() * Math.PI * 2;
     this.nextBlink = 1 + this.rng() * 4;
-    this.headHeight = shape.height * 0.96;
+    this.headHeight = shape.height * 0.99;
 
     const { geometry, metrics } = buildGeometry(shape, detail);
     this.metrics = metrics;
 
-    const material = materials.creatureSkin.clone();
+    const goblin = (shape.species ?? 'goblin') === 'goblin';
+    const material = (goblin ? materials.creatureSkin : materials.humanSkin).clone();
     material.color = new THREE.Color(skinTint);
     material.vertexColors = true;
 
@@ -333,49 +443,216 @@ export class Humanoid {
     this.root.add(this.mesh);
     this.root.rotation.order = 'YXZ';
 
-    this.addClothing(materials, clothTint);
-    this.addEyes(materials);
+    this.addFace(materials, goblin);
+    this.addOutfit(materials, clothTint, goblin);
 
     // The weapon rides in the right hand; the encounter fills it in.
     bones[B.handR].add(this.weapon);
   }
 
-  /** Loincloth, wraps and a shoulder strap, cut from the cloth material. */
-  private addClothing(materials: CombatMaterials, tint: string) {
-    const h = this.shape.height, m = this.metrics;
+  /** Eyes with depth, a mouth, teeth on a goblin, hair on a hero. */
+  private addFace(materials: CombatMaterials, goblin: boolean) {
+    const { h, skullR, headCentreY: hc } = this.metrics;
+    const head = this.bones[BONES.head];
+    const faceZ = -skullR * 0.80;
+    const eyeY = hc + skullR * 0.02, eyeX = skullR * 0.42, eyeR = skullR * (goblin ? 0.155 : 0.13);
+
+    const sclera = new THREE.MeshPhysicalMaterial({
+      color: goblin ? '#c8b34a' : '#e8e2d2', roughness: 0.15, clearcoat: 0.9, clearcoatRoughness: 0.1,
+    });
+    const irisMat = new THREE.MeshStandardMaterial({ color: goblin ? '#2a1e08' : '#3a2a18', roughness: 0.25 });
+    for (const side of [-1, 1]) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(eyeR, 12, 10), sclera);
+      eye.scale.set(1, goblin ? 1.15 : 0.95, 0.72);
+      eye.position.set(side * eyeX, eyeY, faceZ + skullR * 0.06);
+      eye.rotation.y = side * -0.22;
+      head.add(eye);
+      const iris = new THREE.Mesh(new THREE.SphereGeometry(eyeR * 0.52, 10, 8), irisMat);
+      iris.scale.set(1, 1, 0.5);
+      iris.position.set(0, 0, -eyeR * 0.62);
+      eye.add(iris);
+      if (side < 0) this.eyeL = eye; else this.eyeR = eye;
+
+      // A heavy brow shadows the socket — strongly on a goblin.
+      const brow = new THREE.Mesh(new THREE.BoxGeometry(eyeR * 2.4, skullR * 0.10, skullR * 0.16), materials.creatureSkin);
+      (brow.material as THREE.MeshStandardMaterial) = (brow.material as THREE.MeshStandardMaterial);
+      brow.position.set(side * eyeX, eyeY + eyeR * 1.35, faceZ + skullR * 0.10);
+      brow.rotation.set(0.25, side * -0.2, side * -0.10);
+      brow.scale.z = goblin ? 1.5 : 1;
+      head.add(brow);
+    }
+
+    // Mouth: a dark slit; goblins get an underbite with real teeth.
+    const mouthY = hc - skullR * 0.42;
+    const mouth = new THREE.Mesh(new THREE.BoxGeometry(skullR * (goblin ? 0.62 : 0.5), skullR * 0.05, skullR * 0.10),
+      new THREE.MeshStandardMaterial({ color: goblin ? '#3a1210' : '#7a4a40', roughness: 0.6 }));
+    mouth.position.set(0, mouthY, faceZ - skullR * (goblin ? 0.28 : 0.16));
+    head.add(mouth);
+    if (goblin) {
+      const toothMat = new THREE.MeshStandardMaterial({ color: '#d8c98e', roughness: 0.45 });
+      for (let i = -2; i <= 2; i++) {
+        if (i === 0) continue;
+        const tooth = new THREE.Mesh(new THREE.ConeGeometry(skullR * 0.045, skullR * 0.16, 5), toothMat);
+        tooth.position.set(i * skullR * 0.14, mouthY + skullR * 0.06, faceZ - skullR * 0.32);
+        tooth.rotation.x = Math.PI;
+        head.add(tooth);
+      }
+      // Two lower tusks pushing up past the lip.
+      for (const side of [-1, 1]) {
+        const tusk = new THREE.Mesh(new THREE.ConeGeometry(skullR * 0.05, skullR * 0.20, 5), toothMat);
+        tusk.position.set(side * skullR * 0.24, mouthY - skullR * 0.02, faceZ - skullR * 0.34);
+        tusk.rotation.x = -0.25;
+        head.add(tusk);
+      }
+    }
+
+    // Hair. Goblins sprout a few wiry tufts; the hero gets a short crop.
+    if (goblin) {
+      const tuftMat = new THREE.MeshStandardMaterial({ color: '#2e2a20', roughness: 1 });
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2 + this.rng();
+        const tuft = new THREE.Mesh(new THREE.ConeGeometry(skullR * 0.09, skullR * (0.3 + this.rng() * 0.25), 5), tuftMat);
+        tuft.position.set(Math.cos(a) * skullR * 0.5, hc + skullR * 0.92, h * 0.018 + Math.sin(a) * skullR * 0.45 + skullR * 0.1);
+        tuft.rotation.set(0.3 + Math.sin(a) * 0.5, 0, Math.cos(a) * 0.5);
+        head.add(tuft);
+      }
+    } else if (this.shape.hair !== 'bald') {
+      const crop = new THREE.Mesh(new THREE.SphereGeometry(skullR * 1.04, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.62),
+        new THREE.MeshStandardMaterial({ color: this.shape.hair ?? '#4a351f', roughness: 0.95 }));
+      crop.position.set(0, hc + skullR * 0.02, h * 0.018);
+      crop.rotation.x = -0.22;
+      head.add(crop);
+    }
+  }
+
+  /** Real garments: goblin rags or a per-class kit, cut to the body. */
+  private addOutfit(materials: CombatMaterials, tint: string, goblin: boolean) {
+    const { h, w, d, hipY, chestY, shoulderY, thigh, shin, upperArm, foreArm, shoulderX } = this.metrics;
     const cloth = materials.creatureCloth.clone();
     cloth.color = new THREE.Color(tint);
     const group = new THREE.Group();
 
-    const skirt = new THREE.Mesh(new THREE.CylinderGeometry(m.w * 1.02, m.w * 1.26, h * 0.17, 12, 2, true), cloth);
-    skirt.position.y = m.hipY - h * 0.055;
-    skirt.castShadow = true;
-    group.add(skirt);
+    if (goblin) {
+      // Ragged vest hugging the ribcage, belted, one bracer, one shoulder pad.
+      const vest = new THREE.Mesh(new THREE.CylinderGeometry(w * 1.06, w * 1.12, h * 0.20, 12, 1, true), cloth);
+      vest.position.y = hipY + (chestY - hipY) * 0.55;
+      vest.castShadow = true;
+      group.add(vest);
+      const skirt = new THREE.Mesh(new THREE.CylinderGeometry(w * 1.04, w * 1.30, h * 0.15, 12, 1, true), cloth);
+      skirt.position.y = hipY - h * 0.045;
+      skirt.castShadow = true;
+      group.add(skirt);
+      const belt = new THREE.Mesh(new THREE.TorusGeometry(w * 1.02, h * 0.013, 6, 16), materials.leather);
+      belt.rotation.x = Math.PI / 2; belt.position.y = hipY + h * 0.012;
+      group.add(belt);
+      const pouch = new THREE.Mesh(new THREE.SphereGeometry(h * 0.032, 8, 6), materials.leather);
+      pouch.scale.set(1, 1.1, 0.6); pouch.position.set(w * 0.9, hipY - h * 0.03, d * 0.7);
+      group.add(pouch);
+      const strap = new THREE.Mesh(new THREE.BoxGeometry(h * 0.028, h * 0.26, h * 0.010), materials.leather);
+      strap.position.set(-w * 0.14, chestY - h * 0.01, -d * 0.88);
+      strap.rotation.z = 0.46;
+      group.add(strap);
+      // A studded bracer on the weapon forearm.
+      const bracer = new THREE.Mesh(new THREE.CylinderGeometry(w * 0.16, w * 0.19, h * 0.09, 9, 1, true), materials.leather);
+      bracer.position.set(shoulderX, shoulderY - upperArm - foreArm * 0.45, 0);
+      bracer.castShadow = true;
+      group.add(bracer);
+      // A scrap pauldron over the strap shoulder.
+      const pad = new THREE.Mesh(new THREE.SphereGeometry(w * 0.30, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.55), materials.leather);
+      pad.position.set(-shoulderX * 0.95, shoulderY + h * 0.01, 0);
+      pad.rotation.z = -0.3;
+      pad.castShadow = true;
+      group.add(pad);
 
-    const belt = new THREE.Mesh(new THREE.TorusGeometry(m.w * 1.0, h * 0.014, 6, 16), materials.leather);
-    belt.rotation.x = Math.PI / 2; belt.position.y = m.hipY + h * 0.012;
-    group.add(belt);
-
-    // A single strap across the chest reads instantly as "armed and equipped".
-    const strap = new THREE.Mesh(new THREE.BoxGeometry(h * 0.030, h * 0.30, h * 0.012), materials.leather);
-    strap.position.set(-m.w * 0.16, m.chestY - h * 0.01, -m.d * 0.86);
-    strap.rotation.z = 0.46;
-    group.add(strap);
-
-    this.bones[BONES.pelvis].add(skirt);
-    this.bones[BONES.pelvis].add(belt);
-    this.bones[BONES.chest].add(strap);
-    // Nothing else is parented to `group`; it exists only to build the parts.
-    group.clear();
-  }
-
-  private addEyes(materials: CombatMaterials) {
-    const h = this.shape.height, m = this.metrics;
-    for (const side of [-1, 1]) {
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(h * 0.0165, 10, 8), materials.eye);
-      eye.position.set(side * m.w * 0.26, m.headY + h * 0.026, -m.d * 0.52);
-      this.bones[BONES.head].add(eye);
+      this.bones[BONES.pelvis].add(skirt, belt, pouch);
+      this.bones[BONES.chest].add(vest, strap);
+      this.bones[BONES.elbowR].add(bracer);
+      this.bones[BONES.shoulderL].add(pad);
+    } else {
+      // Hero kit, per class.
+      const leather = materials.leather;
+      const mail = materials.chainmail;
+      switch (this.shape.classId) {
+        case 'fighter': {
+          const shirt = new THREE.Mesh(new THREE.CylinderGeometry(w * 1.10, w * 1.02, h * 0.26, 14, 1, true), mail);
+          shirt.position.y = hipY + (chestY - hipY) * 0.62;
+          shirt.castShadow = true;
+          const skirt = new THREE.Mesh(new THREE.CylinderGeometry(w * 1.05, w * 1.22, h * 0.13, 12, 1, true), mail);
+          skirt.position.y = hipY - h * 0.03;
+          const belt = new THREE.Mesh(new THREE.TorusGeometry(w * 1.06, h * 0.014, 6, 16), leather);
+          belt.rotation.x = Math.PI / 2; belt.position.y = hipY + h * 0.02;
+          for (const side of [-1, 1]) {
+            const pauldron = new THREE.Mesh(new THREE.SphereGeometry(w * 0.34, 12, 9, 0, Math.PI * 2, 0, Math.PI * 0.58), mail);
+            pauldron.position.set(side * shoulderX * 0.96, shoulderY + h * 0.012, 0);
+            pauldron.rotation.z = side * 0.35;
+            pauldron.castShadow = true;
+            this.bones[side < 0 ? BONES.shoulderL : BONES.shoulderR].add(pauldron);
+          }
+          this.bones[BONES.chest].add(shirt);
+          this.bones[BONES.pelvis].add(skirt, belt);
+          break;
+        }
+        case 'wizard': {
+          // A floor-length robe from chest to ankle, with a rope belt.
+          const hemY = hipY - thigh - shin * 0.2, topY = chestY - h * 0.05;
+          const robe = new THREE.Mesh(new THREE.CylinderGeometry(w * 1.05, w * 1.85, topY - hemY, 16, 3, true), cloth);
+          robe.position.y = (topY + hemY) / 2;
+          robe.castShadow = true;
+          const sash = new THREE.Mesh(new THREE.TorusGeometry(w * 0.98, h * 0.011, 6, 16), materials.leather);
+          sash.rotation.x = Math.PI / 2; sash.position.y = hipY + h * 0.09;
+          this.bones[BONES.chest].add(robe, sash);
+          break;
+        }
+        case 'rogue': {
+          const vest = new THREE.Mesh(new THREE.CylinderGeometry(w * 1.08, w * 1.0, h * 0.22, 12, 1, true), leather);
+          vest.position.y = hipY + (chestY - hipY) * 0.6;
+          vest.castShadow = true;
+          const belt = new THREE.Mesh(new THREE.TorusGeometry(w * 1.02, h * 0.012, 6, 16), leather);
+          belt.rotation.x = Math.PI / 2; belt.position.y = hipY + h * 0.015;
+          this.bones[BONES.chest].add(vest);
+          this.bones[BONES.pelvis].add(belt);
+          break;
+        }
+        case 'cleric': {
+          const robe = new THREE.Mesh(new THREE.CylinderGeometry(w * 1.06, w * 1.6, (hipY - thigh - shin * 0.35) - (chestY + h * 0.02), 16, 3, true), cloth);
+          robe.position.y = ((chestY + h * 0.02) + (hipY - thigh - shin * 0.35)) / 2;
+          robe.castShadow = true;
+          const mantle = new THREE.Mesh(new THREE.SphereGeometry(w * 0.62, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.5), cloth);
+          mantle.position.y = shoulderY + h * 0.005;
+          mantle.castShadow = true;
+          this.bones[BONES.chest].add(robe, mantle);
+          break;
+        }
+        case 'ranger': {
+          const cuirass = new THREE.Mesh(new THREE.CylinderGeometry(w * 1.05, w * 0.98, h * 0.20, 12, 1, true), leather);
+          cuirass.position.y = hipY + (chestY - hipY) * 0.66;
+          cuirass.castShadow = true;
+          const belt = new THREE.Mesh(new THREE.TorusGeometry(w * 1.0, h * 0.012, 6, 16), leather);
+          belt.rotation.x = Math.PI / 2; belt.position.y = hipY + h * 0.015;
+          for (const side of [-1, 1]) {
+            const bracer = new THREE.Mesh(new THREE.CylinderGeometry(w * 0.15, w * 0.18, h * 0.085, 9, 1, true), leather);
+            bracer.position.set(0, -foreArm * 0.45, 0);
+            bracer.castShadow = true;
+            this.bones[side < 0 ? BONES.elbowL : BONES.elbowR].add(bracer);
+          }
+          this.bones[BONES.chest].add(cuirass);
+          this.bones[BONES.pelvis].add(belt);
+          break;
+        }
+        default: {
+          // A simple travelling tunic so even the base body is dressed.
+          const tunic = new THREE.Mesh(new THREE.CylinderGeometry(w * 1.08, w * 1.15, h * 0.22, 12, 1, true), cloth);
+          tunic.position.y = hipY + (chestY - hipY) * 0.55;
+          tunic.castShadow = true;
+          const belt = new THREE.Mesh(new THREE.TorusGeometry(w * 1.02, h * 0.012, 6, 16), leather);
+          belt.rotation.x = Math.PI / 2; belt.position.y = hipY + h * 0.015;
+          this.bones[BONES.chest].add(tunic);
+          this.bones[BONES.pelvis].add(belt);
+        }
+      }
     }
+    // `group` only staged the meshes; everything is bone-parented above.
+    group.clear();
   }
 
   /** Place the creature; y is sampled from the terrain. */
@@ -447,13 +724,21 @@ export class Humanoid {
     this.nextBlink -= dt;
     if (this.nextBlink <= 0 && this.blinkT < 0) { this.blinkT = 0; this.nextBlink = 2 + this.rng() * 5; }
     if (this.blinkT >= 0) { this.blinkT += dt * 9; if (this.blinkT > 1) this.blinkT = -1; }
+    const squint = this.blinkT >= 0 ? Math.sin(Math.min(1, this.blinkT) * Math.PI) * 0.82 : 0;
+    if (this.eyeL) this.eyeL.scale.y = (this.shape.species === 'goblin' ? 1.15 : 0.95) * (1 - squint);
+    if (this.eyeR) this.eyeR.scale.y = (this.shape.species === 'goblin' ? 1.15 : 0.95) * (1 - squint);
 
     // --- one-shot action layer ----------------------------------------------
     const target = pose === 'attack' || pose === 'shoot' || pose === 'cast' || pose === 'hurt' ? 1 : 0;
     this.actionBlend = THREE.MathUtils.damp(this.actionBlend, target, 12, dt);
     const phase = THREE.MathUtils.clamp(command.actionPhase, 0, 1);
-    // A wind-up then a snap: fast out, slow back.
-    const swingCurve = phase < 0.35 ? -Math.sin(phase / 0.35 * Math.PI * 0.5) * 0.8 : Math.sin((phase - 0.35) / 0.65 * Math.PI) * 1.5;
+    // A wind-up then a snap: fast out, slow back. Big recoil follow-through.
+    const windup = phase < 0.38 ? -(phase / 0.38) : -1 + (phase - 0.38) / 0.62;
+    const swingCurve = phase < 0.38
+      ? -Math.sin((phase / 0.38) * Math.PI * 0.5) * 0.85
+      : Math.sin(((phase - 0.38) / 0.62) * Math.PI * 0.5) * 1.55 * (1 - Math.pow(Math.max(0, (phase - 0.72) / 0.28), 2) * 0.35);
+    // Torso twist feeds the shoulders: wind up back, snap through.
+    const twist = phase < 0.38 ? windup * 0.5 : Math.sin(((phase - 0.38) / 0.62) * Math.PI) * 0.85;
 
     // --- arms -----------------------------------------------------------------
     for (const [shoulder, elbow, hand, side] of [
@@ -469,9 +754,10 @@ export class Humanoid {
 
       if (side > 0 && this.actionBlend > 0.01) {
         if (pose === 'attack') {
-          sx = THREE.MathUtils.lerp(sx, -1.5 + swingCurve * 1.5, this.actionBlend);
-          ex = THREE.MathUtils.lerp(ex, -1.9 + swingCurve * 1.3, this.actionBlend);
-          sz = THREE.MathUtils.lerp(sz, 0.55, this.actionBlend);
+          sx = THREE.MathUtils.lerp(sx, -1.75 + swingCurve * 1.75, this.actionBlend);
+          ex = THREE.MathUtils.lerp(ex, -2.1 + swingCurve * 1.45, this.actionBlend);
+          sz = THREE.MathUtils.lerp(sz, 0.75 + windup * 0.3, this.actionBlend);
+          sy = THREE.MathUtils.lerp(sy, twist * 0.6, this.actionBlend);
         } else if (pose === 'shoot') {
           // Draw across the body, elbow high.
           sx = THREE.MathUtils.lerp(sx, -1.30, this.actionBlend);
@@ -491,6 +777,12 @@ export class Humanoid {
         sz = THREE.MathUtils.lerp(sz, -0.25, this.actionBlend);
         ex = THREE.MathUtils.lerp(ex, -0.12, this.actionBlend);
       }
+      if (side < 0 && pose === 'attack' && this.actionBlend > 0.01) {
+        // The off-side arm chops across the chest for balance.
+        sx = THREE.MathUtils.lerp(sx, -0.9 + windup * 0.4, this.actionBlend);
+        ex = THREE.MathUtils.lerp(ex, -1.55, this.actionBlend);
+        sz = THREE.MathUtils.lerp(sz, -0.45, this.actionBlend);
+      }
       if (dying) {
         sx = THREE.MathUtils.lerp(sx, 0.55, this.deathBlend);
         ex = THREE.MathUtils.lerp(ex, -0.25, this.deathBlend);
@@ -500,6 +792,11 @@ export class Humanoid {
       this.bones[shoulder].rotation.set(sx, sy, sz);
       this.bones[elbow].rotation.x = ex;
       this.bones[hand].rotation.x = -0.15;
+    }
+    // The chest counter-rotates the twist so the swing has real mass.
+    if ((pose === 'attack') && this.actionBlend > 0.01) {
+      B[BONES.chest].rotation.y += twist * 0.5 * this.actionBlend;
+      B[BONES.spine].rotation.y += twist * 0.22 * this.actionBlend;
     }
 
     // --- legs: two-bone IK against the terrain --------------------------------
@@ -513,7 +810,7 @@ export class Humanoid {
       const reach = Math.cos(legPhase) * 0.55 * swing;
 
       // Terrain under this foot, so uneven ground bends the right knee.
-      const footLocalX = side * m.w * 0.46;
+      const footLocalX = side * m.hipX;
       const world = this.root.localToWorld(new THREE.Vector3(footLocalX, 0, -reach * 0.4));
       const ground = terrainHeight(world.x, world.z);
       const groundDelta = THREE.MathUtils.clamp(ground - worldY, -0.35, 0.35);
@@ -522,6 +819,12 @@ export class Humanoid {
       let kneeX = -Math.max(0, -reach) * 0.7 - lift * 0.95 - this.crouchBlend * 1.55 + groundDelta * 0.5;
       let footX = -hipX * 0.45 - kneeX * 0.55 + this.crouchBlend * 0.55;
 
+      // A lunge step into the strike.
+      if (pose === 'attack' && this.actionBlend > 0.01) {
+        const lunge = Math.sin(Math.min(1, phase) * Math.PI) * this.actionBlend;
+        hipX = THREE.MathUtils.lerp(hipX, hipX + (side > 0 ? -0.45 : 0.2), lunge * 0.8);
+        kneeX = THREE.MathUtils.lerp(kneeX, kneeX - 0.25, lunge * 0.6);
+      }
       if (dying) {
         hipX = THREE.MathUtils.lerp(hipX, -0.95, this.deathBlend);
         kneeX = THREE.MathUtils.lerp(kneeX, -1.25, this.deathBlend);

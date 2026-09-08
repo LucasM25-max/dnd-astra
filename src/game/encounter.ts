@@ -7,7 +7,7 @@
  * the world layer feeds it terrain and line-of-sight callbacks and reads the
  * resulting positions back onto the actors.
  */
-import { DiceStream, rollDice } from './dice';
+import { DiceStream, parseDice, rollDice } from './dice';
 import { MONSTERS, type Monster, type MonsterAction } from './bestiary';
 import {
   ARMOR, WEAPONS, abilityForWeapon, isRanged, rangePenalty,
@@ -87,6 +87,32 @@ export interface LogEntry {
   amount?: number;
   roll?: CheckResult;
   detail?: string[];
+  /**
+   * Presentation payload for attack entries: the raw dice the renderer needs
+   * to stage a physical strike (and to roll real dice on screen) without
+   * parsing prose.
+   */
+  attack?: AttackPresentation;
+}
+
+export interface AttackPresentation {
+  weapon: string;
+  ranged: boolean;
+  /** Every d20 rolled (advantage rolls both); `kept` is the one that counts. */
+  d20: number[];
+  kept: number;
+  modifier: number;
+  total: number;
+  dc?: number;
+  critical: boolean;
+  hit: boolean;
+  /** Damage actually applied, and the dice that produced it. */
+  damage: number;
+  damageDice: number[];
+  damageSides: number;
+  damageBonus: number;
+  damageType: string;
+  killed: boolean;
 }
 
 export interface EncounterOptions {
@@ -479,7 +505,14 @@ export class Encounter {
     }
     if (!finalRoll.success) {
       entries.push(this.entry('attack', `${attacker.name} swings at ${target.name} and misses${cover !== 'none' ? ` — ${cover === 'half' ? 'half' : 'three-quarters'} cover` : ''}.`,
-        { actorId: attacker.id, targetId: target.id, roll: finalRoll, detail: finalRoll.explanation }));
+        {
+          actorId: attacker.id, targetId: target.id, roll: finalRoll, detail: finalRoll.explanation,
+          attack: {
+            weapon: weapon.name, ranged: isRanged(weapon), d20: finalRoll.dice, kept: finalRoll.kept,
+            modifier: finalRoll.modifier, total: finalRoll.total, dc: finalRoll.dc, critical: false, hit: false,
+            damage: 0, damageDice: [], damageSides: 0, damageBonus: 0, damageType: weapon.damageType, killed: false,
+          },
+        }));
       return entries;
     }
     const roll2 = finalRoll;
@@ -490,10 +523,21 @@ export class Encounter {
     // The solo hero hits for a whole party's worth of damage.
     const soloBonus = attacker.side === 'party' ? (this.options.solo?.bonusDamage ?? 0) : 0;
     const amount = Math.max(0, damageRoll.total + soloBonus);
+    const targetHealthBefore = target.health.hp;
     entries.push(...this.applyDamageTo(target, amount, { critical, melee: !isRanged(weapon), damageType: monsterAction?.damageType ?? weapon.damageType }, attacker));
     entries.unshift(this.entry('attack',
       `${attacker.name} hits ${target.name} for ${amount} ${monsterAction?.damageType ?? weapon.damageType} damage${critical ? ' — a critical hit' : ''}.`,
-      { actorId: attacker.id, targetId: target.id, amount, roll: roll2, detail: [...roll2.explanation, `${damageRoll.notation} → ${damageRoll.dice.join('+')}${damageRoll.bonus ? `+${damageRoll.bonus}` : ''}`] }));
+      {
+        actorId: attacker.id, targetId: target.id, amount, roll: roll2,
+        detail: [...roll2.explanation, `${damageRoll.notation} → ${damageRoll.dice.join('+')}${damageRoll.bonus ? `+${damageRoll.bonus}` : ''}`],
+        attack: {
+          weapon: monsterAction?.name ?? weapon.name, ranged: isRanged(weapon), d20: roll2.dice, kept: roll2.kept,
+          modifier: roll2.modifier, total: roll2.total, dc: roll2.dc, critical, hit: true,
+          damage: amount, damageDice: damageRoll.dice, damageSides: damageRoll.dice.length > 0 ? (parseDice(damageExpr).sides || 6) : 0,
+          damageBonus: damageRoll.bonus + soloBonus, damageType: monsterAction?.damageType ?? weapon.damageType,
+          killed: targetHealthBefore > 0 && target.health.hp <= 0,
+        },
+      }));
 
     // A wolf's bite can knock a target prone.
     if (monsterAction?.condition && monsterAction.save && monsterAction.saveDc && target.health.hp > 0) {

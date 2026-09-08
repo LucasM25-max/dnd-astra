@@ -9,7 +9,7 @@ import { loadAdventureMaterials, type AdventureMaterials } from './actors/materi
 import { AnimalFactory, type LivingAnimal } from './actors/animals';
 import { HorseBrain, OxController, type HorseOutput, type WorldSnapshot } from './actors/behaviour';
 import { SupplyWagon } from './actors/wagon';
-import { AnimalAudio } from './audio';
+import { AnimalAudio, CombatAudio } from './audio';
 import { loadCharacter, type CharacterSheet } from '../game/character';
 import { CombatDirector, type CombatPhase, type CombatSnapshot } from './combat-director';
 import { loadCombatMaterials, type CombatMaterials } from './actors/combat-materials';
@@ -31,6 +31,7 @@ export class Adventure {
   readonly wagon: SupplyWagon;
   readonly horses: LivingAnimal[];
   readonly animalAudio = new AnimalAudio();
+  readonly combatAudio = new CombatAudio();
   private horseBrains: HorseBrain[] = [];
   readonly combatDirector: CombatDirector;
   readonly combatMaterials: CombatMaterials;
@@ -51,9 +52,9 @@ export class Adventure {
   character: CharacterSheet | null;
   onHandoff = () => {};
   onNotice: (message: string) => void = () => {};
-  private constructor(scene: THREE.Scene, private camera: THREE.PerspectiveCamera, private controller: PlayerController, private collision: CollisionField, private factory: AnimalFactory, readonly materials: AdventureMaterials, combatMaterials: CombatMaterials, quality: 'performance' | 'balanced' | 'high') {
+  private constructor(scene: THREE.Scene, private camera: THREE.PerspectiveCamera, renderer: THREE.WebGLRenderer, private controller: PlayerController, private collision: CollisionField, private factory: AnimalFactory, readonly materials: AdventureMaterials, combatMaterials: CombatMaterials, quality: 'performance' | 'balanced' | 'high') {
     this.combatMaterials = combatMaterials;
-    this.combatDirector = new CombatDirector(scene, camera, controller, collision, combatMaterials, quality);
+    this.combatDirector = new CombatDirector(scene, camera, renderer, controller, collision, combatMaterials, quality, this.combatAudio);
     this.combatDirector.onNotice = message => this.onNotice(message);
     this.combatDirector.onLog = entries => this.onCombatLog(entries);
     this.combatDirector.onPhaseChange = phase => this.onCombatPhase(phase);
@@ -64,7 +65,7 @@ export class Adventure {
     this.controller.installBody(combatMaterials, this.character);
     this.controller.setEquipment(this.character?.classId ?? null);
     this.wagon = new SupplyWagon(factory, this.inventory); this.wagon.addTo(scene);
-    this.horses = [factory.create('horse', '#765339', 2), factory.create('horse', '#b0aca0', 7)];
+    this.horses = [factory.create('horse', '#c9a67c', 2), factory.create('horse', '#dcd8ce', 7)];
     this.horses.forEach(h => scene.add(h.root));
     this.horseBrains = [new HorseBrain(2), new HorseBrain(7)];
     this.horseBrains[0].place(9.3, 2.9, -.6); this.horseBrains[1].place(12.6, 1.2, 1.3);
@@ -88,7 +89,7 @@ export class Adventure {
   static async create(scene: THREE.Scene, camera: THREE.PerspectiveCamera, controller: PlayerController, collision: CollisionField, renderer: THREE.WebGLRenderer, quality: 'performance' | 'balanced' | 'high' = 'high') {
     const materials = await loadAdventureMaterials(renderer), factory = await AnimalFactory.load(materials, quality === 'performance' ? .55 : quality === 'balanced' ? .8 : 1);
     const combatMaterials = await loadCombatMaterials(renderer);
-    const adventure = new Adventure(scene, camera, controller, collision, factory, materials, combatMaterials, quality);
+    const adventure = new Adventure(scene, camera, renderer, controller, collision, factory, materials, combatMaterials, quality);
     await adventure.narrator.initialize(); return adventure;
   }
   private pathDistanceOf(x: number, z: number) { return pathDistance(x, z); }
@@ -116,6 +117,7 @@ export class Adventure {
   }
   setPaused(paused: boolean) {
     this.controller.setPaused(paused); this.narrator.setPaused(paused, 'menu');
+    this.combatAudio.setPaused(paused);
     if (paused) this.save();
   }
   private wasPlayerTurn = false;
@@ -368,6 +370,7 @@ export class Adventure {
   dispose() {
     if (this.disposed) return; this.disposed = true; this.save(); this.narrator.dispose(); this.factory.dispose(); this.animalAudio.dispose();
     this.collision.removeDynamic('wagon'); this.collision.removeDynamic('horses');
+    this.combatAudio.dispose();
     this.materials.textures.forEach(t => t.dispose());
     this.horses.forEach(h => h.mesh.skeleton.dispose()); this.wagon.oxen.forEach(h => h.mesh.skeleton.dispose());
   }
