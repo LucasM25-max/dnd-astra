@@ -54,6 +54,15 @@ interface StrikeCluster {
   damageKind: 'fire' | 'frost' | 'force' | 'arrow' | 'melee';
 }
 
+/**
+ * How long the fate dice may tumble before the blade falls anyway. A settled
+ * die takes roughly a second and a half, so this only ever fires if something
+ * has gone wrong; it exists so a stuck roll cannot strand the turn.
+ */
+const DICE_SAFETY_CAP = 5.0;
+/** How long an enemy may spend closing the gap before it is assumed to have arrived. */
+const MOVE_SAFETY_CAP = 3.2;
+
 /** A staged spell: cast pose, bolt flight, then the effects reveal at arrival. */
 interface SpellCluster {
   casterId: string;
@@ -552,15 +561,17 @@ export class CombatDirector {
       switch (cluster.phase) {
         case 'waitMove': {
           const settled = this.view?.settled(cluster.attackerId) ?? true;
-          if (settled || cluster.timer > 3.2) {
+          if (settled || cluster.timer > MOVE_SAFETY_CAP) {
             if (cluster.attackerIsHero) this.beginStrikeDice(cluster);
             else this.beginStrikeWindup(cluster);
           }
           break;
         }
         case 'dice': {
-          // The dice callbacks drive this phase; the cap only unstick it.
-          if (cluster.timer > 3.8) this.beginStrikeWindup(cluster);
+          // The dice callbacks drive this phase. The cap no longer needs to be
+          // tight — a die is only held back by its own tumble now — it just
+          // guarantees a strike can never strand the turn.
+          if (cluster.timer > DICE_SAFETY_CAP) this.beginStrikeWindup(cluster);
           break;
         }
         case 'windup': {

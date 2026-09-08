@@ -15,7 +15,18 @@ At the clearing, the wagon stops and **control is handed back before the arrival
 - Audio requires the initial user interaction. If playback is blocked or unavailable, timed subtitles keep the journey usable.
 - Reloading after reaching the clearing offers **Continue your journey**, restoring your wagon, character, open containers, and inventory. It does not respawn collected goods or replay the introduction. The full arrival text is always in the journal. The planned rules foundation and production roadmap are in [`docs/photorealistic-dnd-roadmap.md`](docs/photorealistic-dnd-roadmap.md), and the character creation plan is in [`docs/character-creation-plan.md`](docs/character-creation-plan.md).
 
-The Narrator currently delivers this **authored chapter**. It is not yet a free-form AI Dungeon Master. The title screen's **Create character** flow creates a rules-backed first-level Human/High Elf Fighter/Wizard with Soldier/Sage backgrounds, derives its hit points, AC, initiative, saving throws, skills, and starting equipment, persists it locally, and starts a fresh journey. The current opening remains an exploration chapter; combat is not yet enabled.
+The Narrator currently delivers this **authored chapter**. It is not yet a free-form AI Dungeon Master. The title screen's **Create character** flow creates a rules-backed first-level Human/High Elf Fighter/Wizard with Soldier/Sage backgrounds, derives its hit points, AC, initiative, saving throws, skills, and starting equipment, persists it locally, and starts a fresh journey.
+
+## The Cragmaw ambush
+
+The chapter no longer ends at the clearing. Once you are on foot and move past the wreckage, goblins break cover and the scene turns into a **turn-based 5e encounter** on the same open woodland map: no grid, no teleporting, initiative rolled on a seeded stream.
+
+- **Click a goblin** — or press **F** with it hovered — to strike with your equipped weapon. A fate d20 tumbles on the ground in front of the camera, damage dice follow it, and only then does the blade fall.
+- **Space** ends your turn; **Q** is Dodge. Dash, Disengage, Hide and Second Wind are buttons on the bar, each spending the action or bonus action it should.
+- Movement is a **per-turn budget in feet**, shown as a translucent radius on the ground with a path preview. Walking spends it; sprinting does not buy more.
+- The **solo handicap** panel is honest about the fact that a module written for four adventurers is being carried by one.
+
+The dice are simulated, not decorative: each polyhedron is thrown with real rigid-body motion, rests on its own inradius, and the numeral that ends up facing the camera is read back off the mesh — so what the log reports is what you watched land.
 
 ## The wagon, animals, and cargo
 
@@ -58,23 +69,25 @@ Your purse begins at **0 gp**. Carrying 100 gp worth of supplies is not the same
 
 ## Controls
 
-| Input | On foot / general | At the reins / opening |
-| --- | --- | --- |
-| W A S D / arrows | Walk | W/S guide forward/back; A/D steer |
-| Shift | Sprint | Normal ox-paced travel |
-| Space | Jump | Brake; pause narration during the opening |
-| Mouse | Click to capture, or click-and-drag to look | Free look after the cutscene |
-| Mouse wheel | Third-person camera distance | Third-person camera distance |
-| V | First / third person | First / third person after handoff |
-| R | Board when near the bench | Dismount |
-| E | Open nearby cargo / inspect belongings | Read the cargo manifest |
-| I | Inventory | Inventory |
-| N | Complete story journal | Complete story journal |
-| M | Area map | Area map |
-| H | Controls guide | Controls guide |
-| P | Photo mode and PNG capture | Photo mode |
-| Escape | Release mouse / pause / close a dialog | Pause / close a dialog |
-| Enter | Activate a focused button | Advance the current opening passage |
+| Input | On foot / general | At the reins / opening | In combat |
+| --- | --- | --- | --- |
+| W A S D / arrows | Walk | W/S guide forward/back; A/D steer | Walk (spends your move budget) |
+| Shift | Sprint | Normal ox-paced travel | — |
+| Space | Jump | Brake; pause narration during the opening | End turn |
+| Mouse | Click to capture, or click-and-drag to look | Free look after the cutscene | Click a goblin to strike it |
+| F | — | — | Strike the hovered goblin |
+| Q | — | — | Dodge |
+| Mouse wheel | Third-person camera distance | Third-person camera distance | Third-person camera distance |
+| V | First / third person | First / third person after handoff | First / third person |
+| R | Board when near the bench | Dismount | — |
+| E | Open nearby cargo / inspect belongings | Read the cargo manifest | — |
+| I | Inventory | Inventory | Inventory |
+| N | Complete story journal | Complete story journal | Complete story journal |
+| M | Area map | Area map | Area map |
+| H | Controls guide | Controls guide | Controls guide |
+| P | Photo mode and PNG capture | Photo mode | Photo mode |
+| Escape | Release mouse / pause / close a dialog | Pause / close a dialog | Pause / close a dialog |
+| Enter | Activate a focused button | Advance the current opening passage | — |
 
 Touch devices get a movement pad, drag-to-look, and a context-sensitive jump/dismount button. Pointer lock has a drag-look fallback for embedded previews. Narrator voice and forest ambience have separate controls. If an iframe blocks fullscreen, use the host preview’s expand control.
 
@@ -119,12 +132,14 @@ npm run narration:gemini
 ## Validation and asset preparation
 
 ```bash
-npm test                  # 31 deterministic map, economy, story, transport, and rig checks
+npm test                  # 85 deterministic map, economy, story, transport, rig, dice and rules checks
 npm run build             # type-check and production bundle
 npm run test:browser      # real-browser integration suite; dev server must already be running
 npm run assets:prepare    # original forest textures from included sources
 npm run assets:adventure  # wagon wood, sackcloth, and animal coat textures
 ```
+
+`npm run test:ambush` drives the ambush specifically: it walks into the trigger, waits for initiative, strikes, ends turns to victory, and checks the dice, the log and the save.
 
 The integration suite is for a **Linux sandbox**. It uses development-only `@sparticuz/chromium` and Playwright, extracting browser libraries into the system temp directory. It checks voiced opening/pause, handoff, driving, dismounting, actual walking to cargo, partial/all transfers, no duplication or coin minting, decimal values, search, jump/cameras, maps/journal, settings, audio controls, photo download, reload persistence, pointer-lock fallback, and the small-screen inventory. Set `BASE_URL` to override the default dev-server address.
 
@@ -143,6 +158,9 @@ src/engine/actors/                Wagon/cargo construction, materials, and anima
 src/engine/landscape.ts           Original map curves, height field, static/dynamic collisions
 src/engine/nature.ts              Spatially instanced trees, grass, ferns, rocks, and deadwood
 src/engine/controller.ts          Foot movement, seated bean/hands, camera and input handling
+src/engine/combat-director.ts     Turns, presentation clock, dice throws, strike choreography
+src/engine/encounter-view.ts      Combatant bodies, movement chase, poses, tracers, overlays
+src/engine/actors/dice.ts         Rigid-body polyhedral dice with honest face read-back
 src/engine/world.ts               Renderer, atmosphere, quality, world update, capture
 src/ui/                          HUD, Narrator panel, inventory/cargo, dialogs, cartography
 assets-source/                   Original generated texture sources (not served in production)
