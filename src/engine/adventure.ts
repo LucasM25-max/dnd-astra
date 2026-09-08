@@ -133,6 +133,11 @@ export class Adventure {
     if (phase === 'title' || phase === 'journey') return;
     const director = this.combatDirector;
     director.update(dt, this.controller.position, this.character, !this.mounted, this.controller.keys.has('KeyT'), realDelta);
+    const trapDamage = director.consumeTrailDamage();
+    if (trapDamage && this.character) {
+      this.character = { ...this.character, currentHp: Math.max(1, this.character.currentHp - trapDamage) };
+      saveCharacter(this.character);
+    }
     this.controller.movementLocked = director.trailSnaredState;
     this.controller.setHazardLift(director.trailSnaredState ? 10 * 0.3048 : 0);
 

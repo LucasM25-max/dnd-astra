@@ -888,6 +888,12 @@ export class CombatDirector {
 
   get trailSnaredState() { return this.trailSnared; }
   get trailProgress() { return this.trailProgressMetres; }
+  /** Consume trap damage once the adventure layer has applied it to the saved sheet. */
+  consumeTrailDamage() {
+    const damage = this.trailDamage;
+    this.trailDamage = 0;
+    return damage;
+  }
   get trailTraps() { return TRAIL_TRAPS.map(t => ({ id: t.id, state: this.trailTrapState.get(t.id) ?? 'hidden', atMetres: t.atMetres })); }
   setSearching(value: boolean) { this.trailSearch = value; }
   /** Cut the snare cord with the required 1 slashing damage. The normal UI

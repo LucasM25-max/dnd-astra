@@ -32,6 +32,7 @@ export class CombatHud {
   private lastActiveId: string | null = null;
   private vignetteTimer = 0;
   private visible = false;
+  private resultDismissed = false;
   private selectedSpell: string | null = null;
   private abort = new AbortController();
 
@@ -85,7 +86,14 @@ export class CombatHud {
         case 'hide': adventure.combatAct({ type: 'hide' }); break;
         case 'secondWind': adventure.combatAct({ type: 'secondWind' }); break;
         case 'endTurn': adventure.combatEndTurn(); break;
-        case 'finish': this.onFinish(); break;
+        case 'finish':
+          // The fight remains resolved in the world so its trail props and
+          // trap state continue to update, but the after-action card must
+          // release the canvas before the player can walk northwest.
+          this.resultDismissed = true;
+          this.setVisible(false);
+          this.onFinish();
+          break;
       }
     }, opts);
 
@@ -155,8 +163,9 @@ export class CombatHud {
     if (!snapshot) { this.setVisible(false); return; }
     const active = snapshot.phase === 'active' || snapshot.phase === 'sprung';
     const done = snapshot.phase === 'resolved' || snapshot.phase === 'lost';
-    this.setVisible(active || done);
-    if (!active && !done) return;
+    if (active) this.resultDismissed = false;
+    this.setVisible(active || (done && !this.resultDismissed));
+    if (!active && (!done || this.resultDismissed)) return;
 
     // Cheap change detection: the HUD re-renders on state change, not per frame.
     const signature = [
