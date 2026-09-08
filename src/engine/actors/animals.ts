@@ -37,7 +37,7 @@ const SHAPES: Record<Species, SpeciesShape> = {
     torsoPoles: [new THREE.Vector3(0, 1.12, -.95), new THREE.Vector3(0, 1.30, 1.06)],
     neck: [[1.00, -.62, .165, .175], [1.20, -.80, .140, .150], [1.36, -1.00, .115, .125], [1.45, -1.15, .100, .110]],
     head: [[1.43, -1.15, .105, .115], [1.44, -1.27, .090, .100], [1.37, -1.41, .068, .084], [1.29, -1.53, .062, .064], [1.22, -1.58, .056, .050]],
-    chinPole: new THREE.Vector3(0, 1.17, -1.55),
+    chinPole: new THREE.Vector3(0, 1.21, -1.63),
   },
   ox: {
     shoulder: .98, knee: .52, hock: .48, frontZ: -.48, rearZ: .68, stance: .19,
@@ -46,7 +46,7 @@ const SHAPES: Record<Species, SpeciesShape> = {
     torsoPoles: [new THREE.Vector3(0, 1.00, -.93), new THREE.Vector3(0, 1.12, 1.04)],
     neck: [[.92, -.56, .210, .215], [1.10, -.76, .170, .175], [1.24, -.94, .140, .145], [1.29, -1.06, .125, .130]],
     head: [[1.27, -1.06, .140, .150], [1.26, -1.22, .115, .125], [1.18, -1.36, .092, .100], [1.10, -1.45, .088, .078], [1.03, -1.49, .075, .055]],
-    chinPole: new THREE.Vector3(0, .97, -1.46),
+    chinPole: new THREE.Vector3(0, 1.01, -1.54),
   },
 };
 
@@ -64,15 +64,28 @@ function loftSections(stations: THREE.Vector3[], widths: number[], heights: numb
     }
   };
   const rings: number = stations.length;
+  const start = poles[0] ? 1 : 0;
+  const endOffset = start + rings * sides;
+  // The poles are emitted first so the index arithmetic below stays simple:
+  // index 0 is the start pole, the rings follow from `start`, and the end pole
+  // lands exactly on `endOffset`. Emitting them last shifted every ring by one
+  // and ran the final quad off the end of the vertex buffer.
+  if (poles[0]) { positions.push(poles[0]!.x, poles[0]!.y, poles[0]!.z); colors.push(.88, .88, .88); uvs.push(0, 0); }
   for (let i = 0; i < rings; i++) {
     const c = stations[i], hash = Math.sin(c.y * 311.7 + c.z * 74.7) * 43758.5453; const c0 = .86 + (c.y - .5) * .045 + (hash - Math.floor(hash) - .5) * .035, shade = Math.max(0, Math.min(1, c0));
     ring(c, widths[i], heights[i], Math.max(0, Math.min(1, shade)), i / Math.max(1, rings - 1));
   }
-  const start = poles[0] ? 1 : 0;
-  if (poles[0]) { positions.push(poles[0]!.x, poles[0]!.y, poles[0]!.z); colors.push(.88, .88, .88); uvs.push(0, 0); }
-  const endOffset = start + rings * sides;
   if (poles[1]) { positions.push(poles[1]!.x, poles[1]!.y, poles[1]!.z); colors.push(.84, .84, .84); uvs.push(1, 0); }
-  const quad = (a: number, b: number, c: number, d: number) => { indices.push(a, b, c, c, b, d); };
+  // The torso is authored tail-to-head (increasing z) but the neck and head run
+  // the other way, out along -Z. Winding is only "outward" relative to the
+  // direction the rings travel, so a backwards stack has to be wound backwards.
+  const flip = rings > 1 && stations[rings - 1].z < stations[0].z;
+  // A quad's corners are listed around its perimeter, so the two triangles are
+  // (a,b,c) and (a,c,d). Repeating b instead of a — (c,b,d) — reverses the
+  // second triangle and turns half of every animal inside out.
+  const quad = (a: number, b: number, c: number, d: number) => {
+    if (flip) indices.push(a, c, b, a, d, c); else indices.push(a, b, c, a, c, d);
+  };
   const tri = (a: number, b: number, c: number) => { indices.push(a, b, c); };
   for (let i = 0; i < rings - 1; i++) {
     const r0 = start + i * sides, r1 = start + (i + 1) * sides;
@@ -81,8 +94,17 @@ function loftSections(stations: THREE.Vector3[], widths: number[], heights: numb
       quad(r0 + j, r0 + j2, r1 + j2, r1 + j);
     }
   }
-  if (poles[0]) for (let j = 0; j < sides; j++) tri(endOffset, start + j, start + (j + 1) % sides);
-  if (poles[1]) for (let j = 0; j < sides; j++) tri(endOffset + 1, endOffset + j, endOffset + (j + 1) % sides);
+  // The start pole faces back along the stack (-Z unflipped, +Z flipped); the
+  // end pole sits past the last ring — which begins at endOffset - sides —
+  // and faces the opposite way.
+  if (poles[0]) for (let j = 0; j < sides; j++) {
+    if (flip) tri(0, start + j, start + (j + 1) % sides);
+    else tri(0, start + (j + 1) % sides, start + j);
+  }
+  if (poles[1]) for (let j = 0; j < sides; j++) {
+    if (flip) tri(endOffset, endOffset - sides + (j + 1) % sides, endOffset - sides + j);
+    else tri(endOffset, endOffset - sides + j, endOffset - sides + (j + 1) % sides);
+  }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   g.setAttribute('normal', new THREE.Float32BufferAttribute(new Float32Array(positions.length), 3));
@@ -95,7 +117,6 @@ function loftSections(stations: THREE.Vector3[], widths: number[], heights: numb
 function loftColumn(rings: { y: number; dx: number; dz: number; hx: number; hz: number; col: number }[], sides: number, capTop: boolean, capBottom: boolean) {
   const positions: number[] = [], colors: number[] = [], uvs: number[] = [], indices: number[] = [];
   const order: { y: number; dx: number; dz: number; hx: number; hz: number; col: number }[] = [...rings].sort((a, b) => b.y - a.y);
-  let offset = capTop ? 1 : 0;
   if (capTop) { const m = order[0]; positions.push(m.dx, m.y + .004, m.dz); colors.push(m.col, m.col, m.col); uvs.push(0, 0); }
   for (let i = 0; i < order.length; i++) {
     const m = order[i];
@@ -104,18 +125,18 @@ function loftColumn(rings: { y: number; dx: number; dz: number; hx: number; hz: 
       positions.push(m.dx + Math.cos(a) * m.hx, m.y, m.dz + Math.sin(a) * m.hz);
       const c = m.col * (0.97 + .03 * Math.cos(a)); colors.push(c, c, c); uvs.push(i / Math.max(1, order.length - 1), j / sides);
     }
-    offset += sides;
   }
   let bottomPole = -1;
   if (capBottom) { const m = order[order.length - 1]; bottomPole = positions.length / 3; positions.push(m.dx, m.y - .004, m.dz); colors.push(m.col, m.col, m.col); uvs.push(1, 0); }
   const topPole = capTop ? 0 : -1;
-  const quad = (a: number, b: number, c: number, d: number) => { indices.push(a, b, c, c, b, d); };
+  const quad = (a: number, b: number, c: number, d: number) => { indices.push(a, b, c, a, c, d); };
   const tri = (a: number, b: number, c: number) => { indices.push(a, b, c); };
   for (let i = 0; i < order.length - 1; i++) {
     const r0 = (capTop ? 1 : 0) + i * sides, r1 = (capTop ? 1 : 0) + (i + 1) * sides;
     for (let j = 0; j < sides; j++) { const j2 = (j + 1) % sides; quad(r0 + j, r0 + j2, r1 + j2, r1 + j); }
   }
-  if (topPole >= 0) for (let j = 0; j < sides; j++) tri(topPole, (capTop ? 1 : 0) + j, (capTop ? 1 : 0) + (j + 1) % sides);
+  // Rings are stored top-down, so the top cap faces up and the bottom cap down.
+  if (topPole >= 0) for (let j = 0; j < sides; j++) tri(topPole, (capTop ? 1 : 0) + (j + 1) % sides, (capTop ? 1 : 0) + j);
   if (bottomPole >= 0) { const r0 = (capTop ? 1 : 0) + (order.length - 1) * sides; for (let j = 0; j < sides; j++) tri(bottomPole, r0 + j, r0 + (j + 1) % sides); }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
@@ -162,7 +183,11 @@ function buildBody(species: Species, detail: number): THREE.BufferGeometry {
   // Torso: resampled sections -> a smooth barrel with haunch and shoulder mass.
   const torsoRows = resampleRows(S.torso, Math.max(10, Math.round(16 * detail)));
   const stations = torsoRows.map(([z, back, belly]) => new THREE.Vector3(0, (back + belly) / 2, z));
-  const widths = torsoRows.map(([, , , hw]) => hw * wide), heights = torsoRows.map(([back, belly]) => (back - belly) / 2);
+  // Each resampled row is [z, back, belly, halfWidth]. Destructuring it without
+  // the leading `z` turns the torso's half-height into (z - back) / 2: a
+  // negative number three times too large, which built every animal's barrel
+  // upside down and nearly two metres tall.
+  const widths = torsoRows.map(([, , , hw]) => hw * wide), heights = torsoRows.map(([, back, belly]) => (back - belly) / 2);
   const torso = loftSections(stations, widths, heights, sides, S.torsoPoles);
   parts.push({ geometry: torso, boneA: BONE.body, boneB: BONE.neck, min: -1.0, max: -0.4, blend: v => smoothstep(-.58, -.92, v.z) * smoothstep(.95, 1.28, v.y) });
   // Neck.
@@ -363,18 +388,33 @@ export class LivingAnimal {
     } else {
       const forelock = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 8), dark);
       forelock.scale.set(.045, .05, .06); forelock.position.set(0, .09, -.12); this.head.add(forelock);
-      // Mane: a row of cards along the crest.
-      const crest = S.neck.map(([y, z]) => new THREE.Vector3(0, y + (y - .9) * .10, z + .02));
-      crest.push(S.chinPole.clone().add(new THREE.Vector3(0, .12, .04)));
+      // Mane: a row of cards standing along the crest of the neck.
+      //
+      // These are built in the *neck bone's* space, because that is where they
+      // live. Written in model coordinates they floated a metre above the
+      // animal — the neck bone already sits at the base of the neck, so the
+      // offsets were being applied twice.
+      const maneMat = dark.clone(); maneMat.side = THREE.DoubleSide;
+      const crest = S.neck.map(([y, z, , hh]) =>
+        new THREE.Vector3(0, y - S.neckBase.y + hh * 0.72, z - S.neckBase.z));
+      // A last card rides the poll, so it belongs to the head bone.
+      const poll = crest[crest.length - 1].clone().add(new THREE.Vector3(0, .05, -.10)).sub(S.headBase);
+      const cardGeometry = new THREE.PlaneGeometry(.105, .30).rotateY(Math.PI / 2);
       for (let i = 0; i < crest.length; i++) {
-        const card = new THREE.Mesh(new THREE.PlaneGeometry(.115, .30), dark);
+        const card = new THREE.Mesh(cardGeometry, maneMat);
         card.castShadow = true;
         const p = crest[i], next = crest[Math.min(crest.length - 1, i + 1)];
         card.position.copy(p);
         card.rotation.set(-(next.y - p.y) / (next.z - p.z + .001) * .32 - .30, 0, (i % 2 ? .06 : -.06));
-        (i < 2 ? this.head : this.neck).add(card);
+        this.neck.add(card);
         card.translateY(.10);
       }
+      const pollCard = new THREE.Mesh(new THREE.PlaneGeometry(.095, .26).rotateY(Math.PI / 2), maneMat);
+      pollCard.castShadow = true;
+      pollCard.position.copy(poll);
+      pollCard.rotation.set(-1.05, 0, .05);
+      this.head.add(pollCard);
+      pollCard.translateY(.08);
     }
     this.bit.position.set(0, ox ? -.16 : -.15, ox ? -.36 : -.34); this.head.add(this.bit);
   }

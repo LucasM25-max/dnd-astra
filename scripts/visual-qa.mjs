@@ -103,15 +103,44 @@ try {
   for (let i = 0; i < frames.length; i++) { await page.waitForTimeout(i === 0 ? 700 : 800); await shot(frames[i]); }
   await page.waitForTimeout(2500); await shot('10-settled');
 
-  // Sample the goblin root position over an enemy move to prove animation, not teleport.
+  // Sample every enemy root over an enemy turn: the smoothed visual position
+  // must walk towards the engine's authoritative square, not jump onto it.
+  // (It used to read `av.root`, which does not exist — ActorView keeps its
+  // object under `body` — so every sample threw and the check read zero.)
   const posSamples = [];
-  const sampler = setInterval(() => { page.evaluate(() => { const a = window.__astra.getAdventure(); const v = a.combatDirector.view; const av = v && v.actors && v.actors.get('goblin-north-1'); return av ? { x: +av.root.position.x.toFixed(2), z: +av.root.position.z.toFixed(2) } : null; }).then(p => posSamples.push(p)).catch(() => {}); }, 300);
+  const sampler = setInterval(() => {
+    page.evaluate(() => {
+      const v = window.__astra.getAdventure().combatDirector.view;
+      if (!v) return null;
+      const out = {};
+      for (const [id, av] of v.actors) {
+        const c = av.combatant;
+        out[id] = {
+          x: +av.body.root.position.x.toFixed(2),
+          z: +av.body.root.position.z.toFixed(2),
+          tx: +c.position.x.toFixed(2), tz: +c.position.z.toFixed(2),
+          gap: +Math.hypot(c.position.x - av.body.root.position.x, c.position.z - av.body.root.position.z).toFixed(2),
+        };
+      }
+      return out;
+    }).then(p => posSamples.push(p)).catch(() => {});
+  }, 120);
   await page.evaluate(() => window.__astra.combatEndTurn());
   await page.waitForTimeout(9000);
   clearInterval(sampler);
-  const moves = posSamples.filter(Boolean);
-  const unique = new Set(moves.map(p => `${p.x},${p.z}`));
-  console.log('goblin position samples during enemy turn:', moves.length, 'distinct:', unique.size);
+  const samples = posSamples.filter(Boolean);
+  const moved = [];
+  let midFlight = 0;
+  for (const snapshot of samples) {
+    for (const [id, p] of Object.entries(snapshot)) {
+      moved.push(id);
+      // A gap that is small-but-nonzero means the body is still catching up,
+      // which is exactly what a teleport would never show.
+      if (p.gap > 0.1 && p.gap < 4) midFlight++;
+    }
+  }
+  const distinct = new Set(samples.map(s => Object.entries(s).map(([id, p]) => `${id}@${p.x},${p.z}`).join('|')));
+  console.log('enemy turn: snapshots', samples.length, 'distinct frames', distinct.size, 'caught mid-interpolation', midFlight);
   await shot('11-after-enemy-turn');
 
   // Dice results should appear in the log with presentation data.

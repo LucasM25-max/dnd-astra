@@ -118,17 +118,21 @@ export class PlayerController {
     const leather = new THREE.MeshStandardMaterial({ color: '#5a4530', roughness: .82 });
     const brass = new THREE.MeshStandardMaterial({ color: '#a2803f', metalness: .9, roughness: .42 });
 
-    const hold = (bone: THREE.Bone | null, ...items: THREE.Object3D[]) => {
+    /**
+     * Kit is authored in the model's own coordinates and then folded into the
+     * bone it hangs from, so a sword stays on the hip however the rig moves.
+     * `null` keeps the piece on the avatar root instead of a bone.
+     */
+    const hold = (bone: number | null, ...items: THREE.Object3D[]) => {
       for (const item of items) {
         item.castShadow = true;
-        if (bone) bone.add(item); else this.equipment.add(item);
+        if (bone !== null && this.body) this.body.attachToBone(bone, item);
+        else this.equipment.add(item);
         this.kit.push(item);
       }
     };
-    const hips = this.body?.bones[1] ?? null;    // pelvis
-    const chest = this.body?.bones[3] ?? null;   // chest
-    const head = this.body?.bones[5] ?? null;    // head
-    const handL = this.body?.bones[8] ?? null;
+    // Bone indices from the shared humanoid rig.
+    const HIPS = 1, CHEST = 3, HEAD = 5, HAND_L = 8;
 
     const sheathe = (length: number, x: number, tilt: number) => {
       const scabbard = new THREE.Mesh(new THREE.CylinderGeometry(.032, .026, length, 8), leather);
@@ -141,19 +145,19 @@ export class PlayerController {
 
     if (classId === 'fighter') {
       // A sheathed longsword at the hip and a shield slung on the back.
-      hold(hips, ...sheathe(.66, .30, -.28));
+      hold(HIPS, ...sheathe(.66, .30, -.28));
       const grip = new THREE.Mesh(new THREE.CylinderGeometry(.014, .014, .12, 6), leather);
       grip.position.set(.38, .92, .04); grip.rotation.z = -.28;
       const pommel = new THREE.Mesh(new THREE.SphereGeometry(.022, 10, 8), brass);
       pommel.position.set(.40, .99, .04);
       const guard = new THREE.Mesh(new THREE.BoxGeometry(.15, .018, .028), brass);
       guard.position.set(.36, .855, .04); guard.rotation.z = -.28;
-      hold(hips, grip, pommel, guard);
+      hold(HIPS, grip, pommel, guard);
       const shield = new THREE.Mesh(new THREE.CylinderGeometry(.28, .28, .035, 20), wood);
       shield.position.set(0, .78, .34); shield.rotation.set(1.42, 0, .12);
       const boss = new THREE.Mesh(new THREE.SphereGeometry(.055, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), steel);
       boss.position.set(0, .78, .36); boss.rotation.x = -Math.PI / 2 + 1.42;
-      hold(chest, shield, boss);
+      hold(CHEST, shield, boss);
     } else if (classId === 'wizard') {
       const staff = new THREE.Mesh(new THREE.CylinderGeometry(.021, .026, 1.42, 8), wood);
       staff.castShadow = true;
@@ -164,12 +168,12 @@ export class PlayerController {
       const staffGroup = new THREE.Group();
       staffGroup.add(staff, knot);
       staffGroup.rotation.set(0.12, 0, 0.10);
-      hold(handL, staffGroup);
+      hold(HAND_L, staffGroup);
       const book = new THREE.Mesh(new THREE.BoxGeometry(.24, .30, .075), new THREE.MeshStandardMaterial({ color: '#4a2e24', roughness: .78 }));
       book.position.set(.30, .62, .14); book.rotation.set(.12, -.28, -.10);
       const clasp = new THREE.Mesh(new THREE.BoxGeometry(.022, .20, .012), brass);
       clasp.position.set(.30, .62, .18); clasp.rotation.set(.12, -.28, -.10);
-      hold(chest, book, clasp);
+      hold(CHEST, book, clasp);
     } else if (classId === 'rogue') {
       // Two daggers, worn where a rogue would actually reach for them.
       for (const side of [-1, 1]) {
@@ -177,29 +181,29 @@ export class PlayerController {
         hilt.position.set(side * .30, .60, .12); hilt.rotation.set(.4, 0, side * .5);
         const blade = new THREE.Mesh(new THREE.ConeGeometry(.017, .19, 4), steel);
         blade.position.set(side * .32, .48, .14); blade.rotation.set(Math.PI + .4, 0, side * .5);
-        hold(hips, hilt, blade);
+        hold(HIPS, hilt, blade);
       }
       const pouch = new THREE.Mesh(new THREE.SphereGeometry(.062, 10, 8), leather);
       pouch.position.set(0, .55, .29); pouch.scale.set(1, .85, .6);
-      hold(hips, pouch);
+      hold(HIPS, pouch);
       const hood = new THREE.Mesh(new THREE.SphereGeometry(.20, 14, 10, 0, Math.PI * 2, 0, Math.PI * .55), new THREE.MeshStandardMaterial({ color: '#33322b', roughness: .95, side: THREE.DoubleSide }));
       hood.position.set(0, 1.02, .06); hood.rotation.x = .28;
-      hold(head, hood);
+      hold(HEAD, hood);
     } else if (classId === 'cleric') {
       const mace = new THREE.Mesh(new THREE.CylinderGeometry(.017, .019, .42, 7), wood);
       mace.position.set(.31, .60, .08); mace.rotation.z = -.22;
       const maceHead = new THREE.Mesh(new THREE.CylinderGeometry(.045, .045, .085, 8), steel);
       maceHead.position.set(.36, .40, .08); maceHead.rotation.z = -.22;
-      hold(hips, mace, maceHead);
+      hold(HIPS, mace, maceHead);
       // A holy symbol on a chain: the read that says "cleric" at a glance.
       const symbol = new THREE.Mesh(new THREE.TorusGeometry(.045, .009, 6, 16), brass);
       symbol.position.set(0, .84, -.30);
       const bar = new THREE.Mesh(new THREE.BoxGeometry(.075, .010, .010), brass);
       bar.position.set(0, .84, -.30);
-      hold(chest, symbol, bar);
+      hold(CHEST, symbol, bar);
       const shield = new THREE.Mesh(new THREE.CylinderGeometry(.26, .26, .032, 18), wood);
       shield.position.set(0, .78, .33); shield.rotation.set(1.42, 0, -.1);
-      hold(chest, shield);
+      hold(CHEST, shield);
     } else {
       // Ranger: a longbow across the back and a quiver at the shoulder.
       const curve = new THREE.CatmullRomCurve3([
@@ -209,7 +213,7 @@ export class PlayerController {
       const bow = new THREE.Mesh(new THREE.TubeGeometry(curve, 20, .014, 6, false), wood);
       const quiver = new THREE.Mesh(new THREE.CylinderGeometry(.055, .048, .40, 10), leather);
       quiver.position.set(-.22, .92, .24); quiver.rotation.set(.30, 0, .34);
-      hold(chest, bow, quiver);
+      hold(CHEST, bow, quiver);
       for (let i = 0; i < 4; i++) {
         const shaft = new THREE.Mesh(new THREE.CylinderGeometry(.005, .005, .30, 4), wood);
         shaft.position.set(-.22 + (i % 2) * .026, 1.11, .21 + Math.floor(i / 2) * .026);
@@ -217,11 +221,11 @@ export class PlayerController {
         const fletch = new THREE.Mesh(new THREE.PlaneGeometry(.032, .05), new THREE.MeshStandardMaterial({ color: '#2c3128', roughness: 1, side: THREE.DoubleSide }));
         fletch.position.copy(shaft.position).add(new THREE.Vector3(0, .13, 0));
         fletch.rotation.copy(shaft.rotation);
-        hold(chest, shaft, fletch);
+        hold(CHEST, shaft, fletch);
       }
       const sword = new THREE.Mesh(new THREE.CylinderGeometry(.026, .022, .42, 8), leather);
       sword.position.set(.29, .55, .07); sword.rotation.z = -.26;
-      hold(hips, sword);
+      hold(HIPS, sword);
     }
   }
 

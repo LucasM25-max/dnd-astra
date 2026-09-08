@@ -54,8 +54,7 @@ async function boot() {
           const e = world!.adventure.combatDirector.encounter;
           if (!e) return false;
           for (const c of e.combatants) if (c.side === 'enemy') c.health = { ...c.health, hp: 0, dead: true };
-          world!.adventure.combatEndTurn();
-          return true;
+          return world!.adventure.combatDirector.finishNow();
         },
         getDebug: (forwardMeters = 0) => {
           const w = world!, st = w.getState();

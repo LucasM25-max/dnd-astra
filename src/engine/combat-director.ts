@@ -54,6 +54,15 @@ interface StrikeCluster {
   damageKind: 'fire' | 'frost' | 'force' | 'arrow' | 'melee';
 }
 
+/**
+ * How long the fate dice may tumble before the blade falls anyway. A settled
+ * die takes roughly a second and a half, so this only ever fires if something
+ * has gone wrong; it exists so a stuck roll cannot strand the turn.
+ */
+const DICE_SAFETY_CAP = 5.0;
+/** How long an enemy may spend closing the gap before it is assumed to have arrived. */
+const MOVE_SAFETY_CAP = 3.2;
+
 /** A staged spell: cast pose, bolt flight, then the effects reveal at arrival. */
 interface SpellCluster {
   casterId: string;
@@ -380,6 +389,8 @@ export class CombatDirector {
     // Presentation runs on wall clock (capped), so slow frames slow nothing:
     // a goblin's windup takes as long as it takes, not ten times it.
     this.view.update(Math.min(realDelta, 0.25), this.camera, playerPosition);
+    // Settled numerals stand up to whatever the camera is looking from.
+    this.dice?.setViewDirection(this.camera.getWorldDirection(new THREE.Vector3()));
     this.dice?.update(Math.min(realDelta, 0.25));
 
     if (this.cluster) {
@@ -525,12 +536,13 @@ export class CombatDirector {
     }, () => {
       if (cluster.phase !== 'dice') return;
       if (cluster.attack.hit && cluster.attack.damageDice.length && this.dice) {
-        // Damage dice follow the fate die, then the blade falls.
+        // Damage dice follow the fate die, then the blade falls. The d20 stays
+        // where it landed; only the damage dice are added to the tray.
         this.audio.diceClatter(cluster.attack.damageDice.length);
         this.dice.roll({
-          d20: cluster.attack.kept,
           damage: { dice: cluster.attack.damageDice, sides: cluster.attack.damageSides, bonus: cluster.attack.damageBonus },
           anchor,
+          keep: true,
         }, () => {
           if (cluster.phase === 'dice') this.beginStrikeWindup(cluster);
         });
@@ -549,15 +561,17 @@ export class CombatDirector {
       switch (cluster.phase) {
         case 'waitMove': {
           const settled = this.view?.settled(cluster.attackerId) ?? true;
-          if (settled || cluster.timer > 3.2) {
+          if (settled || cluster.timer > MOVE_SAFETY_CAP) {
             if (cluster.attackerIsHero) this.beginStrikeDice(cluster);
             else this.beginStrikeWindup(cluster);
           }
           break;
         }
         case 'dice': {
-          // The dice callbacks drive this phase; the cap only unstick it.
-          if (cluster.timer > 3.8) this.beginStrikeWindup(cluster);
+          // The dice callbacks drive this phase. The cap no longer needs to be
+          // tight — a die is only held back by its own tumble now — it just
+          // guarantees a strike can never strand the turn.
+          if (cluster.timer > DICE_SAFETY_CAP) this.beginStrikeWindup(cluster);
           break;
         }
         case 'windup': {
@@ -748,6 +762,27 @@ export class CombatDirector {
   get hoveredId() { return this.view?.hoveredActorId ?? null; }
 
   // -- resolution -----------------------------------------------------------
+
+  /**
+   * Abandon whatever is being staged and settle the fight now.
+   *
+   * Only the dev/test hook uses this. The victory and defeat branches it
+   * exercises — experience, the after-action panel, the save — do not depend
+   * on the choreography, and a software renderer that manages a frame every
+   * few seconds would otherwise take minutes to walk the queue.
+   */
+  finishNow() {
+    if (!this.encounter) return false;
+    this.cluster = null;
+    this.presenting = false;
+    this.queue.length = 0;
+    this.pendingEnemyTurn = false;
+    const entries = this.encounter.endTurn();
+    this.queue.push(...entries);
+    this.runQueue();
+    if (this.encounter.finished && this.phase === 'active') this.resolve();
+    return true;
+  }
 
   private resolve() {
     if (!this.encounter) return;

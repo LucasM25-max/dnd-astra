@@ -167,6 +167,8 @@ export class Encounter {
   awardedXp = 0;
   /** Set while a downed party member owes a death save at the start of a turn. */
   private nextLogId = 1;
+  /** Entry ids already written to the public log, so publishing is idempotent. */
+  private loggedIds = new Set<number>();
   private clock = 0;
   private surpriseIds = new Set<string>();
   onChange: () => void = () => {};
@@ -340,10 +342,33 @@ export class Encounter {
 
   // -- turn flow ----------------------------------------------------------
 
-  private entry(kind: LogKind, text: string, extra: Partial<LogEntry> = {}) {
-    const item: LogEntry = { id: this.nextLogId++, kind, text, ...extra };
-    this.log.push(item);
+  /**
+   * Build a log entry without publishing it.
+   *
+   * An attack is built out of order — the entry that says "hits for 9" is
+   * assembled first so the presentation queue can lead with it, while the
+   * death it causes is only known afterwards. Publishing at creation time
+   * meant the combat log read "Goblin drops and does not move again" *above*
+   * the blow that dropped it. Callers now stage their entries and publish
+   * them in the order a reader should see.
+   */
+  private stage(kind: LogKind, text: string, extra: Partial<LogEntry> = {}): LogEntry {
+    return { id: this.nextLogId++, kind, text, ...extra };
+  }
+
+  /** Append entries to the public log in the order they are given. */
+  private publish(entries: LogEntry[]) {
+    for (const e of entries) {
+      if (this.loggedIds.has(e.id)) continue;
+      this.loggedIds.add(e.id);
+      this.log.push(e);
+    }
     if (this.log.length > 400) this.log.splice(0, this.log.length - 400);
+  }
+
+  private entry(kind: LogKind, text: string, extra: Partial<LogEntry> = {}) {
+    const item = this.stage(kind, text, extra);
+    this.publish([item]);
     return item;
   }
 
@@ -407,6 +432,12 @@ export class Encounter {
       entries.push(...this.beginTurn());
       break;
     }
+    // Check the end here as well as after every blow. An enemy that goes down
+    // outside an attack — withdrawn, or killed by something other than the
+    // active combatant's swing — used to leave the encounter running with
+    // nothing left to fight: the log said the fight was over but the engine
+    // kept handing out turns.
+    this.checkEnd(entries);
     this.onChange();
     return entries;
   }
@@ -436,15 +467,25 @@ export class Encounter {
   /** Free rerolls the solo hero has left this encounter. */
   private luckRemaining = -1;
 
+  /** Rerolls the solo hero has declared for this fight, lazily initialised. */
+  private luckLeft(): number {
+    if (this.luckRemaining < 0) this.luckRemaining = this.options.solo?.luck ?? 0;
+    return this.luckRemaining;
+  }
+
   /**
    * A solo hero gets a small number of rerolls per fight, standing in for the
-   * party members who are not there to turn a bad roll around. Spent only on a
-   * miss that would otherwise have hit on the reroll's better odds.
+   * party members who are not there to turn a bad roll around.
+   *
+   * The reroll is only *charged* if it actually changes the outcome. Spending
+   * it up front — the way this read before — quietly burned both rerolls on
+   * swings that missed twice anyway, so the hero fought the whole ambush
+   * without the one bonus the character sheet was promising them.
    */
-  private trySpendLuck(actor: Combatant): boolean {
+  private chargeLuck(actor: Combatant, helped: boolean | undefined): boolean {
     if (actor.side !== 'party') return false;
-    if (this.luckRemaining < 0) this.luckRemaining = this.options.solo?.luck ?? 0;
-    if (this.luckRemaining <= 0) return false;
+    if (!helped) return false;
+    if (this.luckLeft() <= 0) return false;
     this.luckRemaining--;
     return true;
   }
@@ -492,7 +533,10 @@ export class Encounter {
     });
 
     let finalRoll = roll;
-    if (!finalRoll.success && this.trySpendLuck(attacker)) {
+    // Roll the second swing first, then decide whether it cost anything. A
+    // reroll that misses anyway leaves the hero's luck untouched.
+    let luckNote: LogEntry | null = null;
+    if (!finalRoll.success && this.luckLeft() > 0) {
       const reroll = resolveCheck({
         kind: 'attack', actor: attacker.actor, ability: 'str',
         dc: target.armorClass + coverAcBonus(cover),
@@ -500,11 +544,13 @@ export class Encounter {
         modifiers: [{ label: `${weapon.name} attack`, value: bonus - abilityModifier(attacker.actor.abilities.str) }],
         stream: this.stream,
       });
-      entries.push(this.entry('info', `${attacker.name} refuses the miss and swings again.`, { actorId: attacker.id, roll: reroll }));
-      finalRoll = reroll;
+      if (this.chargeLuck(attacker, reroll.success)) {
+        luckNote = this.stage('info', `${attacker.name} refuses the miss and swings again.`, { actorId: attacker.id, roll: reroll });
+        finalRoll = reroll;
+      }
     }
     if (!finalRoll.success) {
-      entries.push(this.entry('attack', `${attacker.name} swings at ${target.name} and misses${cover !== 'none' ? ` — ${cover === 'half' ? 'half' : 'three-quarters'} cover` : ''}.`,
+      entries.push(this.stage('attack', `${attacker.name} swings at ${target.name} and misses${cover !== 'none' ? ` — ${cover === 'half' ? 'half' : 'three-quarters'} cover` : ''}.`,
         {
           actorId: attacker.id, targetId: target.id, roll: finalRoll, detail: finalRoll.explanation,
           attack: {
@@ -513,6 +559,7 @@ export class Encounter {
             damage: 0, damageDice: [], damageSides: 0, damageBonus: 0, damageType: weapon.damageType, killed: false,
           },
         }));
+      this.publish(entries);
       return entries;
     }
     const roll2 = finalRoll;
@@ -525,7 +572,10 @@ export class Encounter {
     const amount = Math.max(0, damageRoll.total + soloBonus);
     const targetHealthBefore = target.health.hp;
     entries.push(...this.applyDamageTo(target, amount, { critical, melee: !isRanged(weapon), damageType: monsterAction?.damageType ?? weapon.damageType }, attacker));
-    entries.unshift(this.entry('attack',
+    // The attack leads the array — the presentation queue stages a strike from
+    // the first entry — but `publish` puts it into the log ahead of the damage
+    // and death it caused.
+    entries.unshift(this.stage('attack',
       `${attacker.name} hits ${target.name} for ${amount} ${monsterAction?.damageType ?? weapon.damageType} damage${critical ? ' — a critical hit' : ''}.`,
       {
         actorId: attacker.id, targetId: target.id, amount, roll: roll2,
@@ -547,6 +597,18 @@ export class Encounter {
         entries.push(this.entry('condition', `${target.name} is knocked ${monsterAction.condition}.`, { actorId: attacker.id, targetId: target.id, roll: save }));
       }
     }
+    // Two orders, deliberately. The queue wants the attack first so the
+    // director can stage a strike from it; a reader wants the reroll that made
+    // the hit possible to come before the hit.
+    if (luckNote) {
+      const attackEntry = entries[0];
+      const rest = entries.filter(e => e !== attackEntry && e !== luckNote);
+      entries.length = 0;
+      entries.push(attackEntry, luckNote, ...rest);
+      this.publish([luckNote, attackEntry, ...rest]);
+    } else {
+      this.publish(entries);
+    }
     return entries;
   }
 
@@ -567,7 +629,7 @@ export class Encounter {
     if (target.concentratingOn && amount > 0) {
       const save = concentrationCheck(target.actor, amount, this.stream);
       if (!save.success) {
-        entries.push(this.entry('save', `${target.name} loses concentration on ${SPELLS[target.concentratingOn.spellId]?.name ?? 'the spell'}.`, { actorId: target.id, roll: save }));
+        entries.push(this.stage('save', `${target.name} loses concentration on ${SPELLS[target.concentratingOn.spellId]?.name ?? 'the spell'}.`, { actorId: target.id, roll: save }));
         target.concentratingOn = undefined;
       }
     }
@@ -575,14 +637,14 @@ export class Encounter {
     if (before.hp > 0 && target.health.hp <= 0 && !target.health.dead) {
       target.conditions = addCondition(target.conditions, { id: `down-${target.id}`, type: 'unconscious' });
       target.animation = 'down'; target.animationUntil = this.clock + 1.4;
-      entries.push(this.entry('death', target.side === 'enemy'
+      entries.push(this.stage('death', target.side === 'enemy'
         ? `${target.name} drops and does not move again.`
         : `${target.name} falls, bleeding out. They need help.`, { targetId: target.id, actorId: source?.id }));
       // A defeated monster is simply out of the fight.
       if (target.side === 'enemy') target.health.dead = true;
     } else if (target.health.dead) {
       target.animation = 'dead';
-      entries.push(this.entry('death', `${target.name} is killed outright.`, { targetId: target.id, actorId: source?.id }));
+      entries.push(this.stage('death', `${target.name} is killed outright.`, { targetId: target.id, actorId: source?.id }));
     }
     return entries;
   }
@@ -661,6 +723,9 @@ export class Encounter {
     }
     caster.concentratingOn = spell.concentration ? { spellId, targetIds: targets.map(t => t.id) } : caster.concentratingOn;
 
+    // Publish before checking the end: `checkEnd` writes its victory entry
+    // straight to the log, and it belongs after the damage that earned it.
+    this.publish(entries);
     this.checkEnd(entries);
     this.onChange();
     return { ok: true, entries };
