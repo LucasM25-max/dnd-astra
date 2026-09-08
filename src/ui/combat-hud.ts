@@ -25,8 +25,12 @@ export class CombatHud {
   private logEl: HTMLElement;
   private bannerEl: HTMLElement;
   private resultEl: HTMLElement;
+  private vignetteEl: HTMLElement;
   private lastLogId = 0;
   private lastSignature = '';
+  private lastHeroHp = -1;
+  private lastActiveId: string | null = null;
+  private vignetteTimer = 0;
   private visible = false;
   private selectedSpell: string | null = null;
   private abort = new AbortController();
@@ -38,6 +42,7 @@ export class CombatHud {
     this.root.className = 'combat-hud';
     this.root.hidden = true;
     this.root.innerHTML = `
+      <div class="combat-vignette" id="combat-vignette" aria-hidden="true"></div>
       <div class="combat-banner" id="combat-banner"></div>
       <div class="combat-order" id="combat-order" aria-label="Initiative order"></div>
       <div class="combat-preview" id="combat-preview" aria-live="polite"></div>
@@ -52,6 +57,7 @@ export class CombatHud {
     this.logEl = this.root.querySelector('#combat-log')!;
     this.bannerEl = this.root.querySelector('#combat-banner')!;
     this.resultEl = this.root.querySelector('#combat-result')!;
+    this.vignetteEl = this.root.querySelector('#combat-vignette')!;
 
     this.bind();
   }
@@ -126,7 +132,7 @@ export class CombatHud {
     this.visible = visible;
     this.root.hidden = !visible;
     document.body.dataset.combat = String(visible);
-    if (!visible) { this.selectedSpell = null; this.lastLogId = 0; this.logEl.innerHTML = ''; }
+    if (!visible) { this.selectedSpell = null; this.lastLogId = 0; this.lastHeroHp = -1; this.lastActiveId = null; this.logEl.innerHTML = ''; }
   }
 
   appendLog(entries: LogEntry[]) {
@@ -162,12 +168,31 @@ export class CombatHud {
     if (!force && signature === this.lastSignature) return;
     this.lastSignature = signature;
 
+    // A hit you take flashes the edges of the screen.
+    const heroHp = snapshot.hero?.hp ?? -1;
+    if (this.lastHeroHp >= 0 && heroHp < this.lastHeroHp) this.flashVignette();
+    this.lastHeroHp = heroHp;
+    // Whose turn it is gets a beat of attention.
+    if (snapshot.activeId !== this.lastActiveId) {
+      this.lastActiveId = snapshot.activeId;
+      this.bannerEl.classList.remove('turn-swap');
+      void this.bannerEl.offsetWidth;
+      this.bannerEl.classList.add('turn-swap');
+    }
     this.renderBanner(snapshot);
     this.renderOrder(snapshot);
     this.renderPreview(snapshot);
     this.renderBar(snapshot);
     this.renderResult(snapshot);
     this.renderSolo(snapshot);
+  }
+
+  private flashVignette() {
+    this.vignetteEl.classList.remove('flash');
+    void this.vignetteEl.offsetWidth;
+    this.vignetteEl.classList.add('flash');
+    clearTimeout(this.vignetteTimer);
+    this.vignetteTimer = window.setTimeout(() => this.vignetteEl.classList.remove('flash'), 620);
   }
 
   private renderBanner(s: CombatSnapshot) {
@@ -282,5 +307,5 @@ export class CombatHud {
       </div>`;
   }
 
-  dispose() { this.abort.abort(); this.root.remove(); }
+  dispose() { this.abort.abort(); clearTimeout(this.vignetteTimer); this.root.remove(); }
 }

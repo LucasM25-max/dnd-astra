@@ -11,6 +11,8 @@ import * as THREE from 'three';
  */
 export interface CombatMaterials {
   creatureSkin: THREE.MeshStandardMaterial;
+  /** Human skin, for the hero body. */
+  humanSkin: THREE.MeshStandardMaterial;
   creatureCloth: THREE.MeshStandardMaterial;
   leather: THREE.MeshStandardMaterial;
   chainmail: THREE.MeshStandardMaterial;
@@ -46,8 +48,8 @@ export async function loadCombatMaterials(renderer: THREE.WebGLRenderer): Promis
     roughnessMap: await load(`${name}-rough`, false),
   });
 
-  const [skin, cloth, leatherSet, mail, steelSet, rock, vellum] = await Promise.all([
-    set('goblin-skin'), set('goblin-cloth'), set('leather-armor'),
+  const [skin, human, cloth, leatherSet, mail, steelSet, rock, vellum] = await Promise.all([
+    set('goblin-skin'), set('human-skin'), set('goblin-cloth'), set('leather-armor'),
     set('chainmail'), set('forged-steel'), set('cave-rock'), set('parchment'),
   ]);
 
@@ -61,6 +63,16 @@ export async function loadCombatMaterials(renderer: THREE.WebGLRenderer): Promis
   creatureSkin.map!.repeat.set(1.6, 1.6);
   creatureSkin.normalMap!.repeat.copy(creatureSkin.map!.repeat);
   creatureSkin.roughnessMap!.repeat.copy(creatureSkin.map!.repeat);
+
+  // Human skin for the hero: finer pores, warmer tone, calmer normal detail.
+  const humanSkin = new THREE.MeshStandardMaterial({
+    ...human, normalScale: new THREE.Vector2(0.55, 0.55),
+    roughness: 0.68, metalness: 0,
+    color: '#d9a887', vertexColors: true,
+  });
+  humanSkin.map!.repeat.set(1.4, 1.4);
+  humanSkin.normalMap!.repeat.copy(humanSkin.map!.repeat);
+  humanSkin.roughnessMap!.repeat.copy(humanSkin.map!.repeat);
 
   const creatureCloth = new THREE.MeshStandardMaterial({
     ...cloth, normalScale: new THREE.Vector2(0.9, 0.9),
@@ -118,7 +130,7 @@ export async function loadCombatMaterials(renderer: THREE.WebGLRenderer): Promis
   const blood = new THREE.MeshStandardMaterial({ color: '#4a0f0c', roughness: 0.35, metalness: 0, transparent: true, opacity: 0.9 });
 
   return {
-    creatureSkin, creatureCloth, leather, chainmail, steel, bronze, caveRock,
+    creatureSkin, humanSkin, creatureCloth, leather, chainmail, steel, bronze, caveRock,
     parchment, eye, woodShaft, fletching, bowstring, blood, textures: all,
   };
 }

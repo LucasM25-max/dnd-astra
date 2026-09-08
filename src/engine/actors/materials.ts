@@ -4,7 +4,10 @@ export interface AdventureMaterials {
   wood: THREE.MeshStandardMaterial; woodDark: THREE.MeshStandardMaterial; woodEnd: THREE.MeshStandardMaterial;
   iron: THREE.MeshStandardMaterial; brass: THREE.MeshStandardMaterial; leather: THREE.MeshStandardMaterial;
   cloth: THREE.MeshStandardMaterial; rope: THREE.MeshStandardMaterial; tarp: THREE.MeshStandardMaterial;
-  coat: THREE.Texture; coatNormal: THREE.Texture; hoof: THREE.MeshStandardMaterial; eye: THREE.MeshPhysicalMaterial;
+  coat: THREE.Texture; coatNormal: THREE.Texture;
+  oxCoat: THREE.Texture; oxCoatNormal: THREE.Texture;
+  horseCoat: THREE.Texture; horseCoatNormal: THREE.Texture;
+  hoof: THREE.MeshStandardMaterial; eye: THREE.MeshPhysicalMaterial;
   glass: THREE.MeshPhysicalMaterial; horn: THREE.MeshStandardMaterial; oil: THREE.MeshStandardMaterial;
   textures: THREE.Texture[];
 }
@@ -14,7 +17,12 @@ export async function loadAdventureMaterials(renderer: THREE.WebGLRenderer): Pro
     const t = await loader.loadAsync(`/textures/${name}.webp`); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = anisotropy;
     if (color) t.colorSpace = THREE.SRGBColorSpace; return t;
   };
-  const [oak, oakN, burlap, burlapN, coat, coatNormal] = await Promise.all([load('wagon-oak', true), load('wagon-oak-normal', false), load('wagon-burlap', true), load('wagon-burlap-normal', false), load('animal-coat', true), load('animal-coat-normal', false)]);
+  const [oak, oakN, burlap, burlapN, coat, coatNormal, oxCoat, oxCoatNormal, horseCoat, horseCoatNormal] = await Promise.all([
+    load('wagon-oak', true), load('wagon-oak-normal', false), load('wagon-burlap', true), load('wagon-burlap-normal', false),
+    load('animal-coat', true), load('animal-coat-normal', false),
+    load('ox-hide', true), load('ox-hide-normal', false),
+    load('horse-coat', true), load('horse-coat-normal', false),
+  ]);
   const wood = new THREE.MeshStandardMaterial({ map: oak, normalMap: oakN, color: '#c6b48e', roughness: .86, normalScale: new THREE.Vector2(.7, .7) });
   const woodDark = wood.clone(); woodDark.color.set('#8e7854');
   const woodEnd = new THREE.MeshStandardMaterial({ map: endGrain(), color: '#aa9470', roughness: .95 });
@@ -29,7 +37,7 @@ export async function loadAdventureMaterials(renderer: THREE.WebGLRenderer): Pro
   const glass = new THREE.MeshPhysicalMaterial({ color: '#c1bf9e', roughness: .18, metalness: .08, transparent: true, opacity: .33, depthWrite: false, side: THREE.DoubleSide });
   const horn = new THREE.MeshStandardMaterial({ color: '#d0c4a0', roughness: .65, normalMap: coatNormal, normalScale: new THREE.Vector2(.17, .17), vertexColors: true });
   const oil = new THREE.MeshStandardMaterial({ color: '#302c18', metalness: .06, roughness: .23 });
-  return { wood, woodDark, woodEnd, iron, brass, leather, cloth, rope, tarp, coat, coatNormal, hoof, eye, glass, horn, oil, textures: [oak, oakN, burlap, burlapN, coat, coatNormal, woodEnd.map!] };
+  return { wood, woodDark, woodEnd, iron, brass, leather, cloth, rope, tarp, coat, coatNormal, oxCoat, oxCoatNormal, horseCoat, horseCoatNormal, hoof, eye, glass, horn, oil, textures: [oak, oakN, burlap, burlapN, coat, coatNormal, oxCoat, oxCoatNormal, horseCoat, horseCoatNormal, woodEnd.map!] };
 }
 function endGrain() {
   const canvas = document.createElement('canvas'); canvas.width = canvas.height = 256;

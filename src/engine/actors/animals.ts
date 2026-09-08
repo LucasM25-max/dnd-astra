@@ -141,15 +141,28 @@ const shadeAttr = (g: THREE.BufferGeometry, value: number) => {
   return g;
 };
 
+/** Catmull-Rom resample of an authored 4-column profile into a smooth curve. */
+function resampleRows(rows: number[][], samples: number): number[][] {
+  const cA = new THREE.CatmullRomCurve3(rows.map(r => new THREE.Vector3(r[0], r[1], 0)));
+  const cB = new THREE.CatmullRomCurve3(rows.map(r => new THREE.Vector3(r[2], r[3], 0)));
+  const out: number[][] = [];
+  for (let i = 0; i < samples; i++) {
+    const t = i / Math.max(1, samples - 1), a = cA.getPoint(t), b = cB.getPoint(t);
+    out.push([a.x, a.y, b.x, b.y]);
+  }
+  return out;
+}
+
 /** Build the full rest-pose body with skin indices/weights for the 16-bone rig. */
 function buildBody(species: Species, detail: number): THREE.BufferGeometry {
   const S = SHAPES[species];
-  const sides = Math.max(6, Math.round(16 * detail)), legSides = Math.max(6, Math.round(12 * detail));
+  const sides = Math.max(8, Math.round(22 * detail)), legSides = Math.max(6, Math.round(14 * detail));
   const ox = species === 'ox', wide = ox ? 1.16 : 1;
   const parts: Part[] = [];
-  // Torso: sections -> vertical ellipses.
-  const stations = S.torso.map(([z, back, belly]) => new THREE.Vector3(0, (back + belly) / 2, z));
-  const widths = S.torso.map(([, , , hw]) => hw * wide), heights = S.torso.map(([back, belly]) => (back - belly) / 2);
+  // Torso: resampled sections -> a smooth barrel with haunch and shoulder mass.
+  const torsoRows = resampleRows(S.torso, Math.max(10, Math.round(16 * detail)));
+  const stations = torsoRows.map(([z, back, belly]) => new THREE.Vector3(0, (back + belly) / 2, z));
+  const widths = torsoRows.map(([, , , hw]) => hw * wide), heights = torsoRows.map(([back, belly]) => (back - belly) / 2);
   const torso = loftSections(stations, widths, heights, sides, S.torsoPoles);
   parts.push({ geometry: torso, boneA: BONE.body, boneB: BONE.neck, min: -1.0, max: -0.4, blend: v => smoothstep(-.58, -.92, v.z) * smoothstep(.95, 1.28, v.y) });
   // Neck.
@@ -244,18 +257,16 @@ export class LivingAnimal {
     this.species = species; this.t = seed * 2.19; this.gait = seed * 1.37; this.rng = seededRandom(9000 + seed * 137);
     const S = SHAPES[species];
     this.L1f = S.shoulder - .02 - S.knee; this.L2f = S.knee - .14; this.L1r = S.shoulder - .02 - S.hock; this.L2r = S.hock - .14;
-    // Use the authored UVs directly. The old triplanar shader sampled the same
-    // coat image three times from object-space projections; on the thin legs and
-    // curved head that produced hard seams, noisy checker patches, and a plastic
-    // "melted" silhouette. A normal-mapped, UV-driven PBR coat is both calmer at
-    // distance and much more believable under changing light.
+    // Each species wears its own photographed coat — brindle ox hide, chestnut
+    // horse bay — with the tint only shifting within the breed, so the fur
+    // reads as fur rather than painted plastic under changing light.
     const material = new THREE.MeshStandardMaterial({
-      map: mat.coat,
-      normalMap: mat.coatNormal,
-      normalScale: new THREE.Vector2(.16, .16),
+      map: species === 'ox' ? mat.oxCoat : mat.horseCoat,
+      normalMap: species === 'ox' ? mat.oxCoatNormal : mat.horseCoatNormal,
+      normalScale: new THREE.Vector2(.28, .28),
       color,
       vertexColors: true,
-      roughness: .93,
+      roughness: species === 'ox' ? .9 : .82,
     });
     this.body.name = 'torso'; this.neck.name = 'neck'; this.head.name = 'head'; this.tail.name = 'tail';
     this.neck.position.copy(S.neckBase); this.head.position.copy(S.headBase); this.tail.position.copy(S.tailBase);

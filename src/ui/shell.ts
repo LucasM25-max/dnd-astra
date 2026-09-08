@@ -50,7 +50,7 @@ export function renderShell(host: HTMLElement) {
           </div>
           <button id="help-toggle" class="help-button" aria-label="Show controls"><i data-lucide="circle-help"></i><span>Controls</span><kbd>H</kbd></button>
         </footer>
-        <div class="pointer-hint" id="pointer-hint"><span class="hint-dot"></span> Click to look around <span>·</span> <kbd>ESC</kbd> to release</div>
+        <div class="pointer-hint" id="pointer-hint"><span class="hint-dot"></span> Hold and drag to look <span>·</span> <kbd>WASD</kbd> to move</div>
         <div class="crosshair" aria-hidden="true"></div>
         <button id="inspect-prompt" class="inspect-prompt" hidden><kbd>E</kbd><span id="inspect-label">Inspect the cargo manifest</span></button>
         <button id="journey-skip" class="journey-skip" hidden><span>Skip opening</span><i data-lucide="skip-forward"></i></button>

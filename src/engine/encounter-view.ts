@@ -5,8 +5,9 @@ import { MONSTERS } from '../game/bestiary';
 import { feetToMetres, metresToFeet } from '../game/rules';
 import { WEAPONS, isRanged } from '../game/equipment';
 import { terrainHeight, type CollisionField } from './landscape';
-import { Humanoid } from './actors/humanoid';
+import { Humanoid, type HumanoidPose } from './actors/humanoid';
 import { buildArrow, buildWeapon, type CombatMaterials } from './actors/combat-materials';
+import { CombatFx } from './combat-fx';
 
 /**
  * The bridge between the deterministic encounter engine and the 3D world.
@@ -25,17 +26,25 @@ interface ActorView {
   visual: THREE.Vector3;
   velocity: number;
   actionPhase: number;
-  actionPose: 'idle' | 'attack' | 'shoot' | 'cast' | 'hurt' | 'down' | 'dead';
+  actionPose: HumanoidPose;
   hidden: boolean;
   revealT: number;
   selectionRing: THREE.Mesh;
   healthBar: { group: THREE.Group; fill: THREE.Mesh; back: THREE.Mesh };
+  /** Director-driven one-shot pose that outranks the engine's animation flag. */
+  override: { pose: HumanoidPose; t: number; duration: number; atImpact: number } | null;
+  /** Engine pose changes are ignored until this presentation clock time. */
+  holdUntil: number;
+  /** Health the bar has actually revealed (damage lands with the blow, not the rules tick). */
+  shownHp: number;
+  hpRevealed: boolean;
 }
 
 interface Tracer { mesh: THREE.Object3D; from: THREE.Vector3; to: THREE.Vector3; t: number; duration: number; arc: number }
 
 export class EncounterView {
   readonly group = new THREE.Group();
+  readonly fx: CombatFx;
   private actors = new Map<string, ActorView>();
   private tracers: Tracer[] = [];
   private moveOverlay: THREE.Mesh;
@@ -57,6 +66,7 @@ export class EncounterView {
   ) {
     this.detail = quality === 'performance' ? 0.6 : quality === 'balanced' ? 0.85 : 1;
     this.group.name = 'Encounter';
+    this.fx = new CombatFx(this.group);
 
     // --- tactical overlays -------------------------------------------------
     // A soft, shader-driven movement disc rather than a hard grid: it shows
@@ -140,7 +150,11 @@ export class EncounterView {
     const visual = monster.visual;
 
     const body = new Humanoid(
-      { height: visual.height, build: visual.height > 1.6 ? 'stocky' : 'lean', earLength: visual.height * 0.14, noseLength: visual.height * 0.075 },
+      {
+        height: visual.height, build: visual.height > 1.6 ? 'stocky' : 'lean',
+        earLength: visual.height * 0.16, noseLength: visual.height * 0.085,
+        species: visual.archetype === 'goblinoid' ? 'goblin' : 'human',
+      },
       this.materials, visual.skin, visual.cloth,
       Math.floor(Math.abs(Math.sin(combatant.id.length * 7.3) * 1000)), this.detail,
     );
@@ -171,6 +185,7 @@ export class EncounterView {
       combatant, body, visual: new THREE.Vector3(combatant.position.x, 0, combatant.position.z),
       velocity: 0, actionPhase: 0, actionPose: 'idle',
       hidden: true, revealT: 0, selectionRing: ring, healthBar,
+      override: null, holdUntil: 0, shownHp: combatant.health.hp, hpRevealed: false,
     };
     this.actors.set(combatant.id, view);
 
@@ -237,20 +252,40 @@ export class EncounterView {
 
       view.body.root.position.set(view.visual.x, this.groundAt(view.visual.x, view.visual.z), view.visual.z);
 
-      // Translate the engine's animation state into a pose plus a phase.
-      const enginePose = c.animation;
-      if (enginePose === 'attack' || enginePose === 'cast' || enginePose === 'hurt') {
-        const monster = c.monsterId ? MONSTERS[c.monsterId] : undefined;
-        const ranged = monster?.visual.weapon === 'shortbow';
-        const pose = enginePose === 'attack' ? (ranged ? 'shoot' : 'attack') : enginePose;
-        if (view.actionPose !== pose) { view.actionPose = pose; view.actionPhase = 0; }
-        view.actionPhase = Math.min(1, view.actionPhase + dt / (pose === 'shoot' ? 0.9 : 0.65));
-      } else if (enginePose === 'down' || enginePose === 'dead') {
-        view.actionPose = enginePose;
-      } else if (view.actionPhase >= 1 || view.actionPose === 'idle') {
-        view.actionPose = 'idle'; view.actionPhase = 0;
-      } else {
-        view.actionPhase = Math.min(1, view.actionPhase + dt / 0.65);
+      // A director-driven strike outranks the engine's animation flag, and a
+      // hold stops the engine's instant resolution from leaking onto the
+      // target before the blow actually lands.
+      if (view.override) {
+        view.override.t += dt;
+        const o = view.override;
+        if (o.t >= o.duration) {
+          view.override = null;
+          view.actionPose = 'idle';
+          view.actionPhase = 0;
+        } else {
+          view.actionPose = o.pose;
+          // The animation phase is warped so the strike connects exactly at
+          // `atImpact` — wind-up before it, follow-through after.
+          const phase = o.t < o.atImpact
+            ? (o.t / o.atImpact) * o.atImpact
+            : o.atImpact + ((o.t - o.atImpact) / Math.max(0.001, o.duration - o.atImpact)) * (1 - o.atImpact);
+          view.actionPhase = THREE.MathUtils.clamp(phase, 0, 1);
+        }
+      } else if (this.clock >= view.holdUntil) {
+        const enginePose = c.animation;
+        if (enginePose === 'attack' || enginePose === 'cast' || enginePose === 'hurt') {
+          const monster = c.monsterId ? MONSTERS[c.monsterId] : undefined;
+          const ranged = monster?.visual.weapon === 'shortbow';
+          const pose = enginePose === 'attack' ? (ranged ? 'shoot' : 'attack') : enginePose;
+          if (view.actionPose !== pose) { view.actionPose = pose; view.actionPhase = 0; }
+          view.actionPhase = Math.min(1, view.actionPhase + dt / (pose === 'shoot' ? 0.9 : 0.65));
+        } else if (enginePose === 'down' || enginePose === 'dead') {
+          view.actionPose = enginePose;
+        } else if (view.actionPhase >= 1 || view.actionPose === 'idle') {
+          view.actionPose = 'idle'; view.actionPhase = 0;
+        } else {
+          view.actionPhase = Math.min(1, view.actionPhase + dt / 0.65);
+        }
       }
 
       // A hidden goblin crouches in the bracken and does not look at you.
@@ -285,7 +320,8 @@ export class EncounterView {
       if (showBar) {
         bar.group.position.set(view.visual.x, this.groundAt(view.visual.x, view.visual.z) + view.body.headHeight + 0.30, view.visual.z);
         bar.group.quaternion.copy(camera.quaternion);
-        const ratio = Math.max(0, c.health.hp / c.health.maxHp);
+        if (view.hpRevealed) view.shownHp = THREE.MathUtils.damp(view.shownHp, Math.max(0, c.health.hp), 9, dt);
+        const ratio = Math.max(0, Math.min(1, view.shownHp / c.health.maxHp));
         bar.fill.scale.x = Math.max(0.001, ratio);
         bar.fill.position.x = -0.30 * (1 - ratio);
         (bar.fill.material as THREE.MeshBasicMaterial).color.set(ratio > 0.5 ? '#8fbf5a' : ratio > 0.25 ? '#e0a63c' : '#c8503c');
@@ -297,6 +333,77 @@ export class EncounterView {
 
     this.updateOverlays(dt, playerPosition);
     this.updateTracers(dt);
+    this.fx.update(dt, camera, window.innerWidth, window.innerHeight);
+  }
+
+  // -- director choreography ------------------------------------------------
+
+  /** Force a one-shot pose; `atImpact` is the animation fraction where the blow connects. */
+  playPose(id: string, pose: HumanoidPose, duration: number, atImpact = 0.5) {
+    const view = this.actors.get(id);
+    if (!view) return;
+    view.override = { pose, t: 0, duration, atImpact };
+    view.actionPose = pose;
+    view.actionPhase = 0;
+  }
+
+  /** Suppress engine-driven pose changes until the presentation clock reaches +seconds. */
+  holdPose(id: string, seconds: number) {
+    const view = this.actors.get(id);
+    if (view) view.holdUntil = this.clock + seconds;
+  }
+
+  /** The struck body reacts: a flinch, or a collapse when it dropped. */
+  reactToHit(id: string, killed: boolean) {
+    const view = this.actors.get(id);
+    if (!view) return;
+    view.holdUntil = 0;
+    view.hpRevealed = true;
+    if (killed || view.combatant.health.dead) this.playPose(id, 'down', 1.0, 0.35);
+    else this.playPose(id, 'hurt', 0.55, 0.16);
+  }
+
+  /** Has the movement chase caught up with the engine's square? */
+  settled(id: string): boolean {
+    const view = this.actors.get(id);
+    if (!view) return true;
+    const target = new THREE.Vector3(view.combatant.position.x, 0, view.combatant.position.z);
+    return view.visual.distanceTo(target) < 0.09;
+  }
+
+  /** How far the actor still has to run, in metres. */
+  remainingMove(id: string): number {
+    const view = this.actors.get(id);
+    if (!view) return 0;
+    return view.visual.distanceTo(new THREE.Vector3(view.combatant.position.x, 0, view.combatant.position.z));
+  }
+
+  /** Chest-height anchor for arcs, bursts and blood. */
+  chestOf(id: string): THREE.Vector3 | null {
+    const view = this.actors.get(id);
+    if (!view) return null;
+    return new THREE.Vector3(view.visual.x, this.groundAt(view.visual.x, view.visual.z) + view.body.headHeight * 0.62, view.visual.z);
+  }
+
+  /** Loose an arrow from one actor at another; returns the flight time in seconds. */
+  fireArrow(attackerId: string, targetId: string): number {
+    const from = this.chestOf(attackerId), to = this.chestOf(targetId);
+    if (!from || !to) return 0.35;
+    this.spawnTracer(from, to, 'arrow');
+    return Math.max(0.14, from.distanceTo(to) / 34);
+  }
+
+  /** Loose a spell bolt; returns the flight time in seconds. */
+  fireBolt(fromId: string, toId: string, kind: 'fire' | 'frost' | 'force'): number {
+    const from = this.chestOf(fromId), to = this.chestOf(toId);
+    if (!from || !to) return 0.3;
+    this.spawnTracer(from, to, kind);
+    return Math.max(0.14, from.distanceTo(to) / 22);
+  }
+
+  /** Reveal everyone's true health — used when the encounter ends. */
+  revealAllHealth() {
+    for (const view of this.actors.values()) view.hpRevealed = true;
   }
 
   private dampAngle(current: number, target: number, lambda: number, dt: number) {

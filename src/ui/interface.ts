@@ -28,6 +28,8 @@ export class WorldInterface {
   private discoveryTimer = 0;
   private lastMapFrame = 0;
   private lastHeadingLabel = '';
+  private hintRetired = false;
+  private bootedAt = performance.now();
   private abort = new AbortController();
   private adventureUI: AdventureInterface;
   private creator = new CharacterCreator(defaultDraft());
@@ -55,7 +57,6 @@ export class WorldInterface {
 
     this.bind(); refreshIcons();
     world.controller.onStart = () => this.start();
-    world.controller.onUnlock = () => { if (!this.dialog) this.openDialog('pause'); };
     world.controller.onPointerFallback = () => this.toast('Drag to look around. WASD to follow the trail.');
     world.onUpdate = state => this.update(state);
     world.onDiscovery = name => this.discover(name);
@@ -66,7 +67,7 @@ export class WorldInterface {
   private bind() {
     const opts = { signal: this.abort.signal };
     const click = (selector: string, fn: () => void) => $(selector).addEventListener('click', fn, opts);
-    click('#enter-world', () => { this.start(); this.world.controller.capturePointer(); });
+    click('#enter-world', () => this.start());
     click('#character-create', () => { this.creator = new CharacterCreator(defaultDraft()); this.openDialog('character'); });
     click('#map-toggle', () => this.openDialog('map'));
     click('#settings-toggle', () => this.openDialog('settings'));
@@ -86,7 +87,7 @@ export class WorldInterface {
       if (!button) return;
       const action = button.dataset.action;
       if (action === 'close') this.closeDialog();
-      if (action === 'resume') { this.closeDialog(); this.start(); this.world.controller.capturePointer(); }
+      if (action === 'resume') { this.closeDialog(); this.start(); }
       if (action === 'settings') this.openDialog('settings');
       if (action === 'help') this.openDialog('help');
       if (action === 'reset') { this.world.adventure.returnToWagon(); this.closeDialog(); this.toast('Back at the wagon. Your cargo and inventory are unchanged.'); }
@@ -140,7 +141,6 @@ export class WorldInterface {
     }, opts);
     document.addEventListener('keydown', e => {
       if (e.code === 'Escape') {
-        if (document.pointerLockElement) return;
         e.preventDefault();
         if (this.dialog) this.closeDialog();
         else if (this.photo) this.togglePhoto();
@@ -212,11 +212,17 @@ export class WorldInterface {
     }
     this.adventureUI.update(state);
     if (this.dialog === 'cargo' && !this.world.adventure.canReach(this.adventureUI.activeCargo)) this.closeDialog();
-    document.body.dataset.locked = String(!!document.pointerLockElement);
+    document.body.dataset.locked = 'false';
     $('#region-name').textContent = state.landmark === 'cragmaw' ? 'Cragmaw Trail' : state.landmark === 'ambush' ? 'The Ambush Clearing' : 'Triboar Trail';
     const saveNote = $('#welcome-save-note');
     if (state.story.phase === 'title' && state.character) saveNote.textContent = `${state.character.name.toUpperCase()} · ${SPECIES[state.character.species].name.toUpperCase()} ${CLASSES[state.character.classId].name.toUpperCase()} · READY TO BEGIN`;
     this.combatHud.render(state.combat);
+    // The drag hint retires itself once the player has looked around and moved.
+    if (!this.hintRetired && (this.world.controller.dragged || performance.now() - this.bootedAt > 20000)) {
+      const hint = document.getElementById('pointer-hint');
+      if (hint) { hint.classList.add('retired'); setTimeout(() => hint.remove(), 900); }
+      this.hintRetired = true;
+    }
     this.audio.update(state.distanceWalked, state.moving, state.grounded);
     this.world.adventure.animalAudio.setListener(state.x, 0, state.z);
   }
@@ -239,7 +245,6 @@ export class WorldInterface {
     requestAnimationFrame(() => { if (this.dialog === kind) (dialog.querySelector<HTMLElement>('[data-action="close"]') ?? dialog).focus(); });
   }
   closeDialog() {
-    if (this.dialog === 'cargo' && document.pointerLockElement === this.world.renderer.domElement) this.world.controller.capturePointer();
     this.dialog = null; $('.hud').inert = false; $('#dialog-backdrop').hidden = true; document.body.dataset.modal = 'false';
     this.world.setPaused(false); this.audio.setPaused(false); this.world.adventure.animalAudio.setPaused(false);
     this.world.renderer.domElement.focus({ preventScroll: true });
@@ -317,7 +322,7 @@ export class WorldInterface {
       ['W A S D', 'Walk / guide the wagon', 'W and S guide, A and D steer at the reins.'],
       ['SHIFT', 'Sprint on foot', 'Hold while walking.'],
       ['SPACE', 'Jump', 'Also pauses narration during the opening.'],
-      ['MOUSE', 'Look around', 'Click to capture, or click and drag.'],
+      ['MOUSE', 'Look around', 'Hold the left button and drag. The cursor stays visible.'],
       ['V', 'Change perspective', 'First person or third person.'],
       ['SCROLL', 'Camera distance', 'Zoom in or out in third person.'],
       ['R', 'Board / dismount', 'Step down to reach the cargo.'],
@@ -350,7 +355,6 @@ export class WorldInterface {
   }
   private togglePhoto() {
     this.photo = !this.photo; document.body.dataset.photo = String(this.photo);
-    if (this.photo && document.pointerLockElement) { this.world.controller.setPaused(true); document.exitPointerLock(); setTimeout(() => { if (!this.dialog) this.world.controller.setPaused(false); }, 30); }
     if (!this.photo) this.world.renderer.domElement.focus({ preventScroll: true });
   }
   private async capture() {
@@ -360,6 +364,8 @@ export class WorldInterface {
     try {
       await this.audio.toggle();
       await this.world.adventure.animalAudio.setEnabled(this.audio.enabled);
+      await this.world.adventure.combatAudio.setEnabled(this.audio.enabled);
+      this.world.adventure.combatAudio.setVolume(this.config.volume);
       const button = $('#sound-toggle'); button.innerHTML = icon(this.audio.enabled ? 'volume-2' : 'volume-x');
       button.setAttribute('aria-label', this.audio.enabled ? 'Mute forest ambience' : 'Enable forest ambience'); button.title = this.audio.enabled ? 'Mute forest ambience' : 'Enable forest ambience';
       document.querySelectorAll<HTMLElement>('[data-action="audio"]').forEach(b => { b.classList.toggle('on', this.audio.enabled); b.setAttribute('aria-checked', String(this.audio.enabled)); }); refreshIcons();
@@ -382,6 +388,6 @@ export class WorldInterface {
     } catch { /* Storage may be blocked in private/embedded browsing. */ }
   }
   private savePreferences() { try { localStorage.setItem('astra-preferences-v1', JSON.stringify(this.config)); } catch { /* Settings still work for this session. */ } }
-  private applyPreferences() { this.world.setQuality(this.config.quality); this.world.setAtmosphere(this.config.atmosphere); this.world.controller.sensitivity = this.config.sensitivity; this.world.controller.invertY = this.config.invertY; this.audio.setVolume(this.config.volume); this.world.adventure.animalAudio.setVolume(this.config.volume); this.updateTime(); }
+  private applyPreferences() { this.world.setQuality(this.config.quality); this.world.setAtmosphere(this.config.atmosphere); this.world.controller.sensitivity = this.config.sensitivity; this.world.controller.invertY = this.config.invertY; this.audio.setVolume(this.config.volume); this.world.adventure.animalAudio.setVolume(this.config.volume); this.world.adventure.combatAudio.setVolume(this.config.volume); this.updateTime(); }
   dispose() { this.abort.abort(); this.adventureUI.dispose(); this.audio.dispose(); this.world.adventure.animalAudio.dispose(); clearTimeout(this.toastTimer); clearTimeout(this.discoveryTimer); }
 }
