@@ -7,13 +7,13 @@ import { NEUTRAL_HEAD, type AnimalCommand, type LivingAnimal } from './animals';
  * yoked oxen (soft-spring followers of the yoke anchors). Driven every frame
  * by Adventure; movement is applied to the animal roots there.
  */
-const CLEARING = { x: 9.7, z: 2, r: 5.1 };
+const CLEARING = { x: 14, z: 0, r: 6.2 };
 const WAYPOINTS = [
-  { x: 9.7, z: 2.2, w: .42 },   // ransacked belongings
-  { x: 8.3, z: 1.7, w: .22 },   // road edge
-  { x: 10.3, z: -1.7, w: .16 }, // trail edge
-  { x: 7.2, z: 4.3, w: .12 },   // open grass
-  { x: 11.9, z: 3.3, w: .08 },  // clearing fringe
+  { x: 14, z: 0.2, w: .42 },   // ransacked belongings - ambush centre on 15ft main trail
+  { x: 12.5, z: 0.5, w: .22 },   // road edge
+  { x: 15, z: -2.5, w: .16 }, // trail edge - mouth of 5ft thin trail
+  { x: 10, z: 2.5, w: .12 },   // open grass south
+  { x: 16, z: 1.5, w: .08 },  // clearing fringe east
 ];
 
 export interface WorldSnapshot {
@@ -54,7 +54,7 @@ export class HorseBrain {
   }
   private setState(s: HorseBrain['state']) { this.state = s; this.stateTime = 0; }
   private pickTarget(wagon: WorldSnapshot['wagon'], other: { x: number; z: number } | null) {
-    let best: THREE.Vector3 | null = null, bestScore = Infinity;
+    let best: THREE.Vector3 | null = null;
     for (let attempt = 0; attempt < 10; attempt++) {
       let total = 0; for (const w of WAYPOINTS) total += w.w;
       let roll = this.rng() * total, wp = WAYPOINTS[0];
@@ -69,12 +69,14 @@ export class HorseBrain {
       this.target.copy(p); best = p; break;
     }
     if (!best) { // wagon parked in the clearing: aim for the far side
+      let bestScore2 = -Infinity;
       for (const wp of WAYPOINTS) {
         const p = new THREE.Vector3(wp.x, 0, wp.z);
         const d = p.distanceTo(new THREE.Vector3(wagon.x, 0, wagon.z));
-        if (d > bestScore) { bestScore = d; best = p; }
+        if (d > bestScore2) { bestScore2 = d; best = p; }
       }
-      this.target.copy(best!);
+      if (best) this.target.copy(best);
+      else this.target.set(CLEARING.x, 0, CLEARING.z);
     }
   }
   update(dt: number, other: { x: number; z: number } | null, w: WorldSnapshot, out: HorseOutput) {

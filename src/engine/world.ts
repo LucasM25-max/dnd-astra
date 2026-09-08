@@ -76,10 +76,9 @@ export class WoodlandWorld {
     this.renderer.domElement.id = 'world-canvas';
     this.host.append(this.renderer.domElement);
     this.scene.background = new THREE.Color('#bac7b0');
-    // The trail is a real north-west route, not a backdrop that disappears
-    // after the clearing. Keep atmospheric depth while leaving the next few
-    // hundred metres readable on the ground.
-    this.scene.fog = new THREE.FogExp2('#c3c6a9', .0065);
+    // New world: 10 miles east + 10 miles south main trail (15ft), 0.5 mile thin trail (5ft),
+    // 2 miles of forest with photorealistic stream. Fog reduced to allow seeing distant treeline.
+    this.scene.fog = new THREE.FogExp2('#c3c6a9', .00085);
     this.scene.add(this.hemisphere, this.sun, this.sun.target);
     const fill = new THREE.DirectionalLight('#e1e4ca', .75); fill.position.set(-25, 15, 20); this.scene.add(fill);
     this.sun.position.set(-22, 32, -20); this.sun.target.position.set(0, 0, -2);
@@ -218,7 +217,7 @@ export class WoodlandWorld {
       this.sun.color.set('#ffe0a6'); this.sun.intensity = 3.8;
       this.hemisphere.color.set('#d1ded9'); this.hemisphere.groundColor.set('#746b48'); this.hemisphere.intensity = 1.95;
       this.scene.environmentIntensity = .70; this.renderer.toneMappingExposure = 1.06;
-      fog.color.set('#c3c6a9'); fog.density = .0065;
+      fog.color.set('#c3c6a9'); fog.density = .00085;
       this.sky.material.uniforms.turbidity.value = 6; this.sky.material.uniforms.rayleigh.value = 1.65;
       this.shaftMaterial.uniforms.opacity.value = .075;
       particleMat.uniforms.tint.value.set('#e4d9a9'); particleMat.uniforms.opacity.value = .48;
@@ -226,7 +225,7 @@ export class WoodlandWorld {
       this.sun.color.set('#c9d9e5'); this.sun.intensity = .85;
       this.hemisphere.color.set('#c1d0d6'); this.hemisphere.groundColor.set('#56625c'); this.hemisphere.intensity = 2.1;
       this.scene.environmentIntensity = .66; this.renderer.toneMappingExposure = 1.02;
-      fog.color.set('#aebbb8'); fog.density = .012;
+      fog.color.set('#aebbb8'); fog.density = .0018;
       this.sky.material.uniforms.turbidity.value = 20; this.sky.material.uniforms.rayleigh.value = .35;
       this.shaftMaterial.uniforms.opacity.value = 0;
       particleMat.uniforms.tint.value.set('#c5d4d1'); particleMat.uniforms.opacity.value = .22;
@@ -234,7 +233,7 @@ export class WoodlandWorld {
       this.sun.color.set('#aac6ed'); this.sun.intensity = .55;
       this.hemisphere.color.set('#7189ac'); this.hemisphere.groundColor.set('#263e3f'); this.hemisphere.intensity = 1.2;
       this.scene.environmentIntensity = .17; this.renderer.toneMappingExposure = .86;
-      fog.color.set('#526e79'); fog.density = .010;
+      fog.color.set('#526e79'); fog.density = .0015;
       this.sky.material.uniforms.turbidity.value = 9; this.sky.material.uniforms.rayleigh.value = .55;
       this.shaftMaterial.uniforms.opacity.value = .023; this.shaftMaterial.uniforms.tint.value.set('#94bedb');
       particleMat.uniforms.tint.value.set('#d3e896'); particleMat.uniforms.opacity.value = .8;
@@ -310,28 +309,35 @@ export class WoodlandWorld {
     this.renderer.setSize(w, h); this.composer?.setPixelRatio(this.renderer.getPixelRatio()); this.composer?.setSize(w, h);
   }
   async screenshot() {
-    // Render once, then prefer toBlob. A few embedded Chromium/WebGL
-    // implementations never invoke toBlob after a post-processing pass; that
-    // used to leave Photo Mode waiting forever. The bounded fallback keeps the
-    // control usable without changing the saved image format.
-    this.composer.render();
+    // Robust screenshot for heavy 2-mile forest + photorealistic stream.
+    // Avoid extra composer.render() and avoid blob/fetch roundtrip that crashes
+    // embedded Chromium (@sparticuz/chromium) on large canvases.
+    // Use dataURL directly - Playwright's download event still fires for data URLs.
     const canvas = this.renderer.domElement;
+    try {
+      // Try direct data URL download first (most reliable in headless)
+      const dataUrl = canvas.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = `astra-triboar-trail-${Date.now()}.png`;
+      // Must be in DOM for Firefox, but also helps Chromium
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      return;
+    } catch {
+      // Fallback to blob if dataURL fails
+    }
     const blob = await new Promise<Blob | null>(resolve => {
-      let settled = false;
-      const finish = (value: Blob | null) => { if (!settled) { settled = true; resolve(value); } };
-      try { canvas.toBlob(finish, 'image/png'); } catch { finish(null); }
-      window.setTimeout(() => {
-        if (settled) return;
-        try {
-          const data = canvas.toDataURL('image/png');
-          fetch(data).then(response => response.blob()).then(finish).catch(() => finish(null));
-        } catch { finish(null); }
-      }, 1500);
+      try { canvas.toBlob(b => resolve(b), 'image/png'); } catch { resolve(null); }
     });
     if (!blob) throw new Error('The browser could not save this frame.');
     const url = URL.createObjectURL(blob), a = document.createElement('a');
-    a.href = url; a.download = `astra-triboar-trail-${Date.now()}.png`; a.click();
-    window.setTimeout(() => URL.revokeObjectURL(url), 2000);
+    a.href = url; a.download = `astra-triboar-trail-${Date.now()}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2500);
   }
   get diagnostics() { return { ...this.renderer.info.render, quality: this.quality, trees: this.nature?.trees ?? 0 }; }
   stop() { this.running = false; cancelAnimationFrame(this.raf); this.controller?.setPaused(true); this.adventure?.narrator.setPaused(true); }

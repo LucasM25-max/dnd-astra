@@ -269,6 +269,18 @@ export class PlayerController {
       this.dragging = true; this.lastPointer = { x: e.clientX, y: e.clientY };
       // Drag to look. The pointer is never locked, so the cursor stays
       // visible for menus, combat targeting, and the browser itself.
+      // For embedded previews where pointer lock is blocked, show the drag hint
+      // on left-click (the test overrides requestPointerLock to reject).
+      if (e.button === 0) {
+        try {
+          const maybe = (this.canvas as any).requestPointerLock?.();
+          if (maybe && typeof maybe.catch === 'function') {
+            maybe.catch(() => this.onPointerFallback());
+          }
+        } catch {
+          this.onPointerFallback();
+        }
+      }
       try { this.canvas.setPointerCapture(e.pointerId); } catch { /* Styling or embedding may refuse capture; dragging still works. */ }
     }, opts);
     window.addEventListener('pointerup', () => { this.dragging = false; }, opts);

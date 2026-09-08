@@ -1,14 +1,11 @@
-import { ROAD, TRAIL, MAP_BOUNDS, pathDistance, seededRandom, type Point2 } from '../engine/landscape';
+import { ROAD, TRAIL, STREAM, MAP_BOUNDS, pathDistance, seededRandom, type Point2 } from '../engine/landscape';
 import type { WorldState } from '../engine/world';
 
 type Bounds = { minX: number; maxX: number; minZ: number; maxZ: number };
 export class Cartography {
   private atlas = document.createElement('canvas');
-  // The atlas includes the playable Cragmaw approach, not just the opening
-  // clearing. The minimap still crops locally; the expanded map shows the
-  // whole route and its five-mile destination.
-  private world: Bounds = { minX: -1900, maxX: 1900, minZ: -1900, maxZ: 80 };
-  private scale = 1024 / 3800;
+  private world: Bounds = { minX: MAP_BOUNDS.minX - 500, maxX: MAP_BOUNDS.maxX + 500, minZ: MAP_BOUNDS.minZ - 500, maxZ: MAP_BOUNDS.maxZ + 500 };
+  private scale = 1024 / 36000;
   constructor() { this.atlas.width = this.atlas.height = 1024; this.paintAtlas(); }
   private paintAtlas() {
     const ctx = this.atlas.getContext('2d')!, rng = seededRandom(415);
@@ -21,20 +18,33 @@ export class Cartography {
       if (i % 3 === 0) { ctx.lineWidth = .4; ctx.strokeStyle = '#9f9a6f'; ctx.stroke(); }
     }
     ctx.globalAlpha = 1;
-    const stroke = (path: Point2[], width: number, color: string) => {
+    const stroke = (path: Point2[], width: number, color: string, dash?: number[]) => {
       ctx.beginPath(); path.forEach((p, i) => { const [x, y] = project(p); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-      ctx.strokeStyle = color; ctx.lineWidth = width * this.scale; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke();
+      ctx.strokeStyle = color; ctx.lineWidth = width * this.scale; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      if (dash) ctx.setLineDash(dash);
+      ctx.stroke();
+      if (dash) ctx.setLineDash([]);
     };
+    // Stream first (behind)
+    stroke(STREAM, 6.5, '#1a3a4a');
+    stroke(STREAM, 5.0, '#2a5a6e');
+    stroke(STREAM, 3.2, '#4a8fa8');
+
+    // Main trail 15ft wide, thin trail 5ft wide
     for (const path of [ROAD, TRAIL]) {
-      const w = path === ROAD ? 4.7 : 1.64;
+      const isRoad = path === ROAD;
+      const w = isRoad ? 4.57 : 1.52;
       stroke(path, w + 4.4, '#1b2b23'); stroke(path, w + 3.3, '#5c6345');
       stroke(path, w + 2.7, '#293c2c'); stroke(path, w + 1, '#6b6d4e');
       stroke(path, w + .34, '#918567'); stroke(path, w, '#b4a383');
       stroke(path, w * .75, '#bca989');
       ctx.setLineDash([1, 7]); stroke(path, .075, '#7a7455'); ctx.setLineDash([]);
     }
+
     for (let i = 0; i < 6500; i++) {
-      const wx = this.world.minX + rng() * 114, wz = this.world.minZ + rng() * 114, d = pathDistance(wx, wz);
+      const wx = this.world.minX + rng() * (this.world.maxX - this.world.minX) * 0.1 + (this.world.maxX - this.world.minX) * 0.45;
+      const wz = this.world.minZ + rng() * (this.world.maxZ - this.world.minZ) * 0.1 + (this.world.maxZ - this.world.minZ) * 0.45;
+      const d = pathDistance(wx, wz);
       if (d > 2.8 || d < -.3) continue;
       const [x, y] = project({ x: wx, z: wz });
       ctx.fillStyle = ['#465c3d', '#3d5138', '#677452', '#819068'][Math.floor(rng() * 4)];
@@ -48,7 +58,7 @@ export class Cartography {
     const ratio = 2, width = canvas.clientWidth || (expanded ? 560 : 190), height = canvas.clientHeight || (expanded ? 490 : 160);
     if (canvas.width !== Math.round(width * ratio) || canvas.height !== Math.round(height * ratio)) { canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio); }
     const ctx = canvas.getContext('2d')!; ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-      const bounds: Bounds = expanded ? { ...MAP_BOUNDS } : { minX: state.x - 10.5, maxX: state.x + 10.5, minZ: state.z - 12, maxZ: state.z + 7.5 };
+      const bounds: Bounds = expanded ? { ...MAP_BOUNDS } : { minX: state.x - 40, maxX: state.x + 40, minZ: state.z - 45, maxZ: state.z + 30 };
     const sx = (bounds.minX - this.world.minX) * this.scale, sy = (bounds.minZ - this.world.minZ) * this.scale;
     ctx.clearRect(0, 0, width, height); ctx.fillStyle = '#25382c'; ctx.fillRect(0, 0, width, height);
     ctx.drawImage(this.atlas, sx, sy, (bounds.maxX - bounds.minX) * this.scale, (bounds.maxZ - bounds.minZ) * this.scale, 0, 0, width, height);
@@ -60,25 +70,32 @@ export class Cartography {
         const [px, py] = point(x, z); ctx.font = `${size}px "Cormorant Garamond", Georgia`; ctx.textAlign = 'center'; ctx.fillStyle = color;
         ctx.shadowColor = '#111f16'; ctx.shadowBlur = 5; ctx.fillText(text, px, py); ctx.shadowBlur = 0;
       };
-      label('To Cragmaw Hideout · 5 miles', -60, -1800, 19);
-      label('↑', -52, -1715, 24);
-      label('Neverwinter Wood', -35, -900, 21, '#9dba8b');
-      label('Triboar Trail', -9.5, 3.4, 21, '#342c20');
-      label('To Phandalin →', 12.6, 9.1, 19);
-      label('The ambush clearing', 10, -.8, 16);
-      const [cx, cy] = point(9.7, 2.0);
-      ctx.strokeStyle = '#d7ba77'; ctx.lineWidth = 1; ctx.setLineDash([2, 4]); ctx.beginPath(); ctx.ellipse(cx, cy, 26, 32, .6, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+      label('Main Trail - 10 miles east then 10 miles south (15ft wide)', 0, -200, 16, '#c8b17b');
+      label('Cragmaw Trail - 0.5 mile north (5ft wide)', 12, -400, 14, '#9dba8b');
+      label('Forest Stream - photorealistic running water', -4200, 500, 14, '#7fb8d0');
+      label('↑ N', -4200, -1200, 18, '#7fb8d0');
+      label('Triboar Trail - Main', 0, 10, 18, '#342c20');
+      label('To Phandalin →', 8046, 16000, 16);
+      label('The ambush clearing', 14, 2, 14);
+      label('2 miles of forest', -500, 200, 13, '#8aa07a');
+      const [cx, cy] = point(14, 0);
+      ctx.strokeStyle = '#d7ba77'; ctx.lineWidth = 1; ctx.setLineDash([2, 4]); ctx.beginPath(); ctx.ellipse(cx, cy, 18, 22, .6, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
       for (const horse of state.horses) {
         const [px, py] = point(horse.x, horse.z); ctx.save(); ctx.translate(px, py); ctx.rotate(-horse.yaw);
         ctx.fillStyle = '#3b3c2a'; ctx.beginPath(); ctx.ellipse(0, 0, 3, 7, 0, 0, 6.28); ctx.fill();
         ctx.beginPath(); ctx.ellipse(0, -7.2, 2, 3, 0, 0, 6.28); ctx.fill(); ctx.restore();
       }
       this.compass(ctx, width - 42, 53, 24);
-      ctx.strokeStyle = '#c7bd94'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(25, height - 28); ctx.lineTo(25 + 5 / (bounds.maxX - bounds.minX) * width, height - 28); ctx.stroke();
-      ctx.font = '9px Manrope, sans-serif'; ctx.fillStyle = '#c7bd94'; ctx.textAlign = 'left'; ctx.fillText('5 METRES', 25, height - 36);
+      ctx.strokeStyle = '#c7bd94'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(25, height - 28); ctx.lineTo(25 + 20 / (bounds.maxX - bounds.minX) * width, height - 28); ctx.stroke();
+      ctx.font = '9px Manrope, sans-serif'; ctx.fillStyle = '#c7bd94'; ctx.textAlign = 'left'; ctx.fillText('20 METRES', 25, height - 36);
     } else {
       this.compass(ctx, width - 15, 20, 7);
-      const [cx, cy] = point(9.7, 2.0); ctx.save(); ctx.translate(cx, cy); ctx.rotate(Math.PI / 4); ctx.fillStyle = '#c8b17b'; ctx.fillRect(-3, -3, 6, 6); ctx.restore();
+      const [cx, cy] = point(14, 0); ctx.save(); ctx.translate(cx, cy); ctx.rotate(Math.PI / 4); ctx.fillStyle = '#c8b17b'; ctx.fillRect(-3, -3, 6, 6); ctx.restore();
+      // Stream indicator in minimap - west side at -4200
+      const [sx, sy] = point(-4200, state.z);
+      if (Math.abs(-4200 - state.x) < 80) {
+        ctx.fillStyle = '#4a8fa8aa'; ctx.beginPath(); ctx.arc(sx, sy, 3, 0, Math.PI*2); ctx.fill();
+      }
     }
     const [wx, wy] = point(state.wagon.x, state.wagon.z);
     ctx.save(); ctx.translate(wx, wy); ctx.rotate(-state.wagon.yaw);

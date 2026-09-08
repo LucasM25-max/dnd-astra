@@ -1,19 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { CollisionField, distanceToPath, ROAD, terrainHeight } from '../src/engine/landscape';
+import { CollisionField, distanceToPath, ROAD, terrainHeight, roadLength, roadPointAtDistance } from '../src/engine/landscape';
 import { placeForest, placeRocks } from '../src/engine/nature';
-import { roadPoseAtX } from '../src/game/road';
+import { journeyPose, roadPoseAtDistance } from '../src/game/road';
 
-/**
- * Drivable-corridor guarantee (plan §B, acceptance B1):
- * from the arrival pose the player must be able to drive the wagon east along
- * the road for at least 25 m without hitting anything. The check mirrors the
- * six probe points AdventureModel.canDriveAt runs under the wagon body.
- */
-
-// Same probe offsets as AdventureModel.canDriveAt (wagon local metres).
 const WAGON_PROBES: [number, number][] = [[-.98, -1.2], [.98, -1.2], [-.98, 1.2], [.98, 1.2], [-.72, -4.95], [.72, -4.95]];
 
-/** Build the static collision field exactly the way the world does. */
 function buildWorldColliders() {
   const field = new CollisionField();
   placeForest(field);
@@ -24,7 +15,6 @@ function buildWorldColliders() {
   return field;
 }
 
-/** First collider/terrain that would stop a wagon centred at (x, z, yaw), or null. */
 function firstBlocker(field: CollisionField, x: number, z: number, yaw: number): string | null {
   const y = terrainHeight(x, z);
   for (const [px, pz] of WAGON_PROBES) {
@@ -38,34 +28,40 @@ function firstBlocker(field: CollisionField, x: number, z: number, yaw: number):
   return null;
 }
 
-describe('drivable corridor', () => {
+describe('drivable corridor - new 10+10 mile main trail', () => {
   const field = buildWorldColliders();
 
-  it('is clear driving east from the arrival pose for at least 25 m', () => {
-    const start = roadPoseAtX(-1.85);
-    for (let x = start.x; x <= start.x + 26; x += .5) {
-      const pose = roadPoseAtX(x);
+  it('is clear driving east from the arrival pose for at least 25 m on 15ft road', () => {
+    const startDist = 8046; // spawn at middle of first 10-mile leg
+    for (let d = startDist; d <= startDist + 26; d += .5) {
+      const pose = roadPoseAtDistance(d);
       const blocker = firstBlocker(field, pose.x, pose.z, pose.yaw);
-      expect(blocker, `wagon blocked ${ (x - start.x).toFixed(1) } m east: ${blocker}`).toBeNull();
+      expect(blocker, `wagon blocked ${ (d - startDist).toFixed(1) } m east: ${blocker}`).toBeNull();
     }
   });
 
-  it('is clear driving west from the arrival pose back to the reference map edge', () => {
-    const start = roadPoseAtX(-1.85);
-    for (let x = start.x; x >= -16; x -= .5) {
-      const pose = roadPoseAtX(x);
+  it('is clear driving west from the arrival pose back along main trail', () => {
+    const startDist = 8046;
+    for (let d = startDist; d >= startDist - 30; d -= .5) {
+      const pose = roadPoseAtDistance(d);
       const blocker = firstBlocker(field, pose.x, pose.z, pose.yaw);
-      expect(blocker, `wagon blocked ${ (start.x - x).toFixed(1) } m west: ${blocker}`).toBeNull();
+      expect(blocker, `wagon blocked ${ (startDist - d).toFixed(1) } m west: ${blocker}`).toBeNull();
     }
   });
 
-  it('never lets a tree or rock collider intrude on the road centre', () => {
-    const WAGON_ENVELOPE = 1.3; // half of the drivable lane, incl. probe margin
+  it('never lets a tree or rock collider intrude on the 15ft road centre', () => {
+    const WAGON_ENVELOPE = 1.5;
     const intrusions: string[] = [];
-    for (const c of field.query(0, 0, 200)) {
+    // Check near spawn area (within 500m) for intrusions
+    for (const c of field.query(0, 0, 500)) {
       const standoff = distanceToPath(c.x, c.z, ROAD) - c.radius;
       if (standoff < WAGON_ENVELOPE) intrusions.push(`${c.group ?? 'static'} @ ${c.x.toFixed(1)},${c.z.toFixed(1)} r${c.radius.toFixed(2)} (standoff ${standoff.toFixed(2)})`);
     }
     expect(intrusions).toEqual([]);
+  });
+
+  it('main trail is at least 10 miles east then 10 miles south', () => {
+    expect(roadLength()).toBeGreaterThan(30000); // 20 miles total ~32186
+    expect(roadLength()).toBeLessThan(40000);
   });
 });

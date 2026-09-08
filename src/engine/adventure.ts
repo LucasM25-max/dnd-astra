@@ -70,7 +70,8 @@ export class Adventure {
     this.horses = [factory.create('horse', '#c9a67c', 2), factory.create('horse', '#dcd8ce', 7)];
     this.horses.forEach(h => scene.add(h.root));
     this.horseBrains = [new HorseBrain(2), new HorseBrain(7)];
-    this.horseBrains[0].place(9.3, 2.9, -.6); this.horseBrains[1].place(12.6, 1.2, 1.3);
+    // Updated for new ambush centre at 14,0 on 15ft main trail
+    this.horseBrains[0].place(13.5, 0.8, -.6); this.horseBrains[1].place(15.2, -0.3, 1.3);
     this.oxController = new OxController(this.wagon.oxen as [LivingAnimal, LivingAnimal]);
     this.oxController.onMoan = (side, strength) => { const ox = this.wagon.oxen[side], p = ox.root.position; this.animalAudio.low(p.x, p.z, strength, true); };
     for (let i = 0; i < 2; i++) {
