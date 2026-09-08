@@ -296,6 +296,13 @@ export class CombatHud {
     this.resultEl.hidden = !done;
     if (!done) return;
     const victory = s.phase === 'resolved';
+    const trail = s.trail;
+    const trailPanel = trail ? `<section class="trail-progress" aria-label="Goblin trail progress">
+      <div class="trail-progress-head"><span>GOBLIN TRAIL</span><strong>${Math.round(trail.progressMetres)} m north-west</strong></div>
+      <div class="trail-progress-track"><i style="width:${Math.min(100, trail.progressMetres / 18.2)}%"></i></div>
+      <div class="trail-traps">${trail.traps.map(t => `<span class="trail-trap ${t.state}"><b>${escapeHtml(t.id === 'snare' ? 'Snare' : 'Pit')}</b><small>${escapeHtml(t.state === 'hidden' ? 'not reached' : t.state)}</small></span>`).join('')}</div>
+      <small class="trail-progress-note">Hold T while following the trail to search · C cuts a raised snare</small>
+    </section>` : '';
     this.resultEl.innerHTML = `
       <div class="result-panel ${victory ? 'won' : 'lost'}">
         <span class="result-eyebrow">${victory ? 'THE ROAD IS QUIET AGAIN' : 'YOU WAKE IN THE LEAF LITTER'}</span>
@@ -303,6 +310,7 @@ export class CombatHud {
         <p>${victory
           ? 'One goblin ran rather than die here, and it ran somewhere specific. The trail behind the northern thickets is worth following.'
           : 'The goblins took what they could carry and headed up the trail. You can go on to Phandalin, re-equip, and come back for them.'}</p>
+        ${trailPanel}
         <button data-action="finish" class="primary-action">${victory ? 'Search the site' : 'Get up'}</button>
       </div>`;
   }

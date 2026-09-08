@@ -154,6 +154,7 @@ export class WorldInterface {
       }
       if (isFormControl(e.target) || e.repeat) return;
       if (e.code === 'KeyV') { e.preventDefault(); this.setMode(this.world.controller.mode === 'first' ? 'third' : 'first'); }
+      if (e.code === 'KeyC') { e.preventDefault(); this.world.adventure.cutTrailSnare(); }
       if (e.code === 'KeyM') { e.preventDefault(); this.openDialog('map'); }
       if (e.code === 'KeyH') { e.preventDefault(); this.openDialog('help'); }
       if (e.code === 'KeyP') { e.preventDefault(); this.togglePhoto(); }
@@ -327,6 +328,8 @@ export class WorldInterface {
       ['SCROLL', 'Camera distance', 'Zoom in or out in third person.'],
       ['R', 'Board / dismount', 'Step down to reach the cargo.'],
       ['E', 'Open / examine', 'Cargo, and anything left at the roadside.'],
+      ['T', 'Search the trail', 'Hold while following the goblin trail to look for traps.'],
+      ['C', 'Cut a snare cord', 'Free a character caught by the raised snare.'],
     ].map(([key, label, note]) => `<div class="help-row"><kbd>${key}</kbd><div><strong>${label}</strong><span>${note}</span></div></div>`).join('')}</div></div>
       <div class="help-section"><h3>In a fight</h3><div class="help-grid">${[
       ['CLICK', 'Attack a target', 'Point at an enemy. The odds appear before you commit.'],

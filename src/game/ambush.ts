@@ -121,7 +121,7 @@ export const TRAIL_DISCOVERY = {
   check: {
     skill: 'survival' as const, dc: 10,
     success: 'About a dozen goblins have come and gone along this path, more than once. Two sets of heel-drag marks run the same way — human-sized bodies, hauled rather than carried. They were alive enough to be worth taking.',
-    failure: 'Something has been using this path regularly. You cannot say what, or how many.',
+    failure: 'Something has been using this path regularly. Small overlapping tracks suggest many goblins, and two broad drag marks run northwest, but you cannot make out an exact count or say whether the human-sized bodies were alive when they were taken.',
   },
   distanceMiles: 5,
 };
@@ -133,11 +133,18 @@ export const AFTERMATH_NOTE = 'Now that nothing is trying to kill you, the shape
 // Traps on the goblin trail
 // ---------------------------------------------------------------------------
 
+/** World-space pacing for the staged trail scene. A minute is compressed so
+ * both module traps fit in the rendered approach while the destination remains
+ * marked as five miles away in the fiction. */
+export const TRAIL_METRES_PER_MINUTE = 75;
+
 export interface TrailTrap {
   id: string;
   name: string;
   /** How far along the trail, in minutes of travel. */
   atMinutes: number;
+  /** Derived world distance used by the physical hazard system. */
+  atMetres: number;
   spot: { skill: 'perception'; dc: number };
   save: { ability: 'dex'; dc: number };
   damage: string;
@@ -150,7 +157,7 @@ export interface TrailTrap {
 
 export const TRAIL_TRAPS: TrailTrap[] = [
   {
-    id: 'snare', name: 'Hidden snare', atMinutes: 10,
+    id: 'snare', name: 'Hidden snare', atMinutes: 10, atMetres: 10 * TRAIL_METRES_PER_MINUTE,
     spot: { skill: 'perception', dc: 15 }, save: { ability: 'dex', dc: 10 },
     damage: '1d6', damageType: 'bludgeoning',
     description: 'A weighted cord buried under the leaf litter, tensioned against a bent sapling.',
@@ -159,7 +166,7 @@ export const TRAIL_TRAPS: TrailTrap[] = [
     onSave: 'The cord grabs and you kick free of it, and the sapling snaps up through empty air.',
   },
   {
-    id: 'pit', name: 'Camouflaged pit', atMinutes: 20,
+    id: 'pit', name: 'Camouflaged pit', atMinutes: 20, atMetres: 20 * TRAIL_METRES_PER_MINUTE,
     spot: { skill: 'perception', dc: 15 }, save: { ability: 'dex', dc: 10 },
     damage: '1d6', damageType: 'bludgeoning',
     description: 'Six feet across, ten feet deep, roofed with branches and a careful layer of leaves.',

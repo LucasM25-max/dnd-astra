@@ -3,18 +3,18 @@ export const SAVE_KEY = 'astra-journey-v1';
 export interface PositionSave { x: number; z: number; yaw: number }
 export interface JourneySave {
   version: 1; revision: number; gold: number; inventory: Stock; cargo: Record<ContainerId, Stock>;
-  opened: ContainerId[]; arrived: boolean; mounted: boolean; wagon: PositionSave | null; player: PositionSave | null;
+  opened: ContainerId[]; arrived: boolean; mounted: boolean; oxenTied?: boolean; wagon: PositionSave | null; player: PositionSave | null;
 }
 export function newJourney(): JourneySave {
-  return { version: 1, revision: 0, gold: 0, inventory: emptyStock(), cargo: initialCargo(), opened: [], arrived: false, mounted: true, wagon: null, player: null };
+  return { version: 1, revision: 0, gold: 0, inventory: emptyStock(), cargo: initialCargo(), opened: [], arrived: false, mounted: true, oxenTied: false, wagon: null, player: null };
 }
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const integer = (v: unknown) => Number.isSafeInteger(v) && Number(v) >= 0;
 function validPosition(v: unknown): v is PositionSave | null {
-  return v === null || (isObject(v) && ['x', 'z', 'yaw'].every(k => typeof v[k] === 'number' && Number.isFinite(v[k])) && Math.abs(Number(v.x)) <= 80 && Math.abs(Number(v.z)) <= 80 && Math.abs(Number(v.yaw)) < 1e6);
+  return v === null || (isObject(v) && ['x', 'z', 'yaw'].every(k => typeof v[k] === 'number' && Number.isFinite(v[k])) && Math.abs(Number(v.x)) <= 1900 && Math.abs(Number(v.z)) <= 1900 && Math.abs(Number(v.yaw)) < 1e6);
 }
 export function validateSave(v: unknown): v is JourneySave {
-  if (!isObject(v) || v.version !== 1 || !integer(v.revision) || !integer(v.gold) || Number(v.gold) > 1e9 || typeof v.arrived !== 'boolean' || typeof v.mounted !== 'boolean') return false;
+  if (!isObject(v) || v.version !== 1 || !integer(v.revision) || !integer(v.gold) || Number(v.gold) > 1e9 || typeof v.arrived !== 'boolean' || typeof v.mounted !== 'boolean' || (v.oxenTied !== undefined && typeof v.oxenTied !== 'boolean')) return false;
   if (!isObject(v.inventory) || !isObject(v.cargo) || !Array.isArray(v.opened) || !validPosition(v.wagon) || !validPosition(v.player)) return false;
   if (!v.opened.every(id => CONTAINERS.some(c => c.id === id)) || new Set(v.opened).size !== v.opened.length) return false;
   for (const id of ITEM_IDS) {
@@ -83,9 +83,9 @@ export class InventoryStore {
     this.persist(); return moved;
   }
   setArrived() { if (!this.data.arrived) { this.data.arrived = true; this.persist(); } }
-  savePosition(wagon: PositionSave, player: PositionSave, mounted: boolean) {
+  savePosition(wagon: PositionSave, player: PositionSave, mounted: boolean, oxenTied = false) {
     if (!this.data.arrived || !validPosition(wagon) || !validPosition(player)) return;
-    this.data.wagon = { ...wagon }; this.data.player = { ...player }; this.data.mounted = mounted; this.persist(false);
+    this.data.wagon = { ...wagon }; this.data.player = { ...player }; this.data.mounted = mounted; this.data.oxenTied = oxenTied; this.persist(false);
   }
   private persist(notify = true) {
     this.data.revision++;

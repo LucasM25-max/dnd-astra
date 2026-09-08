@@ -4,8 +4,11 @@ import type { WorldState } from '../engine/world';
 type Bounds = { minX: number; maxX: number; minZ: number; maxZ: number };
 export class Cartography {
   private atlas = document.createElement('canvas');
-  private world: Bounds = { minX: -57, maxX: 57, minZ: -65, maxZ: 49 };
-  private scale = 1024 / 114;
+  // The atlas includes the playable Cragmaw approach, not just the opening
+  // clearing. The minimap still crops locally; the expanded map shows the
+  // whole route and its five-mile destination.
+  private world: Bounds = { minX: -1900, maxX: 1900, minZ: -1900, maxZ: 80 };
+  private scale = 1024 / 3800;
   constructor() { this.atlas.width = this.atlas.height = 1024; this.paintAtlas(); }
   private paintAtlas() {
     const ctx = this.atlas.getContext('2d')!, rng = seededRandom(415);
@@ -45,7 +48,7 @@ export class Cartography {
     const ratio = 2, width = canvas.clientWidth || (expanded ? 560 : 190), height = canvas.clientHeight || (expanded ? 490 : 160);
     if (canvas.width !== Math.round(width * ratio) || canvas.height !== Math.round(height * ratio)) { canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio); }
     const ctx = canvas.getContext('2d')!; ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-    const bounds: Bounds = expanded ? { ...MAP_BOUNDS, minX: -20, maxX: 21, minZ: -24, maxZ: 15 } : { minX: state.x - 10.5, maxX: state.x + 10.5, minZ: state.z - 12, maxZ: state.z + 7.5 };
+      const bounds: Bounds = expanded ? { ...MAP_BOUNDS } : { minX: state.x - 10.5, maxX: state.x + 10.5, minZ: state.z - 12, maxZ: state.z + 7.5 };
     const sx = (bounds.minX - this.world.minX) * this.scale, sy = (bounds.minZ - this.world.minZ) * this.scale;
     ctx.clearRect(0, 0, width, height); ctx.fillStyle = '#25382c'; ctx.fillRect(0, 0, width, height);
     ctx.drawImage(this.atlas, sx, sy, (bounds.maxX - bounds.minX) * this.scale, (bounds.maxZ - bounds.minZ) * this.scale, 0, 0, width, height);
@@ -57,9 +60,9 @@ export class Cartography {
         const [px, py] = point(x, z); ctx.font = `${size}px "Cormorant Garamond", Georgia`; ctx.textAlign = 'center'; ctx.fillStyle = color;
         ctx.shadowColor = '#111f16'; ctx.shadowBlur = 5; ctx.fillText(text, px, py); ctx.shadowBlur = 0;
       };
-      label('To Cragmaw Hideout', 1, -21.7, 19);
-      label('↑', -1.1, -19.4, 24);
-      label('Neverwinter Wood', -8, -10, 21, '#9dba8b');
+      label('To Cragmaw Hideout · 5 miles', -60, -1800, 19);
+      label('↑', -52, -1715, 24);
+      label('Neverwinter Wood', -35, -900, 21, '#9dba8b');
       label('Triboar Trail', -9.5, 3.4, 21, '#342c20');
       label('To Phandalin →', 12.6, 9.1, 19);
       label('The ambush clearing', 10, -.8, 16);

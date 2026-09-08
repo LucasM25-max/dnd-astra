@@ -327,6 +327,27 @@
   font-size: 33px; font-weight: 500; line-height: 1.15;
 }
 .result-panel p { margin: 0 0 22px; font-size: 14px; line-height: 1.65; opacity: .72; }
+.trail-progress {
+  margin: 0 0 22px;
+  padding: 12px 13px 11px;
+  text-align: left;
+  border-radius: 10px;
+  background: rgba(127, 199, 255, .07);
+  border: 1px solid rgba(127, 199, 255, .16);
+}
+.trail-progress-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.trail-progress-head span { font-size: 9px; font-weight: 800; letter-spacing: .16em; color: #7fc7ff; }
+.trail-progress-head strong { font-size: 11px; font-variant-numeric: tabular-nums; opacity: .78; }
+.trail-progress-track { height: 4px; margin: 9px 0 11px; border-radius: 4px; background: rgba(255, 255, 255, .1); overflow: hidden; }
+.trail-progress-track i { display: block; height: 100%; min-width: 2px; border-radius: inherit; background: linear-gradient(90deg, #7fc7ff, #b7e4a2); }
+.trail-traps { display: flex; gap: 6px; }
+.trail-trap { flex: 1; padding: 6px 7px; border-radius: 7px; background: rgba(255, 255, 255, .05); display: flex; flex-direction: column; gap: 2px; }
+.trail-trap b { font-size: 10px; font-weight: 700; }
+.trail-trap small { font-size: 9px; opacity: .52; text-transform: uppercase; letter-spacing: .06em; }
+.trail-trap.spotted { border-color: rgba(127, 199, 255, .32); color: #bfe9ff; }
+.trail-trap.triggered { border: 1px solid rgba(255, 157, 127, .3); color: #ffb29c; }
+.trail-trap.disarmed { color: #a8e294; }
+.trail-progress-note { display: block; margin-top: 10px; font-size: 10px; line-height: 1.4; opacity: .55; }
 
 /* --- floating combat readouts ------------------------------------------- */
 

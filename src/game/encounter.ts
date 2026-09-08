@@ -815,15 +815,22 @@ export class Encounter {
     return { ok: true, entries: [this.entry('info', `${c.name} takes the Dodge action. Attacks against them have disadvantage.`, { actorId: c.id })] };
   }
 
-  private doHide(c: Combatant): ActionOutcome {
-    if (!c.budget.action) return { ok: false, reason: 'Your action is already spent.', entries: [] };
-    c.budget.action = false;
+  private doHide(c: Combatant, asBonusAction = false): ActionOutcome {
+    if (asBonusAction) {
+      if (!c.budget.bonusAction) return { ok: false, reason: 'No bonus action remains.', entries: [] };
+      c.budget.bonusAction = false;
+    } else {
+      if (!c.budget.action) return { ok: false, reason: 'Your action is already spent.', entries: [] };
+      c.budget.action = false;
+    }
     const check = resolveCheck({ kind: 'skill', actor: c.actor, ability: 'dex', skill: 'stealth', stream: this.stream });
-    const watchers = this.combatants.filter(o => o.side !== c.side && o.health.hp > 0);
+    const watchers = this.combatants.filter(o => o.side !== c.side && o.health.hp > 0 && !o.health.dead);
+    const hasCover = watchers.some(w => this.coverFor(w, c) !== 'none') || this.coverFor(c, watchers[0] ?? c) !== 'none';
     const bestPassive = Math.max(10, ...watchers.map(o => 10 + abilityModifier(o.actor.abilities.wis)));
-    const hidden = check.total > bestPassive && this.coverFor(watchers[0] ?? c, c) !== 'none';
+    const hidden = check.total > bestPassive && hasCover;
     if (hidden) c.conditions = addCondition(c.conditions, { id: `hidden-${c.id}`, type: 'invisible', rounds: 1 });
-    return { ok: true, entries: [this.entry('info', hidden ? `${c.name} slips out of sight (Stealth ${check.total}).` : `${c.name} finds no cover to hide behind (Stealth ${check.total}).`, { actorId: c.id, roll: check })] };
+    const economy = asBonusAction ? ' as a bonus action' : '';
+    return { ok: true, entries: [this.entry('info', hidden ? `${c.name} slips out of sight${economy} (Stealth ${check.total}).` : `${c.name} finds no cover to hide behind (Stealth ${check.total}).`, { actorId: c.id, roll: check })] };
   }
 
   private doHelp(c: Combatant, targetId: string): ActionOutcome {
@@ -893,8 +900,8 @@ export class Encounter {
     const entries: LogEntry[] = [];
 
     // Solo play staggers the pack. Four goblins alpha-striking a lone level-1
-    // hero on round one is not a fight, it is an execution — so the ones over
-    // the cap hold position, circle, and come in on a later round.
+    // hero on round one is not a fight, it is an execution — the remaining
+    // goblins circle and use the terrain until an opening appears.
     const cap = this.options.solo?.focusFireCap ?? 99;
     if (this.engagedRound !== this.round) { this.engagedRound = this.round; this.engagedThisRound.clear(); }
     if (cap < 99 && !this.engagedThisRound.has(c.id) && this.engagedThisRound.size >= cap) {
@@ -904,59 +911,105 @@ export class Encounter {
       return entries;
     }
     this.engagedThisRound.add(c.id);
+
     const monster = c.monsterId ? MONSTERS[c.monsterId] : undefined;
     const targets = this.combatants.filter(t => t.side === 'party' && t.health.hp > 0 && !t.health.dead);
     if (!targets.length) { this.checkEnd(entries); return entries.concat(this.endTurn()); }
-
-    const scored = targets.map(t => {
+    const target = targets.map(t => {
       const gap = this.gapFeet(c, t);
-      const preview = { hp: t.health.hp, ac: t.armorClass, gap };
-      // Prefer a target that is reachable, wounded and easy to hit.
-      return { t, score: -preview.hp * 2 - preview.ac - gap * 0.4 + (this.canSee(c, t) ? 20 : -40) };
-    }).sort((a, b) => b.score - a.score);
-    const target = scored[0].t;
+      // Wounded targets are tempting, but a target already behind a tree is a
+      // bad choice for an archer. This keeps target selection dynamic.
+      return { t, score: -t.health.hp * 2 - t.armorClass - gap * .4 + (this.canSee(c, t) ? 20 : -40) };
+    }).sort((a, b) => b.score - a.score)[0].t;
+    const melee = this.monsterAction(c, 'melee');
+    const ranged = this.monsterAction(c, 'ranged');
+    const meleeReach = melee?.reach ?? 5;
+    const isArcher = !!ranged && (c.monsterId === 'goblinArcher' || !melee);
+    const nimble = !!monster?.traits.some(t => t.name === 'Nimble Escape');
+    const moveLeft = () => Math.max(0, c.budget.movement - c.budget.movementUsed);
 
-    let attacks = c.attacksPerAction;
-    for (let i = 0; i < attacks + 1; i++) {
+    const moveTo = (point: Vec2) => {
+      const moved = this.doMove(c, point);
+      entries.push(...moved.entries);
+      return moved.ok;
+    };
+    const moveAway = (distanceFeet: number) => {
+      const dx = c.position.x - target.position.x, dz = c.position.z - target.position.z;
+      const len = Math.hypot(dx, dz) || 1;
+      return moveTo({ x: c.position.x + dx / len * feetToMetres(distanceFeet), z: c.position.z + dz / len * feetToMetres(distanceFeet) });
+    };
+    const moveIntoMelee = () => {
+      const dx = target.position.x - c.position.x, dz = target.position.z - c.position.z;
+      const len = Math.hypot(dx, dz) || 1;
+      const reachM = feetToMetres(Math.max(5, meleeReach)) + radiusOf(c) + radiusOf(target) - .1;
+      return moveTo({ x: target.position.x - dx / len * reachM, z: target.position.z - dz / len * reachM });
+    };
+    const findCover = () => {
+      if (!this.options.coverBetween || !moveLeft()) return false;
+      const base = Math.atan2(target.position.x - c.position.x, target.position.z - c.position.z);
+      const distances = isArcher ? [feetToMetres(15), feetToMetres(25)] : [feetToMetres(8), feetToMetres(12)];
+      const angles = [Math.PI * .5, -Math.PI * .5, Math.PI * .82, -Math.PI * .82, Math.PI];
+      for (const distance of distances) for (const angle of angles) {
+        const point = { x: target.position.x - Math.sin(base + angle) * distance, z: target.position.z - Math.cos(base + angle) * distance };
+        const cover = this.options.coverBetween(point, target.position);
+        if (cover !== 'none' && cover !== 'total' && (!this.options.passable || this.options.passable(point.x, point.z))) return moveTo(point);
+      }
+      return false;
+    };
+
+    // Archers behave like skirmishers: preserve a firing lane, shoot, then
+    // spend Nimble Escape to disappear behind a tree instead of standing in
+    // the open for the player's next turn.
+    if (isArcher) {
       const gap = this.gapFeet(c, target);
-      const melee = this.monsterAction(c, 'melee'), ranged = this.monsterAction(c, 'ranged');
-      const meleeWeapon = melee ? this.weaponForMonsterAction(melee) : WEAPONS.unarmed;
-      const rangedWeapon = ranged ? this.weaponForMonsterAction(ranged) : null;
-
-      if (melee && gap <= (melee.reach ?? 5)) {
-        const outcome = this.doAttackAsActive(c, target, meleeWeapon);
-        entries.push(...outcome);
-      } else if (rangedWeapon && ranged && gap <= (ranged.longRange ?? ranged.reach) && this.canSee(c, target) && c.budget.action) {
-        entries.push(...this.doAttackAsActive(c, target, rangedWeapon));
-      } else if (c.budget.movement - c.budget.movementUsed > 0) {
-        // Close to just inside reach.
-        const reachM = feetToMetres(Math.max(5, melee?.reach ?? 5)) + radiusOf(c) + radiusOf(target) - 0.1;
-        const dir = { x: target.position.x - c.position.x, z: target.position.z - c.position.z };
-        const len = Math.hypot(dir.x, dir.z) || 1;
-        const to = { x: target.position.x - dir.x / len * reachM, z: target.position.z - dir.z / len * reachM };
-        const move = this.doMove(c, to);
-        entries.push(...move.entries);
-        if (!move.ok) break;
-        // After moving, try the attack once more.
-        if (this.gapFeet(c, target) <= (melee?.reach ?? 5) && c.budget.action) {
-          entries.push(...this.doAttackAsActive(c, target, meleeWeapon));
-        } else break;
-      } else break;
-      if (this.finished) break;
-      attacks = c.budget.attacksRemaining > 0 && !c.budget.action ? attacks : 0;
-      if (c.budget.attacksRemaining <= 0) break;
+      if (gap < 20) {
+        if (nimble && c.budget.bonusAction) {
+          c.budget.bonusAction = false; c.disengaging = true;
+          entries.push(this.entry('info', `${c.name} uses Nimble Escape to slip away from the blade.`, { actorId: c.id }));
+          moveAway(20);
+        } else if (c.budget.action) {
+          const disengage = this.doDisengage(c);
+          entries.push(...disengage.entries);
+          if (moveLeft()) moveAway(20);
+        }
+      } else if (gap > 70 && c.budget.action && moveLeft()) {
+        // Close only to a useful bow distance; do not run into melee.
+        const dx = target.position.x - c.position.x, dz = target.position.z - c.position.z;
+        const len = Math.hypot(dx, dz) || 1;
+        moveTo({ x: target.position.x - dx / len * feetToMetres(45), z: target.position.z - dz / len * feetToMetres(45) });
+      } else if (!this.canSee(c, target) && c.budget.action) {
+        findCover();
+      }
+      const afterGap = this.gapFeet(c, target);
+      if (c.budget.action && ranged && afterGap <= (ranged.longRange ?? ranged.reach) && this.canSee(c, target)) {
+        entries.push(...this.doAttackAsActive(c, target, this.weaponForMonsterAction(ranged)));
+      }
+      if (!this.finished && nimble && c.budget.bonusAction && !hasCondition(c.conditions, 'invisible')) {
+        const hidden = this.doHide(c, true);
+        entries.push(...hidden.entries);
+      }
+    } else {
+      // Melee goblins approach from different angles, attack when they reach
+      // the target, and retreat when wounded. They may still use cover before
+      // committing, which makes the pack move instead of forming a queue.
+      if (this.gapFeet(c, target) > meleeReach && c.budget.action && moveLeft()) moveIntoMelee();
+      while (!this.finished && c.budget.attacksRemaining > 0 && (c.budget.action || c.budget.attacksRemaining < c.attacksPerAction) && this.gapFeet(c, target) <= meleeReach) {
+        entries.push(...this.doAttackAsActive(c, target, this.weaponForMonsterAction(melee ?? ranged ?? { id: 'unarmed', name: 'Unarmed', kind: 'melee', attackBonus: 2, damage: '1d4', damageType: 'bludgeoning', reach: 5, description: '' })));
+        if (c.attacksPerAction <= 1) break;
+      }
+      if (!this.finished && nimble && c.budget.bonusAction && c.health.hp <= c.health.maxHp * .34) {
+        c.budget.bonusAction = false; c.disengaging = true;
+        entries.push(this.entry('info', `${c.name} uses Nimble Escape and scrambles back into the brush.`, { actorId: c.id }));
+        if (moveLeft()) moveAway(15);
+      } else if (!this.finished && nimble && c.budget.bonusAction && !this.canSee(c, target)) {
+        const hidden = this.doHide(c, true);
+        entries.push(...hidden.entries);
+      }
     }
 
-    // Nimble Escape: withdraw safely rather than stand in reach at low health.
-    if (!this.finished && monster?.traits.some(t => t.name === 'Nimble Escape') && c.budget.bonusAction && c.health.hp <= c.health.maxHp * 0.34) {
-      c.budget.bonusAction = false; c.disengaging = true;
-      entries.push(this.entry('info', `${c.name} scrambles back out of reach.`, { actorId: c.id }));
-      const dir = { x: c.position.x - target.position.x, z: c.position.z - target.position.z };
-      const len = Math.hypot(dir.x, dir.z) || 1;
-      entries.push(...this.doMove(c, { x: c.position.x + dir.x / len * 3, z: c.position.z + dir.z / len * 3 }).entries);
-    }
-
-    this.checkEnd(entries);
+    // A low-health goblin that cannot attack still gets one last chance to
+    // hide, but never spends an already committed action twice.
+    if (!this.finished) this.checkEnd(entries);
     if (!this.finished) entries.push(...this.endTurn());
     return entries;
   }

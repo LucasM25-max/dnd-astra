@@ -22,6 +22,10 @@ export class PlayerController {
   paused = false;
   grounded = true;
   sprinting = false;
+  /** Exploration hazards such as the raised snare can hold the avatar in place. */
+  movementLocked = false;
+  /** Height above the terrain for a physical hazard animation (ten-foot snare). */
+  private hazardLift = 0;
   sensitivity = 1;
   invertY = false;
   walkDistance = 0;
@@ -245,7 +249,7 @@ export class PlayerController {
     const opts = { signal: this.disposed.signal };
     window.addEventListener('keydown', e => {
       if (this.paused || (this.controlMode === 'cinematic' && this.started) || isFormControl(e.target) || (e.code === 'Space' && e.target instanceof HTMLButtonElement)) return;
-      if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight'].includes(e.code)) {
+      if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight', 'KeyT'].includes(e.code)) {
         e.preventDefault();
         if (!this.started) this.onStart();
         if (this.controlMode === 'cinematic') return;
@@ -311,11 +315,17 @@ export class PlayerController {
     this.grounded = true; this.verticalVelocity = 0;
   }
   placeOnFoot(position: THREE.Vector3, yaw: number) {
-    this.setControlMode('foot'); this.position.copy(position); this.position.y = terrainHeight(position.x, position.z);
+    this.setControlMode('foot'); this.setHazardLift(0); this.position.copy(position); this.position.y = terrainHeight(position.x, position.z);
     this.yaw = yaw; this.avatar.rotation.y = yaw; this.avatar.position.copy(this.position); this.pitch = .16;
     this.grounded = true; this.verticalVelocity = 0;
   }
+  /** Hold the avatar at a world-space height while a trap is resolving. */
+  setHazardLift(metres: number) {
+    this.hazardLift = Math.max(0, metres);
+    if (this.hazardLift <= 0) this.avatar.rotation.x = 0;
+  }
   reset() {
+    this.setHazardLift(0);
     this.position.set(SPAWN.x, terrainHeight(SPAWN.x, SPAWN.z), SPAWN.z); this.yaw = SPAWN.yaw; this.pitch = .17;
     this.verticalVelocity = 0; this.grounded = true; this.clearInput(); this.avatar.position.copy(this.position); this.updateCamera(1);
   }
@@ -326,13 +336,13 @@ export class PlayerController {
       let strafe = +(this.keys.has('KeyD') || this.keys.has('ArrowRight')) - +(this.keys.has('KeyA') || this.keys.has('ArrowLeft')) + this.touchMove.x;
       const len = Math.hypot(forward, strafe);
       if (len > 1) { forward /= len; strafe /= len; }
-      this.sprinting = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
-      const speed = this.sprinting ? 4.7 : 2.25;
+      this.sprinting = !this.movementLocked && (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight'));
+      const speed = this.movementLocked ? 0 : this.sprinting ? 4.7 : 2.25;
       const vx = (-Math.sin(this.yaw) * forward + Math.cos(this.yaw) * strafe) * speed;
       const vz = (-Math.cos(this.yaw) * forward - Math.sin(this.yaw) * strafe) * speed;
       this.velocity.x = THREE.MathUtils.damp(this.velocity.x, vx, 13, dt);
       this.velocity.z = THREE.MathUtils.damp(this.velocity.z, vz, 13, dt);
-      if (this.jumpQueued && this.grounded) { this.verticalVelocity = 4.25; this.grounded = false; }
+      if (this.jumpQueued && this.grounded && !this.movementLocked) { this.verticalVelocity = 4.25; this.grounded = false; }
       this.jumpQueued = false;
       const substeps = Math.max(1, Math.ceil(dt / .016));
       for (let i = 0; i < substeps; i++) this.physicsStep(dt / substeps);
@@ -342,6 +352,11 @@ export class PlayerController {
         const direction = Math.atan2(-this.velocity.x, -this.velocity.z);
         const diff = Math.atan2(Math.sin(direction - this.avatar.rotation.y), Math.cos(direction - this.avatar.rotation.y));
         this.avatar.rotation.y += diff * Math.min(1, dt * 12);
+      }
+      if (this.hazardLift > 0) {
+        this.position.y = terrainHeight(this.position.x, this.position.z) + this.hazardLift;
+        this.grounded = false;
+        this.verticalVelocity = 0;
       }
       const moving = Math.min(1, moveSpeed / 2);
       // A real skinned body animates itself; the capsule bob is only a
@@ -355,6 +370,9 @@ export class PlayerController {
       }
     }
     this.avatar.position.copy(this.position);
+    // The snare raises and inverts the whole articulated body rather than
+    // leaving a grounded avatar while only the rules state says restrained.
+    this.avatar.rotation.x = this.hazardLift > 0 ? Math.PI : 0;
     if (this.body) {
       const speed = Math.hypot(this.velocity.x, this.velocity.z);
       this.bodyPose = speed > 3.4 ? 'run' : speed > .25 ? 'walk' : 'idle';
