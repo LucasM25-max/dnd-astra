@@ -14,6 +14,7 @@ import { saveCharacter, type CharacterSheet } from '../game/character';
 import { EncounterView, chooseWeapon, makeVisibility } from './encounter-view';
 import { AmbushSite, buildTrailMarker } from './ambush-props';
 import type { CombatMaterials } from './actors/combat-materials';
+import type { SpriteLibrary } from './actors/sprite-figure';
 import { DiceTray } from './actors/dice';
 import { CombatFx } from './combat-fx';
 import type { CollisionField } from './landscape';
@@ -131,6 +132,7 @@ export class CombatDirector {
     private controller: PlayerController,
     private collision: CollisionField,
     private materials: CombatMaterials,
+    private sprites: SpriteLibrary | null,
     private quality: 'performance' | 'balanced' | 'high',
     audio: CombatAudio,
   ) {
@@ -201,7 +203,7 @@ export class CombatDirector {
     this.spotted = character.passivePerception >= stealth;
     if (!this.spotted) encounter.markSurprised([hero.id]);
 
-    this.view = new EncounterView(encounter, this.materials, this.quality);
+    this.view = new EncounterView(encounter, this.materials, this.quality, this.sprites);
     this.view.spawnAll(this.scene);
     this.view.onFootfall = undefined;
 

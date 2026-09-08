@@ -7,6 +7,7 @@ import { WEAPONS, isRanged } from '../game/equipment';
 import { terrainHeight, type CollisionField } from './landscape';
 import { Humanoid, type HumanoidPose } from './actors/humanoid';
 import { buildArrow, buildWeapon, type CombatMaterials } from './actors/combat-materials';
+import { type FigureBody, type SpriteLibrary } from './actors/sprite-figure';
 import { CombatFx } from './combat-fx';
 
 /**
@@ -21,7 +22,7 @@ import { CombatFx } from './combat-fx';
 
 interface ActorView {
   combatant: Combatant;
-  body: Humanoid;
+  body: FigureBody;
   /** Smoothed world position, chasing the engine's authoritative one. */
   visual: THREE.Vector3;
   velocity: number;
@@ -63,6 +64,7 @@ export class EncounterView {
     private encounter: Encounter,
     private materials: CombatMaterials,
     quality: 'performance' | 'balanced' | 'high',
+    private sprites: SpriteLibrary | null = null,
   ) {
     this.detail = quality === 'performance' ? 0.6 : quality === 'balanced' ? 0.85 : 1;
     this.group.name = 'Encounter';
@@ -149,24 +151,33 @@ export class EncounterView {
     if (!monster) return;
     const visual = monster.visual;
 
-    const body = new Humanoid(
-      {
-        height: visual.height, build: visual.height > 1.6 ? 'stocky' : 'lean',
-        earLength: visual.height * 0.16, noseLength: visual.height * 0.085,
-        species: visual.archetype === 'goblinoid' ? 'goblin' : 'human',
-      },
-      this.materials, visual.skin, visual.cloth,
-      Math.floor(Math.abs(Math.sin(combatant.id.length * 7.3) * 1000)), this.detail,
-    );
+    // Painted sprite figure first (16-direction card), skinned rig as fallback.
+    let body: FigureBody;
+    const sprite = this.sprites?.create('goblin', { tint: visual.skin, heightScale: visual.height / 1.2 });
+    if (sprite) {
+      body = sprite;
+    } else {
+      body = new Humanoid(
+        {
+          height: visual.height, build: visual.height > 1.6 ? 'stocky' : 'lean',
+          earLength: visual.height * 0.16, noseLength: visual.height * 0.085,
+          species: visual.archetype === 'goblinoid' ? 'goblin' : 'human',
+        },
+        this.materials, visual.skin, visual.cloth,
+        Math.floor(Math.abs(Math.sin(combatant.id.length * 7.3) * 1000)), this.detail,
+      );
+    }
     body.place(combatant.position.x, combatant.position.z, combatant.facing);
 
-    const weapon = buildWeapon(visual.weapon, this.materials, visual.height / 1.6);
-    // A bow is carried in the left hand, across the body.
-    if (visual.weapon === 'shortbow') {
-      weapon.rotation.set(0, Math.PI / 2, 0.35);
-      body.bones[8].add(weapon);          // handL
-    } else {
-      body.weapon.add(weapon);
+    if (body instanceof Humanoid) {
+      const weapon = buildWeapon(visual.weapon, this.materials, visual.height / 1.6);
+      // A bow is carried in the left hand, across the body.
+      if (visual.weapon === 'shortbow') {
+        weapon.rotation.set(0, Math.PI / 2, 0.35);
+        body.bones[8].add(weapon);          // handL
+      } else {
+        body.weapon.add(weapon);
+      }
     }
 
     const ring = new THREE.Mesh(
@@ -189,7 +200,7 @@ export class EncounterView {
     };
     this.actors.set(combatant.id, view);
 
-    body.onFootfall = (_side, x, z, strength) => this.onFootfall?.(x, z, strength);
+    if (body instanceof Humanoid) body.onFootfall = (_side, x, z, strength) => this.onFootfall?.(x, z, strength);
   }
 
   onFootfall: ((x: number, z: number, strength: number) => void) | undefined;
@@ -298,7 +309,7 @@ export class EncounterView {
         crouch,
         lookAt: view.hidden ? undefined : playerPosition,
         actionPhase: view.actionPhase,
-      });
+      }, camera);
 
       // --- overlays --------------------------------------------------------
       const alive = c.health.hp > 0 && !c.health.dead;

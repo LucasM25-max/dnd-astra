@@ -13,6 +13,8 @@ import { AnimalAudio, CombatAudio } from './audio';
 import { loadCharacter, type CharacterSheet } from '../game/character';
 import { CombatDirector, type CombatPhase, type CombatSnapshot } from './combat-director';
 import { loadCombatMaterials, type CombatMaterials } from './actors/combat-materials';
+import { SpriteLibrary } from './actors/sprite-figure';
+import { QuadrupedSpriteSkin } from './actors/sprite-skins';
 import type { ActionId, LogEntry } from '../game/encounter';
 import { RulesEventLog } from '../game/rules';
 import { saveCharacter } from '../game/character';
@@ -33,6 +35,10 @@ export class Adventure {
   readonly animalAudio = new AnimalAudio();
   readonly combatAudio = new CombatAudio();
   private horseBrains: HorseBrain[] = [];
+  /** Photoreal sprite skins over the animal rigs, when the sprite set is present. */
+  private horseSkins: (QuadrupedSpriteSkin | null)[] = [null, null];
+  private oxSkins: (QuadrupedSpriteSkin | null)[] = [null, null];
+  private spriteLibrary: SpriteLibrary | null = null;
   readonly combatDirector: CombatDirector;
   readonly combatMaterials: CombatMaterials;
   readonly rulesEvents = new RulesEventLog();
@@ -52,21 +58,34 @@ export class Adventure {
   character: CharacterSheet | null;
   onHandoff = () => {};
   onNotice: (message: string) => void = () => {};
-  private constructor(scene: THREE.Scene, private camera: THREE.PerspectiveCamera, renderer: THREE.WebGLRenderer, private controller: PlayerController, private collision: CollisionField, private factory: AnimalFactory, readonly materials: AdventureMaterials, combatMaterials: CombatMaterials, quality: 'performance' | 'balanced' | 'high') {
+  private constructor(scene: THREE.Scene, private camera: THREE.PerspectiveCamera, renderer: THREE.WebGLRenderer, private controller: PlayerController, private collision: CollisionField, private factory: AnimalFactory, readonly materials: AdventureMaterials, combatMaterials: CombatMaterials, quality: 'performance' | 'balanced' | 'high', sprites: SpriteLibrary | null) {
     this.combatMaterials = combatMaterials;
-    this.combatDirector = new CombatDirector(scene, camera, renderer, controller, collision, combatMaterials, quality, this.combatAudio);
+    this.spriteLibrary = sprites;
+    this.combatDirector = new CombatDirector(scene, camera, renderer, controller, collision, combatMaterials, sprites, quality, this.combatAudio);
     this.combatDirector.onNotice = message => this.onNotice(message);
     this.combatDirector.onLog = entries => this.onCombatLog(entries);
     this.combatDirector.onPhaseChange = phase => this.onCombatPhase(phase);
     this.combatDirector.prepare();
     this.character = loadCharacter();
-    // Replace the placeholder avatar with a real skinned character body that
-    // reflects the species and class actually on the sheet.
+    // The player's visible body is a painted 16-direction sprite figure when
+    // the sprite set is present; the fully skinned body remains the fallback.
+    const playerFigure = sprites?.create('player');
+    if (playerFigure) this.controller.installSpriteBody(playerFigure);
     this.controller.installBody(combatMaterials, this.character);
-    this.controller.setEquipment(this.character?.classId ?? null);
+    this.controller.setEquipment(playerFigure ? null : (this.character?.classId ?? null));
     this.wagon = new SupplyWagon(factory, this.inventory); this.wagon.addTo(scene);
     this.horses = [factory.create('horse', '#c9a67c', 2), factory.create('horse', '#dcd8ce', 7)];
     this.horses.forEach(h => scene.add(h.root));
+    // Sprite skins for the animals: the rig keeps running (audio, IK, physics
+    // proxies) but the painted card is what you see.
+    this.horses.forEach((h, i) => {
+      const figure = sprites?.create('horse', { tint: i === 0 ? '#e8c49a' : '#d9d2c4' });
+      this.horseSkins[i] = figure ? new QuadrupedSpriteSkin(h, figure, scene) : null;
+    });
+    this.wagon.oxen.forEach((ox, i) => {
+      const figure = sprites?.create('ox', { tint: i === 0 ? '#d8c6ac' : '#c2b096' });
+      this.oxSkins[i] = figure ? new QuadrupedSpriteSkin(ox, figure, scene) : null;
+    });
     this.horseBrains = [new HorseBrain(2), new HorseBrain(7)];
     this.horseBrains[0].place(9.3, 2.9, -.6); this.horseBrains[1].place(12.6, 1.2, 1.3);
     this.oxController = new OxController(this.wagon.oxen as [LivingAnimal, LivingAnimal]);
@@ -89,7 +108,8 @@ export class Adventure {
   static async create(scene: THREE.Scene, camera: THREE.PerspectiveCamera, controller: PlayerController, collision: CollisionField, renderer: THREE.WebGLRenderer, quality: 'performance' | 'balanced' | 'high' = 'high') {
     const materials = await loadAdventureMaterials(renderer), factory = await AnimalFactory.load(materials, quality === 'performance' ? .55 : quality === 'balanced' ? .8 : 1);
     const combatMaterials = await loadCombatMaterials(renderer);
-    const adventure = new Adventure(scene, camera, renderer, controller, collision, factory, materials, combatMaterials, quality);
+    const sprites = await SpriteLibrary.load(renderer).catch(() => null);
+    const adventure = new Adventure(scene, camera, renderer, controller, collision, factory, materials, combatMaterials, quality, sprites);
     await adventure.narrator.initialize(); return adventure;
   }
   private pathDistanceOf(x: number, z: number) { return pathDistance(x, z); }
@@ -269,6 +289,8 @@ export class Adventure {
     const wagon = this.wagon;
     this.oxController.update(dt, { x: wagon.root.position.x, z: wagon.root.position.z, yaw: wagon.root.rotation.y, speed: wagon.speed,
       steering: wagon.steering, braking: this.controller.keys.has('Space') && Math.abs(wagon.speed) > .25 }, journey);
+    const moved = Math.abs(wagon.speed);
+    this.oxSkins.forEach(skin => skin?.update(dt, { speed: moved, head: { pitch: -.1, yaw: 0 }, alert: 0, strain: 0 }, this.camera));
   }
   /** The `Call` verb (Workstream E) routes here. */
   callHorse(): boolean {
@@ -288,6 +310,7 @@ export class Adventure {
       horse.root.position.y = terrainHeight(brain.x, brain.z) + .01;
       horse.root.rotation.y = brain.yaw;
       horse.update(dt, { speed: out.speed, head: out.head, alert: out.alert, strain: 0 });
+      this.horseSkins[i]?.update(dt, { speed: out.speed, head: out.head, alert: out.alert, strain: 0 }, this.camera);
       this.horseSniff[i] = out.headDown;
       if (brain.snortAt > 0) { this.animalAudio.snort(brain.x, brain.z); brain.snortAt = -1; }
       if (brain.whinnyAt > 0) { this.animalAudio.whinny(brain.x, brain.z); brain.whinnyAt = -1; }
@@ -370,6 +393,8 @@ export class Adventure {
   dispose() {
     if (this.disposed) return; this.disposed = true; this.save(); this.narrator.dispose(); this.factory.dispose(); this.animalAudio.dispose();
     this.collision.removeDynamic('wagon'); this.collision.removeDynamic('horses');
+    this.horseSkins.forEach(s => s?.dispose()); this.oxSkins.forEach(s => s?.dispose());
+    this.spriteLibrary?.dispose();
     this.combatAudio.dispose();
     this.materials.textures.forEach(t => t.dispose());
     this.horses.forEach(h => h.mesh.skeleton.dispose()); this.wagon.oxen.forEach(h => h.mesh.skeleton.dispose());

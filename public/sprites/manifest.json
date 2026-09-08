@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "figures": {
+    "player": {
+      "atlas": "player.webp",
+      "cellW": 128,
+      "cellH": 272,
+      "columns": 16,
+      "rows": 3,
+      "height": 1.78,
+      "states": {
+        "idle": {
+          "rows": [
+            0
+          ],
+          "fps": 0
+        },
+        "walk": {
+          "rows": [
+            1,
+            2
+          ],
+          "fps": 3.1
+        }
+      }
+    },
+    "horse": {
+      "atlas": "horse.webp",
+      "cellW": 288,
+      "cellH": 241,
+      "columns": 16,
+      "rows": 2,
+      "height": 1.62,
+      "states": {
+        "idle": {
+          "rows": [
+            0
+          ],
+          "fps": 0
+        },
+        "walk": {
+          "rows": [
+            1
+          ],
+          "fps": 2.6
+        }
+      }
+    },
+    "ox": {
+      "atlas": "ox.webp",
+      "cellW": 306,
+      "cellH": 262,
+      "columns": 16,
+      "rows": 2,
+      "height": 1.4,
+      "states": {
+        "idle": {
+          "rows": [
+            0
+          ],
+          "fps": 0
+        },
+        "walk": {
+          "rows": [
+            1
+          ],
+          "fps": 2.2
+        }
+      }
+    }
+  }
+}

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CollisionField, SPAWN, clamp, terrainHeight } from './landscape';
 import { Humanoid, type HumanoidPose, type HumanoidShape } from './actors/humanoid';
 import type { CombatMaterials } from './actors/combat-materials';
+import type { SpriteFigure } from './actors/sprite-figure';
 
 export type CameraMode = 'first' | 'third';
 export class PlayerController {
@@ -38,6 +39,8 @@ export class PlayerController {
   private rig = new THREE.Group();
   /** The skinned player body, installed once the PBR materials have loaded. */
   private body: Humanoid | null = null;
+  /** The photoreal sprite card used instead of the skinned body, when the sprite set is available. */
+  private sprite: SpriteFigure | null = null;
   private bodyPose: 'idle' | 'walk' | 'run' = 'idle';
   /** Equipment pieces currently parented to bones, for cleanup. */
   private kit: THREE.Object3D[] = [];
@@ -91,6 +94,7 @@ export class PlayerController {
       : sheet?.classId === 'rogue' ? '#33322b'
       : sheet?.classId === 'ranger' ? '#4a5940' : '#6a5a44';
 
+    if (this.sprite) return;   // the sprite card already replaced the skinned body
     this.body = new Humanoid(
       {
         height: tall, build: stocky ? 'stocky' : 'lean', earLength: elf ? tall * 0.075 : tall * 0.03,
@@ -105,6 +109,21 @@ export class PlayerController {
   }
 
   /**
+   * Install a painted sprite figure as the player's visible body. The card is
+   * parented to the avatar (not the rig) so the seated squash applied to the
+   * old proxy body cannot distort it; seating is handled by the figure itself.
+   */
+  installSpriteBody(figure: SpriteFigure) {
+    this.body?.dispose();
+    this.body = null;
+    this.sprite = figure;
+    figure.root.position.set(0, 0, 0);
+    figure.setSeated(this.controlMode !== 'foot');
+    this.avatar.add(figure.root);
+  }
+  get spriteBody() { return this.sprite; }
+
+  /**
    * Visible kit on the avatar, per class. Pieces are parented to the animated
    * bones — a sword hangs on the hip bone, a shield rides the chest, the
    * wizard's staff is genuinely held — so gear moves with the body.
@@ -112,7 +131,8 @@ export class PlayerController {
   setEquipment(classId: 'fighter' | 'wizard' | 'rogue' | 'cleric' | 'ranger' | null) {
     for (const item of this.kit) item.parent?.remove(item);
     this.kit.length = 0;
-    if (!classId) return;
+    // The painted figure carries its own gear; the 3D kit would only float on top.
+    if (!classId || this.sprite) return;
     const steel = new THREE.MeshStandardMaterial({ color: '#aab2b6', metalness: 1, roughness: .32 });
     const wood = new THREE.MeshStandardMaterial({ color: '#7a6242', roughness: .88 });
     const leather = new THREE.MeshStandardMaterial({ color: '#5a4530', roughness: .82 });
@@ -291,7 +311,7 @@ export class PlayerController {
   jump() { if (!this.paused && this.started && this.controlMode === 'foot') this.jumpQueued = true; }
   /** Play the one-shot attack animation on the player's own body. */
   playAttack(kind: 'melee' | 'ranged' | 'cast' = 'melee') {
-    if (!this.body) return;
+    if (!this.body && !this.sprite) return;
     const pose = kind === 'ranged' ? 'shoot' : kind === 'cast' ? 'cast' : 'attack';
     this.playerAction = { pose, t: 0, duration: kind === 'ranged' ? 0.95 : kind === 'cast' ? 1.1 : 0.8 };
   }
@@ -299,6 +319,7 @@ export class PlayerController {
     this.controlMode = mode; this.clearInput(); this.cameraOverride = mode === 'cinematic';
     this.arms.visible = mode !== 'foot'; this.rig.scale.y = mode === 'foot' ? 1 : .78;
     this.rig.position.y = 0; this.rig.rotation.set(0, 0, 0); this.zoom = mode === 'foot' ? 5.4 : 8.2;
+    this.sprite?.setSeated(mode !== 'foot');
   }
   attachToSeat(position: THREE.Vector3, yaw: number) {
     if (this.controlMode === 'wagon') this.yaw += Math.atan2(Math.sin(yaw - this.vehicleYaw), Math.cos(yaw - this.vehicleYaw));
@@ -351,6 +372,20 @@ export class PlayerController {
       }
     }
     this.avatar.position.copy(this.position);
+    if (this.sprite) {
+      const speed = Math.hypot(this.velocity.x, this.velocity.z);
+      this.bodyPose = speed > 3.4 ? 'run' : speed > .25 ? 'walk' : 'idle';
+      let pose: HumanoidPose = this.bodyPose;
+      let actionPhase = 0;
+      if (this.playerAction) {
+        this.playerAction.t += dt;
+        actionPhase = this.playerAction.t / this.playerAction.duration;
+        if (actionPhase >= 1) this.playerAction = null;
+        else { pose = this.playerAction.pose; actionPhase = Math.max(0.02, actionPhase); }
+      }
+      this.sprite.root.position.y = this.position.y - terrainHeight(this.position.x, this.position.z);
+      this.sprite.update(dt, { speed: this.playerAction ? 0 : speed, pose, crouch: 0, actionPhase, lookAt: undefined }, this.camera);
+    }
     if (this.body) {
       const speed = Math.hypot(this.velocity.x, this.velocity.z);
       this.bodyPose = speed > 3.4 ? 'run' : speed > .25 ? 'walk' : 'idle';
@@ -445,7 +480,7 @@ export class PlayerController {
     }
   }
   dispose() {
-    this.body?.dispose(); this.disposed.abort(); }
+    this.body?.dispose(); this.sprite?.dispose(); this.disposed.abort(); }
 }
 export function isFormControl(target: EventTarget | null) {
   return target instanceof HTMLElement && (['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName) || target.isContentEditable);

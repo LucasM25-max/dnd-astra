@@ -19,7 +19,7 @@ const wait = (predicate, t = 90000) => page.waitForFunction(predicate, undefined
 const shot = name => page.screenshot({ path: `qa/${name}.png` });
 await fs.mkdir('qa', { recursive: true });
 
-setTimeout(() => { console.log('WATCHDOG: aborting'); process.exit(2); }, 560000).unref?.();
+setTimeout(() => { console.log('WATCHDOG: aborting'); process.exit(2); }, 900000).unref?.();
 try {
   await page.goto(process.env.BASE_URL ?? 'http://localhost:5173', { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('[data-ready="true"]', { timeout: 180000 });
@@ -64,6 +64,52 @@ try {
   const exploreCursor = await page.evaluate(() => getComputedStyle(document.querySelector('canvas')).cursor);
   console.log('exploration canvas cursor:', exploreCursor);
 
+  // Sprite figure audit: player card installed, painted horse/ox skins alive.
+  const spriteAudit = await page.evaluate(() => {
+    const a = window.__astra.getAdventure();
+    const sprite = a.controller?.spriteBody ?? null;
+    const horses = (a.horseSkins ?? []).map(s => s ? s.figure.debugState().visible : false);
+    const oxen = (a.oxSkins ?? []).map(s => s ? s.figure.debugState().visible : false);
+    return {
+      playerSprite: sprite ? sprite.debugState() : null,
+      horseCards: horses, oxCards: oxen,
+    };
+  });
+  console.log('sprite audit:', JSON.stringify(spriteAudit, null, 1));
+
+  // Turn the player through a full circle and confirm the 16-direction column
+  // selection follows the camera (front column 0 ↔ back column 8).
+  const dirProbe = await page.evaluate(async () => {
+    const a = window.__astra.getAdventure();
+    const sprite = a.controller?.spriteBody;
+    if (!sprite) return null;
+    const samples = [];
+    const wait = ms => new Promise(r => setTimeout(r, ms));
+    for (const yaw of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+      window.__astra.teleport(9.7, 2.0);
+      a.controller.yaw = yaw;
+      a.controller.avatar.rotation.y = yaw;
+      await wait(400);
+      samples.push({ yaw: +yaw.toFixed(2), dir: +sprite.debugState().direction.toFixed(1) });
+    }
+    return samples;
+  });
+  console.log('direction probe (fixed camera, rotating actor):', JSON.stringify(dirProbe));
+  await page.waitForTimeout(400); await shot('04b-player-sprite');
+
+  // Head-on beauty shot of the wagon team: teleport ahead of the oxen, facing back.
+  await page.evaluate(() => {
+    const a = window.__astra.getAdventure();
+    const lead = a.oxSkins?.[0]?.figure?.root ?? a.wagon.root;
+    const yaw = a.wagon.root.rotation.y;
+    const fx = -Math.sin(yaw), fz = -Math.cos(yaw);            // team forward
+    const px = lead.position.x + fx * 11, pz = lead.position.z + fz * 11;
+    window.__astra.teleport(px, pz);
+    a.controller.yaw = Math.atan2(-(lead.position.x - px), -(lead.position.z - pz));
+    a.controller.avatar.rotation.y = a.controller.yaw;
+  });
+  await page.waitForTimeout(1200); await shot('04c-wagon-team');
+
   // Step down from the wagon, then walk into the ambush.
   console.log('step: dismounting');
   await page.keyboard.press('r');
@@ -105,7 +151,7 @@ try {
 
   // Sample the goblin root position over an enemy move to prove animation, not teleport.
   const posSamples = [];
-  const sampler = setInterval(() => { page.evaluate(() => { const a = window.__astra.getAdventure(); const v = a.combatDirector.view; const av = v && v.actors && v.actors.get('goblin-north-1'); return av ? { x: +av.root.position.x.toFixed(2), z: +av.root.position.z.toFixed(2) } : null; }).then(p => posSamples.push(p)).catch(() => {}); }, 300);
+  const sampler = setInterval(() => { page.evaluate(() => { const a = window.__astra.getAdventure(); const v = a.combatDirector.view; const av = v && v.actors && v.actors.get('goblin-north-1'); return av ? { x: +av.body.root.position.x.toFixed(2), z: +av.body.root.position.z.toFixed(2) } : null; }).then(p => posSamples.push(p)).catch(() => {}); }, 300);
   await page.evaluate(() => window.__astra.combatEndTurn());
   await page.waitForTimeout(9000);
   clearInterval(sampler);
