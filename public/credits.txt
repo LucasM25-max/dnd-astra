@@ -13,6 +13,16 @@ alpha masks, and image-derived normal maps were prepared locally with Sharp.
 These are not claimed to be scanned/photogrammetry materials.
 Terrain, plants, rocks, character proxy, UI, and map graphics are procedural.
 
+SPRITE FIGURES (PLAYER / HORSES / OXEN)
+The 16-direction painted figure cards in public/sprites/ were AI-generated as
+4x4 magenta-backed sheets (sources in assets-source/sprites/), then chroma-
+keyed, scaled, and packed into atlases locally by scripts/prepare-sprite-
+sheets.mjs (npm run assets:sprites, Sharp). Column 0 of each row is the front
+view, advancing clockwise through the actor's right side, back, and left; the
+engine picks the column nearest the camera's viewing angle and crossfades
+between neighbours. Goblin enemies use the procedural 3D rigs until their
+sheets are regenerated.
+
 HDR ENVIRONMENT
 Forest Slope, from the Poly Haven / HDRI Haven CC0 environment collection.
 Mirrored by pmndrs/drei-assets:
