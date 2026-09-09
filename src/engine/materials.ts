@@ -9,7 +9,6 @@ export interface Materials {
   grass: THREE.MeshStandardMaterial;
   fern: THREE.MeshStandardMaterial;
   wood: THREE.MeshStandardMaterial;
-  coniferDark: THREE.MeshStandardMaterial;
   wind: { value: number };
   textures: THREE.Texture[];
 }
@@ -93,8 +92,6 @@ export async function loadMaterials(renderer: THREE.WebGLRenderer, progress: (s:
       `);
   };
   const fern = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .85, side: THREE.DoubleSide });
-  // Distant-ring conifers: dark, no wind, no shadow cost.
-  const coniferDark = new THREE.MeshStandardMaterial({ map: leaf, alphaTest: .46, side: THREE.DoubleSide, roughness: .95, vertexColors: true, color: '#5c7355' });
   const wood = new THREE.MeshStandardMaterial({ color: '#74634c', map: bark, roughness: .95 });
-  return { ground, bark: barkMat, leaves, leafDepth, stone, grass, fern, wood, coniferDark, wind, textures: [litter, litterN, path, pathN, bark, barkN, rock, rockN, leaf] };
+  return { ground, bark: barkMat, leaves, leafDepth, stone, grass, fern, wood, wind, textures: [litter, litterN, path, pathN, bark, barkN, rock, rockN, leaf] };
 }

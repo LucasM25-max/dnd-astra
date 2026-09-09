@@ -23,7 +23,7 @@ export function renderShell(host: HTMLElement) {
           <h1 id="world-title">Triboar Trail<span class="title-period">.</span></h1>
           <div class="scene-tag"><span></span> A DELIVERY FOR GUNDREN</div>
           <p class="welcome-copy">A wagon full of provisions. A promise to keep.<br>Some roads lead to more than a destination.</p>
-          <div class="title-actions"><button class="enter-button" id="enter-world"><span>Begin your journey</span><i data-lucide="arrow-right"></i></button><button class="character-button" id="character-create"><i data-lucide="user-round-pen"></i><span>Create character</span></button></div>
+          <button class="enter-button" id="enter-world"><span>Begin your journey</span><i data-lucide="arrow-right"></i></button>
           <div class="welcome-note" id="welcome-save-note">A VOICED OPENING · YOUR ADVENTURE BEGINS HERE</div>
         </section>
         <div class="journey-status"><div class="traveller-emblem"><i data-lucide="footprints"></i></div><div><span class="micro-label" id="travel-mode">AT THE REINS</span><p id="travel-flavour">A promise to keep.</p></div><div class="journey-line"></div></div>
@@ -50,7 +50,7 @@ export function renderShell(host: HTMLElement) {
           </div>
           <button id="help-toggle" class="help-button" aria-label="Show controls"><i data-lucide="circle-help"></i><span>Controls</span><kbd>H</kbd></button>
         </footer>
-        <div class="pointer-hint" id="pointer-hint"><span class="hint-dot"></span> Hold and drag to look <span>·</span> <kbd>WASD</kbd> to move</div>
+        <div class="pointer-hint" id="pointer-hint"><span class="hint-dot"></span> Click to look around <span>·</span> <kbd>ESC</kbd> to release</div>
         <div class="crosshair" aria-hidden="true"></div>
         <button id="inspect-prompt" class="inspect-prompt" hidden><kbd>E</kbd><span id="inspect-label">Inspect the cargo manifest</span></button>
         <button id="journey-skip" class="journey-skip" hidden><span>Skip opening</span><i data-lucide="skip-forward"></i></button>

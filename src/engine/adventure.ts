@@ -7,24 +7,13 @@ import { CollisionField, WORLD_LIMIT, pathDistance, terrainHeight } from './land
 import { PlayerController } from './controller';
 import { loadAdventureMaterials, type AdventureMaterials } from './actors/materials';
 import { AnimalFactory, type LivingAnimal } from './actors/animals';
-import { HorseBrain, OxController, type HorseOutput, type WorldSnapshot } from './actors/behaviour';
 import { SupplyWagon } from './actors/wagon';
-import { AnimalAudio, CombatAudio } from './audio';
-import { loadCharacter, type CharacterSheet } from '../game/character';
-import { CombatDirector, type CombatPhase, type CombatSnapshot } from './combat-director';
-import { loadCombatMaterials, type CombatMaterials } from './actors/combat-materials';
-import { SpriteLibrary } from './actors/sprite-figure';
-import { QuadrupedSpriteSkin } from './actors/sprite-skins';
-import type { ActionId, LogEntry } from '../game/encounter';
-import { RulesEventLog } from '../game/rules';
-import { saveCharacter } from '../game/character';
 
 export interface Interaction { kind: 'cargo' | 'manifest' | 'horses'; id: string; label: string }
 export interface AdventureState {
-  story: NarratorState; mounted: boolean; interaction: Interaction | null; canMount: boolean; character: CharacterSheet | null;
+  story: NarratorState; mounted: boolean; interaction: Interaction | null; canMount: boolean;
   wagon: { x: number; z: number; yaw: number; speed: number }; inventoryRevision: number;
   horses: { x: number; z: number; yaw: number; sniffing: boolean }[];
-  combat: CombatSnapshot | null;
 }
 function browserStorage() { try { return window.localStorage; } catch { return undefined; } }
 export class Adventure {
@@ -32,18 +21,6 @@ export class Adventure {
   readonly narrator = new Narrator();
   readonly wagon: SupplyWagon;
   readonly horses: LivingAnimal[];
-  readonly animalAudio = new AnimalAudio();
-  readonly combatAudio = new CombatAudio();
-  private horseBrains: HorseBrain[] = [];
-  /** Photoreal sprite skins over the animal rigs, when the sprite set is present. */
-  private horseSkins: (QuadrupedSpriteSkin | null)[] = [null, null];
-  private oxSkins: (QuadrupedSpriteSkin | null)[] = [null, null];
-  private spriteLibrary: SpriteLibrary | null = null;
-  readonly combatDirector: CombatDirector;
-  readonly combatMaterials: CombatMaterials;
-  readonly rulesEvents = new RulesEventLog();
-  private oxController!: OxController;
-  private horseOut: HorseOutput = { speed: 0, yaw: 0, head: { pitch: 0, yaw: 0 }, alert: 0, headDown: false };
   private clock = 0;
   private lastSave = 0;
   private lastBlockedToast = -10;
@@ -52,52 +29,16 @@ export class Adventure {
   private lastWagonPosition = new THREE.Vector3();
   private previouslyPaused = false;
   private cinematicProgress = 0;
-  private cameraLift = 0;
   private disposed = false;
   mounted = true;
-  character: CharacterSheet | null;
   onHandoff = () => {};
   onNotice: (message: string) => void = () => {};
-  private constructor(scene: THREE.Scene, private camera: THREE.PerspectiveCamera, renderer: THREE.WebGLRenderer, private controller: PlayerController, private collision: CollisionField, private factory: AnimalFactory, readonly materials: AdventureMaterials, combatMaterials: CombatMaterials, quality: 'performance' | 'balanced' | 'high', sprites: SpriteLibrary | null) {
-    this.combatMaterials = combatMaterials;
-    this.spriteLibrary = sprites;
-    this.combatDirector = new CombatDirector(scene, camera, renderer, controller, collision, combatMaterials, sprites, quality, this.combatAudio);
-    this.combatDirector.onNotice = message => this.onNotice(message);
-    this.combatDirector.onLog = entries => this.onCombatLog(entries);
-    this.combatDirector.onPhaseChange = phase => this.onCombatPhase(phase);
-    this.combatDirector.prepare();
-    this.character = loadCharacter();
-    // The player's visible body is a painted 16-direction sprite figure when
-    // the sprite set is present; the fully skinned body remains the fallback.
-    const playerFigure = sprites?.create('player');
-    if (playerFigure) this.controller.installSpriteBody(playerFigure);
-    this.controller.installBody(combatMaterials, this.character);
-    this.controller.setEquipment(playerFigure ? null : (this.character?.classId ?? null));
+  private constructor(scene: THREE.Scene, private camera: THREE.PerspectiveCamera, private controller: PlayerController, private collision: CollisionField, private factory: AnimalFactory, readonly materials: AdventureMaterials) {
     this.wagon = new SupplyWagon(factory, this.inventory); this.wagon.addTo(scene);
-    this.horses = [factory.create('horse', '#c9a67c', 2), factory.create('horse', '#dcd8ce', 7)];
+    this.horses = [factory.create('horse', '#765339', 2), factory.create('horse', '#b0aca0', 7)];
     this.horses.forEach(h => scene.add(h.root));
-    // Sprite skins for the animals: the rig keeps running (audio, IK, physics
-    // proxies) but the painted card is what you see.
-    this.horses.forEach((h, i) => {
-      const figure = sprites?.create('horse', { tint: i === 0 ? '#e8c49a' : '#d9d2c4' });
-      this.horseSkins[i] = figure ? new QuadrupedSpriteSkin(h, figure, scene) : null;
-    });
-    this.wagon.oxen.forEach((ox, i) => {
-      const figure = sprites?.create('ox', { tint: i === 0 ? '#d8c6ac' : '#c2b096' });
-      this.oxSkins[i] = figure ? new QuadrupedSpriteSkin(ox, figure, scene) : null;
-    });
-    this.horseBrains = [new HorseBrain(2), new HorseBrain(7)];
-    this.horseBrains[0].place(9.3, 2.9, -.6); this.horseBrains[1].place(12.6, 1.2, 1.3);
-    this.oxController = new OxController(this.wagon.oxen as [LivingAnimal, LivingAnimal]);
-    this.oxController.onMoan = (side, strength) => { const ox = this.wagon.oxen[side], p = ox.root.position; this.animalAudio.low(p.x, p.z, strength, true); };
-    for (let i = 0; i < 2; i++) {
-      const i2 = i;
-      this.horses[i].onFootfall = (_leg, x, z, strength) => this.animalAudio.hoof(x, z, strength, this.pathDistanceOf(x, z) < 1.2);
-      this.wagon.oxen[i2].onFootfall = (_leg, x, z, strength) => this.animalAudio.hoof(x, z, strength * .85, this.pathDistanceOf(x, z) < 1.2);
-    }
     const saved = this.inventory.snapshot(), pose = saved.arrived && saved.wagon ? saved.wagon : journeyPose(saved.arrived ? 1 : 0);
     this.wagon.setPose(pose.x, pose.z, pose.yaw); this.lastWagonPosition.copy(this.wagon.root.position);
-    this.oxController.snap(pose.x, pose.z, pose.yaw);
     this.controller.setControlMode('cinematic'); this.controller.attachToSeat(this.wagon.seatPosition(), pose.yaw);
     this.narrator.onHandoff = () => this.handoff();
     this.narrator.onComplete = () => this.save();
@@ -105,14 +46,11 @@ export class Adventure {
     this.updateHorses(.001); this.wagon.update(.001, 0, false);
     this.updateCamera(true); this.updateCollision();
   }
-  static async create(scene: THREE.Scene, camera: THREE.PerspectiveCamera, controller: PlayerController, collision: CollisionField, renderer: THREE.WebGLRenderer, quality: 'performance' | 'balanced' | 'high' = 'high') {
-    const materials = await loadAdventureMaterials(renderer), factory = await AnimalFactory.load(materials, quality === 'performance' ? .55 : quality === 'balanced' ? .8 : 1);
-    const combatMaterials = await loadCombatMaterials(renderer);
-    const sprites = await SpriteLibrary.load(renderer).catch(() => null);
-    const adventure = new Adventure(scene, camera, renderer, controller, collision, factory, materials, combatMaterials, quality, sprites);
+  static async create(scene: THREE.Scene, camera: THREE.PerspectiveCamera, controller: PlayerController, collision: CollisionField, renderer: THREE.WebGLRenderer) {
+    const materials = await loadAdventureMaterials(renderer), factory = await AnimalFactory.load(materials);
+    const adventure = new Adventure(scene, camera, controller, collision, factory, materials);
     await adventure.narrator.initialize(); return adventure;
   }
-  private pathDistanceOf(x: number, z: number) { return pathDistance(x, z); }
   begin() {
     if (this.narrator.state.phase !== 'title') return;
     this.controller.start();
@@ -127,7 +65,6 @@ export class Adventure {
   }
   private handoff() {
     const pose = journeyPose(1); this.wagon.setPose(pose.x, pose.z, pose.yaw); this.wagon.speed = 0; this.lastWagonPosition.copy(this.wagon.root.position);
-    this.oxController.snap(pose.x, pose.z, pose.yaw);
     this.inventory.setArrived(); this.mount(); this.controller.pitch = .23;
     this.controller.cameraOverride = false;
     this.camera.position.copy(this.wagon.root.localToWorld(new THREE.Vector3(0, 4.05, 6.7)));
@@ -137,38 +74,8 @@ export class Adventure {
   }
   setPaused(paused: boolean) {
     this.controller.setPaused(paused); this.narrator.setPaused(paused, 'menu');
-    this.combatAudio.setPaused(paused);
     if (paused) this.save();
   }
-  private wasPlayerTurn = false;
-
-  /**
-   * Combat runs inside the ordinary frame loop. The world never freezes: the
-   * player walks their turn with the same controls they use everywhere else,
-   * and the encounter engine simply refuses actions the budget cannot pay for.
-   */
-  private updateCombat(dt: number, phase: string, realDelta: number) {
-    if (phase === 'title' || phase === 'journey') return;
-    const director = this.combatDirector;
-    director.update(dt, this.controller.position, this.character, !this.mounted, realDelta);
-
-    if (!director.encounter) return;
-
-    // Hand the movement budget to the controller on the player's turn only.
-    const playerTurn = !!director.encounter.isPlayerTurn && director.phase === 'active';
-    if (playerTurn !== this.wasPlayerTurn) {
-      this.wasPlayerTurn = playerTurn;
-      if (playerTurn) {
-        this.controller.movementLimit = () => director.movementLeftMetres();
-        this.controller.beginCombatTurn();
-      } else {
-        this.controller.endCombatTurn();
-        this.controller.movementLimit = null;
-      }
-    }
-    if (playerTurn) director.syncHeroPosition(this.controller.position);
-  }
-
   update(dt: number, realDelta: number) {
     this.narrator.update(realDelta);
     const paused = this.controller.paused, phase = this.narrator.state.phase;
@@ -185,11 +92,9 @@ export class Adventure {
     } else if (phase !== 'title' && this.mounted && !paused) distance = this.drive(dt);
     if (this.mounted) { this.controller.attachToSeat(this.wagon.seatPosition(), this.wagon.root.rotation.y); this.wagon.mounted = true; }
     else this.wagon.mounted = false;
-    if (!paused) this.updateOxen(dt, phase === 'journey');
     this.wagon.update(dt, paused ? 0 : distance, paused);
     if (!paused) this.updateHorses(dt);
     this.updateCollision();
-    this.updateCombat(dt, phase, realDelta);
     if (phase === 'title' || phase === 'journey') this.updateCamera(phase === 'title');
     else if (Math.abs(this.camera.fov - (this.controller.mode === 'first' ? 72 : 59)) > .1) {
       this.camera.fov = THREE.MathUtils.damp(this.camera.fov, this.controller.mode === 'first' ? 72 : 59, 5, dt); this.camera.updateProjectionMatrix();
@@ -209,25 +114,23 @@ export class Adventure {
     const yaw = oldYaw - this.wagon.speed / 2.4 * Math.tan(this.wagon.steering) * dt;
     const x = old.x - Math.sin(yaw) * this.wagon.speed * dt, z = old.z - Math.cos(yaw) * this.wagon.speed * dt;
     if (!this.canDriveAt(x, z, yaw)) {
-      // Ease to a stop instead of freezing mid-stride; the oxen settle.
-      this.wagon.speed = THREE.MathUtils.damp(this.wagon.speed, 0, 10, dt);
-      if (this.clock - this.lastBlockedToast > 7) { this.lastBlockedToast = this.clock; this.onNotice('The oxen don’t like that stretch. Steer back to the road, or press R to go on foot.'); }
+      this.wagon.speed = 0;
+      if (this.clock - this.lastBlockedToast > 7) { this.lastBlockedToast = this.clock; this.onNotice('The wagon needs room. Steer back to the road, or press R to go on foot.'); }
       return 0;
     }
     this.wagon.setPose(x, z, yaw); this.lastWagonPosition.copy(this.wagon.root.position);
     return Math.hypot(x - old.x, z - old.z) * Math.sign(this.wagon.speed);
   }
-  lastBlock: { probe: [number, number]; reason: string; x: number; z: number } | null = null;
   private canDriveAt(x: number, z: number, yaw: number) {
-    if (Math.abs(x) > WORLD_LIMIT - 7 || Math.abs(z) > WORLD_LIMIT - 7) { this.lastBlock = { probe: [0, 0], reason: 'world edge', x, z }; return false; }
+    if (Math.abs(x) > WORLD_LIMIT - 7 || Math.abs(z) > WORLD_LIMIT - 7) return false;
     const y = terrainHeight(x, z);
     const points = [[-.98, -1.2], [.98, -1.2], [-.98, 1.2], [.98, 1.2], [-.72, -4.95], [.72, -4.95]];
     for (const [px, pz] of points) {
       const wx = x + px * Math.cos(yaw) + pz * Math.sin(yaw), wz = z - px * Math.sin(yaw) + pz * Math.cos(yaw);
-      if (terrainHeight(wx, wz) - y > .44) { this.lastBlock = { probe: [px, pz], reason: 'steep ground', x: wx, z: wz }; return false; }
+      if (terrainHeight(wx, wz) - y > .44) return false;
       for (const c of this.collision.query(wx, wz, .2)) {
         if (c.group === 'wagon') continue;
-        if (Math.hypot(wx - c.x, wz - c.z) < c.radius + .17 && c.top > y + .3) { this.lastBlock = { probe: [px, pz], reason: `collider (${c.group ?? 'static'}) @ ${c.x.toFixed(1)},${c.z.toFixed(1)} r${c.radius.toFixed(2)}`, x: wx, z: wz }; return false; }
+        if (Math.hypot(wx - c.x, wz - c.z) < c.radius + .17 && c.top > y + .3) return false;
       }
     }
     return true;
@@ -256,20 +159,14 @@ export class Adventure {
     this.controller.setControlMode('wagon'); this.controller.attachToSeat(this.wagon.seatPosition(), this.wagon.root.rotation.y);
     this.controller.pitch = .23;
   }
-  canMount() { return this.inventory.arrived && this.controller.position.distanceTo(this.wagon.seatPosition()) < 4.5; }
+  canMount() { return this.inventory.arrived && this.controller.position.distanceTo(this.wagon.seatPosition()) < 3.4; }
   returnToWagon() { if (this.inventory.arrived) { this.mount(); this.save(); } }
   canReach(id: ContainerId) {
-    if (!CONTAINERS.some(c => c.id === id) || !this.inventory.arrived || this.narrator.state.phase === 'journey') return false;
+    if (!CONTAINERS.some(c => c.id === id) || !this.inventory.arrived || this.mounted || this.narrator.state.phase === 'journey') return false;
     const p = this.wagon.cargoPosition(id), player = this.controller.position;
-    // Mounted, the driver reaches across the bed; on foot, a forgiving ellipse.
-    const reach = this.mounted ? 6.5 : 3.2;
-    return Math.hypot(p.x - player.x, p.z - player.z) < reach && Math.abs(p.y - player.y) < 2.3;
+    return Math.hypot(p.x - player.x, p.z - player.z) < 2.6 && Math.abs(p.y - player.y) < 2.3;
   }
   openCargo(id: ContainerId) { return this.canReach(id) && this.inventory.open(id); }
-  toggleCargo(id: ContainerId): 'opened' | 'closed' | false {
-    if (!this.canReach(id)) return false;
-    return this.inventory.isOpen(id) ? (this.inventory.close(id) ? 'closed' : false) : (this.inventory.open(id) ? 'opened' : false);
-  }
   take(id: ContainerId, item: ItemId, quantity: number) { return this.canReach(id) && this.inventory.take(id, item, quantity); }
   takeAll(id: ContainerId) { return this.canReach(id) ? this.inventory.takeAll(id) : emptyStock(); }
   interaction(): Interaction | null {
@@ -277,43 +174,32 @@ export class Adventure {
     if (this.mounted) return { kind: 'manifest', id: 'wagon', label: 'Inspect the cargo manifest' };
     const player = this.controller.position;
     const nearby = CONTAINERS.filter(c => this.canReach(c.id)).map(c => ({ c, d: this.wagon.cargoPosition(c.id).distanceTo(player) })).sort((a, b) => a.d - b.d)[0];
-    if (nearby) return { kind: 'cargo', id: nearby.c.id, label: `${this.inventory.isOpen(nearby.c.id) ? 'Close' : 'Open'} ${nearby.c.name.toLowerCase()}` };
+    if (nearby) return { kind: 'cargo', id: nearby.c.id, label: `${this.inventory.isOpen(nearby.c.id) ? 'Inspect' : 'Open'} ${nearby.c.name.toLowerCase()}` };
     if (Math.hypot(player.x - 9.7, player.z - 2) < 4) return { kind: 'horses', id: 'clearing', label: 'Examine the ransacked belongings' };
     return null;
   }
-  private snapshot(): WorldSnapshot {
-    return { time: this.clock, player: this.controller.position,
-      wagon: { x: this.wagon.root.position.x, z: this.wagon.root.position.z, yaw: this.wagon.root.rotation.y, speed: this.wagon.speed } };
-  }
-  private updateOxen(dt: number, journey: boolean) {
-    const wagon = this.wagon;
-    this.oxController.update(dt, { x: wagon.root.position.x, z: wagon.root.position.z, yaw: wagon.root.rotation.y, speed: wagon.speed,
-      steering: wagon.steering, braking: this.controller.keys.has('Space') && Math.abs(wagon.speed) > .25 }, journey);
-    const moved = Math.abs(wagon.speed);
-    this.oxSkins.forEach(skin => skin?.update(dt, { speed: moved, head: { pitch: -.1, yaw: 0 }, alert: 0, strain: 0 }, this.camera));
-  }
-  /** The `Call` verb (Workstream E) routes here. */
-  callHorse(): boolean {
-    const p = this.controller.position;
-    let best = -1, bestD = Infinity;
-    this.horseBrains.forEach((b, i) => { const d = Math.hypot(b.x - p.x, b.z - p.z); if (d < bestD) { bestD = d; best = i; } });
-    return best >= 0 ? this.horseBrains[best].call() : false;
-  }
   private updateHorses(dt: number) {
-    const world = this.snapshot();
     for (let i = 0; i < this.horses.length; i++) {
-      const horse = this.horses[i], brain = this.horseBrains[i];
-      const other = this.horseBrains[1 - i];
-      brain.update(dt, { x: other.x, z: other.z }, world, this.horseOut);
-      const out = this.horseOut;
-      horse.root.position.x = brain.x; horse.root.position.z = brain.z;
-      horse.root.position.y = terrainHeight(brain.x, brain.z) + .01;
-      horse.root.rotation.y = brain.yaw;
-      horse.update(dt, { speed: out.speed, head: out.head, alert: out.alert, strain: 0 });
-      this.horseSkins[i]?.update(dt, { speed: out.speed, head: out.head, alert: out.alert, strain: 0 }, this.camera);
-      this.horseSniff[i] = out.headDown;
-      if (brain.snortAt > 0) { this.animalAudio.snort(brain.x, brain.z); brain.snortAt = -1; }
-      if (brain.whinnyAt > 0) { this.animalAudio.whinny(brain.x, brain.z); brain.whinnyAt = -1; }
+      const horse = this.horses[i], old = horse.root.position.clone();
+      const cycle = (this.clock + i * 12) % 34;
+      const from = new THREE.Vector3(i === 0 ? 9.3 : 12.6, 0, i === 0 ? 2.9 : 1.2);
+      const to = new THREE.Vector3(i === 0 ? 8.35 : 11.1, 0, i === 0 ? 2.10 : 1.8);
+      let t: number;
+      if (cycle < 6) t = THREE.MathUtils.smoothstep(cycle / 6, 0, 1);
+      else if (cycle < 19) t = 1;
+      else if (cycle < 26) t = 1 - THREE.MathUtils.smoothstep((cycle - 19) / 7, 0, 1);
+      else t = 0;
+      const next = from.clone().lerp(to, t);
+      next.y = terrainHeight(next.x, next.z) + .025;
+      if (pathDistance(next.x, next.z) > .15) next.z = Math.min(next.z, 2.9);
+      let horizontalDistance = Math.hypot(next.x - old.x, next.z - old.z);
+      const sniffing = cycle > 7 && cycle < 18; this.horseSniff[i] = sniffing;
+      if (old.lengthSq() < .01) horizontalDistance = 0;
+      if (horizontalDistance > .0005 && horizontalDistance < 1) {
+        const angle = Math.atan2(-(next.x - old.x), -(next.z - old.z));
+        horse.root.rotation.y += Math.atan2(Math.sin(angle - horse.root.rotation.y), Math.cos(angle - horse.root.rotation.y)) * Math.min(1, dt * 3);
+      } else if (sniffing) horse.root.rotation.y = THREE.MathUtils.damp(horse.root.rotation.y, i === 0 ? -.85 : 1.4, .7, dt);
+      horse.root.position.copy(next); horse.update(dt, horizontalDistance < 1 ? horizontalDistance : 0, sniffing);
     }
   }
   private updateCollision() {
@@ -334,55 +220,16 @@ export class Adventure {
     const target = this.wagon.root.localToWorld(targetLocal), desired = this.wagon.root.localToWorld(offset);
     desired.y = Math.max(desired.y, terrainHeight(desired.x, desired.z) + 1.0);
     // Avoid putting the lens inside a trunk; tall foliage may still frame a shot naturally.
-    const blocked = this.collision.cameraBlocked(desired.x, desired.y, desired.z, 'wagon');
-    this.cameraLift = THREE.MathUtils.damp(this.cameraLift, blocked ? 1 : 0, 4, .016);
-    desired.y += this.cameraLift * 2;
+    if (this.collision.cameraBlocked(desired.x, desired.y, desired.z, 'wagon')) desired.y += 2;
     if (title || this.cameraLook.lengthSq() === 0) { this.camera.position.copy(desired); this.cameraLook.copy(target); }
     else { this.camera.position.lerp(desired, .055); this.cameraLook.lerp(target, .07); }
     this.camera.lookAt(this.cameraLook); this.camera.fov = 50; this.camera.updateProjectionMatrix();
   }
-  // --- combat -------------------------------------------------------------
-  // The ambush is a physical event in the world, not a modal dialog. The
-  // director owns turn order and rules; this class only forwards intent and
-  // keeps the character sheet in sync when the fight ends.
-  onCombatLog: (entries: LogEntry[]) => void = () => {};
-  onCombatPhase: (phase: CombatPhase) => void = () => {};
-
-  get combatPhase() { return this.combatDirector.phase; }
-  get inCombat() { return this.combatDirector.phase === 'active' || this.combatDirector.phase === 'sprung'; }
-  get isPlayerTurn() { return !!this.combatDirector.encounter?.isPlayerTurn; }
-
-  combatAttack(targetId: string) { return this.combatDirector.attack(targetId); }
-  combatCast(spellId: string, targetIds: string[], slotLevel?: number) { return this.combatDirector.cast(spellId, targetIds, slotLevel); }
-  combatAct(action: ActionId) { return this.combatDirector.act(action); }
-  combatEndTurn() { return this.combatDirector.endTurn(); }
-  combatPointer(x: number, y: number, w: number, h: number) { this.combatDirector.setPointer(x, y, w, h); }
-  get combatHoveredId() { return this.combatDirector.hoveredId; }
-
-  finishCombat() {
-    const updated = this.combatDirector.finish(this.character);
-    if (updated) { this.character = updated; saveCharacter(updated); }
-    // Hand movement back to the player unconditionally: a fight that ended on
-    // the hero's turn must not leave the budget clamp installed.
-    this.controller.endCombatTurn();
-    this.controller.movementLimit = null;
-    this.wasPlayerTurn = false;
-    this.rulesEvents.append('CombatFinished', this.clock, { outcome: this.combatDirector.encounter?.outcome ?? 'none' }, this.character?.id);
-    this.setPaused(false);
-  }
-
-  /** The Survival check that reads the goblin trail after the fight. */
-  readTrail() { return this.character ? this.combatDirector.readTrail(this.character) : null; }
-
-  /** The nearest piece of ambush evidence the player can inspect. */
-  nearbyEvidence() { return this.combatDirector.site?.nearest(this.controller.position) ?? null; }
-
-  get combat() { return this.combatDirector.snapshot(this.controller.position); }
   get state(): AdventureState {
-    return { story: this.narrator.state, mounted: this.mounted, interaction: this.interaction(), canMount: this.canMount(), character: this.character,
+    return { story: this.narrator.state, mounted: this.mounted, interaction: this.interaction(), canMount: this.canMount(),
       wagon: { x: this.wagon.root.position.x, z: this.wagon.root.position.z, yaw: this.wagon.root.rotation.y, speed: this.wagon.speed },
       inventoryRevision: this.inventory.revision,
-      horses: this.horses.map((h, i) => ({ x: h.root.position.x, z: h.root.position.z, yaw: h.root.rotation.y, sniffing: this.horseSniff[i] })), combat: this.combat };
+      horses: this.horses.map((h, i) => ({ x: h.root.position.x, z: h.root.position.z, yaw: h.root.rotation.y, sniffing: this.horseSniff[i] })) };
   }
   get needsRender() { return this.wagon.visualAnimating || this.previouslyPaused !== this.controller.paused; }
   save() {
@@ -391,11 +238,8 @@ export class Adventure {
     this.inventory.savePosition({ x: w.x, z: w.z, yaw: this.wagon.root.rotation.y }, { x: p.x, z: p.z, yaw: this.controller.yaw }, this.mounted);
   }
   dispose() {
-    if (this.disposed) return; this.disposed = true; this.save(); this.narrator.dispose(); this.factory.dispose(); this.animalAudio.dispose();
+    if (this.disposed) return; this.disposed = true; this.save(); this.narrator.dispose(); this.factory.dispose();
     this.collision.removeDynamic('wagon'); this.collision.removeDynamic('horses');
-    this.horseSkins.forEach(s => s?.dispose()); this.oxSkins.forEach(s => s?.dispose());
-    this.spriteLibrary?.dispose();
-    this.combatAudio.dispose();
     this.materials.textures.forEach(t => t.dispose());
     this.horses.forEach(h => h.mesh.skeleton.dispose()); this.wagon.oxen.forEach(h => h.mesh.skeleton.dispose());
   }

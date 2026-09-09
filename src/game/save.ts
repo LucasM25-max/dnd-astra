@@ -63,11 +63,6 @@ export class InventoryStore {
     if (!this.isOpen(container)) { this.data.opened.push(container); this.persist(); }
     return true;
   }
-  close(container: ContainerId) {
-    if (!CONTAINERS.some(c => c.id === container) || !this.data.arrived) return false;
-    if (this.isOpen(container)) { this.data.opened = this.data.opened.filter(id => id !== container); this.persist(); }
-    return true;
-  }
   take(container: ContainerId, item: ItemId, amount: number) {
     if (!this.data.arrived || !this.isOpen(container) || !ITEM_IDS.includes(item) || !Number.isSafeInteger(amount) || amount <= 0) return false;
     const source = this.data.cargo[container];

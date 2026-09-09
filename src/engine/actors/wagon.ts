@@ -35,7 +35,7 @@ export class SupplyWagon {
     }
     this.seat.position.set(0, 1.105, -1.52); this.root.add(this.seat);
     this.oxen = [factory.create('ox', '#cfbfa0', 1), factory.create('ox', '#a99676', 3)];
-    this.oxen.forEach((animal, i) => animal.root.position.set(i === 0 ? -.73 : .73, 0, -4.96));
+    this.oxen.forEach((animal, i) => { animal.root.position.set(i === 0 ? -.73 : .73, 0, -4.96); this.root.add(animal.root); });
     this.addCargo();
     for (let i = 0; i < 2; i++) {
       const reins = new FlexibleRope(this.mat.leather); this.reins.push(reins);
@@ -43,16 +43,7 @@ export class SupplyWagon {
     }
     this.refreshCargo(); this.update(0, 0, false);
   }
-  addTo(scene: THREE.Scene) {
-    scene.add(this.root);
-    for (const ox of this.oxen) scene.add(ox.root);
-    for (const rope of [...this.reins, ...this.traceRopes]) scene.add(rope.mesh);
-  }
-  /** World-space yoke anchor for side -1 (left) or +1 (right). */
-  yokeAnchor(side: number, out: THREE.Vector3) {
-    this.root.updateMatrixWorld(true);
-    return out.set(side * .73, 1.42, -5.46).applyMatrix4(this.root.matrixWorld);
-  }
+  addTo(scene: THREE.Scene) { scene.add(this.root); for (const rope of [...this.reins, ...this.traceRopes]) scene.add(rope.mesh); }
   setPose(x: number, z: number, yaw: number) {
     this.root.position.set(x, this.heightAt(x, z) + .012, z); this.root.rotation.y = yaw;
     const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
@@ -96,11 +87,16 @@ export class SupplyWagon {
     }
     this.root.updateMatrixWorld(true);
     this.oxen.forEach((ox, i) => {
+      if (!paused) {
+        const world = this.root.localToWorld(new THREE.Vector3(i === 0 ? -.73 : .73, 0, -4.96));
+        ox.root.position.y = this.heightAt(world.x, world.z) - world.y + .015;
+        ox.update(dt, distance, false);
+      }
       const start = this.root.localToWorld(new THREE.Vector3(i === 0 ? -.24 : .24, this.mounted ? 1.80 : 1.25, this.mounted ? -1.84 : -1.75));
-      // Reins and traces work against the ox's actual bit, so the harness can never detach.
       const bit = ox.bitPosition(); this.reins[i]?.update(start, bit, this.mounted ? .19 : .42, this.clock);
       const traceA = this.root.localToWorld(new THREE.Vector3(i === 0 ? -.83 : .83, .81, -1.39));
-      this.traceRopes[i]?.update(traceA, bit.clone().add(new THREE.Vector3(0, -.14, .12)), .09, this.clock * .65);
+      const traceB = this.root.localToWorld(new THREE.Vector3(i === 0 ? -.96 : .96, 1.24, -5.37));
+      this.traceRopes[i]?.update(traceA, traceB, .10, this.clock * .65);
     });
   }
   colliders(): Collider[] {
