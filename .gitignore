@@ -9,5 +9,3 @@ playwright-report/
 test-results/
 .artifacts/
 image-search/
-ambush-*.png
-qa/

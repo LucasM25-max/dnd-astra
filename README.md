@@ -13,9 +13,9 @@ At the clearing, the wagon stops and **control is handed back before the arrival
 - **N** opens the complete story journal. Delivery tags never appear in the visible prose.
 - Opening a menu pauses the game and voice; a deliberate Narrator pause remains paused after closing a menu.
 - Audio requires the initial user interaction. If playback is blocked or unavailable, timed subtitles keep the journey usable.
-- Reloading after reaching the clearing offers **Continue your journey**, restoring your wagon, character, open containers, and inventory. It does not respawn collected goods or replay the introduction. The full arrival text is always in the journal. The planned rules foundation and production roadmap are in [`docs/photorealistic-dnd-roadmap.md`](docs/photorealistic-dnd-roadmap.md), and the character creation plan is in [`docs/character-creation-plan.md`](docs/character-creation-plan.md).
+- Reloading after reaching the clearing offers **Continue your journey**, restoring your wagon, character, open containers, and inventory. It does not respawn collected goods or replay the introduction. The full arrival text is always in the journal.
 
-The Narrator currently delivers this **authored chapter**. It is not yet a free-form AI Dungeon Master. The title screen's **Create character** flow creates a rules-backed first-level Human/High Elf Fighter/Wizard with Soldier/Sage backgrounds, derives its hit points, AC, initiative, saving throws, skills, and starting equipment, persists it locally, and starts a fresh journey. The current opening remains an exploration chapter; combat is not yet enabled.
+The Narrator currently delivers this **authored chapter**. It is not yet a free-form AI Dungeon Master or a rules adjudicator.
 
 ## The wagon, animals, and cargo
 
@@ -23,7 +23,7 @@ The wagon includes individual weathered timber boards, iron fittings, twelve-spo
 
 The oxen and horses have skinned bodies with articulated legs, neck/head motion, breathing, and tail movement. The horses alternate between short walks and investigating the belongings. Moving actors and the wagon have collision volumes. Driving is constrained by terrain, obstacles, and space: the full wagon cannot simply cross steep banks or squeeze along the narrow Cragmaw trail.
 
-**Art scope:** this remains a realism-focused browser prototype. The detailed wagon/cargo geometry is procedural; the animals use articulated procedural bodies with UV-driven PBR coat and normal materials, terrain-contacting legs, and layered idle/gait animation. Textures are image-based with derived normal maps, not a production photogrammetry set. A finished AAA-photorealistic art pass and broader hardware profiling remain future work. The full production and rules roadmap is in [`docs/photorealistic-dnd-roadmap.md`](docs/photorealistic-dnd-roadmap.md).
+**Art scope:** this remains a realism-focused browser prototype. The detailed wagon/cargo geometry is procedural; the animal surfaces are reshaped, subdivided derivatives of the credited reference mesh, with new skeletal rigs. Textures are image-based with derived normal maps, not a production photogrammetry set. A finished AAA-photorealistic art pass and broader hardware profiling remain future work.
 
 ## Inventory and gold pieces
 

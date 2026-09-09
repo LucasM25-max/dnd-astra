@@ -1,17 +1,13 @@
-import { createIcons, ArrowRight, ArrowUp, ArrowUpRight, Camera, Check, ChevronRight, CircleHelp, Cloud, Compass, Download, Expand, Eye, Footprints, Headphones, Leaf, Maximize, Moon, Mouse, PersonStanding, Play, RotateCcw, SlidersHorizontal, Sun, Volume2, VolumeX, X, Backpack, Coins, Package, PackageOpen, Wheat, Cylinder, Beer, Shovel, Pickaxe, Wrench, Lamp, Droplet, BookOpen, Search, Pause, SkipForward, LogOut, LogIn, UserRoundPen } from 'lucide';
+import { createIcons, ArrowRight, ArrowUp, ArrowUpRight, Camera, Check, ChevronRight, CircleHelp, Cloud, Compass, Download, Expand, Eye, Footprints, Headphones, Leaf, Maximize, Moon, Mouse, PersonStanding, Play, RotateCcw, SlidersHorizontal, Sun, Volume2, VolumeX, X, Backpack, Coins, Package, PackageOpen, Wheat, Cylinder, Beer, Shovel, Pickaxe, Wrench, Lamp, Droplet, BookOpen, Search, Pause, SkipForward, LogOut, LogIn } from 'lucide';
 import { ForestAudio } from '../engine/audio';
 import { isFormControl, type CameraMode } from '../engine/controller';
 import { WoodlandWorld, type Atmosphere, type Quality, type WorldState } from '../engine/world';
 import { Cartography, paintCompass } from './cartography';
-import { CombatHud } from './combat-hud';
-import { CharacterCreator } from './character-creator';
 import { AdventureInterface, type AdventureDialog } from './adventure-interface';
-import { CLASSES, defaultDraft, finalizeCharacter, SPECIES } from '../game/character';
-import { CHARACTER_STORAGE_KEY } from '../game/character';
 
-type DialogKind = 'settings' | 'map' | 'help' | 'pause' | 'inspect' | 'character' | AdventureDialog;
+type DialogKind = 'settings' | 'map' | 'help' | 'pause' | 'inspect' | AdventureDialog;
 interface Preferences { quality: Quality; atmosphere: Atmosphere; volume: number; sensitivity: number; invertY: boolean }
-const iconSet = { UserRoundPen, Barrel: Cylinder, ArrowRight, ArrowUp, ArrowUpRight, Camera, Check, ChevronRight, CircleHelp, Cloud, Compass, Download, Expand, Eye, Footprints, Headphones, Leaf, Maximize, Moon, Mouse, PersonStanding, Play, RotateCcw, SlidersHorizontal, Sun, Volume2, VolumeX, X, Backpack, Coins, Package, PackageOpen, Wheat, Cylinder, Beer, Shovel, Pickaxe, Wrench, Lamp, Droplet, BookOpen, Search, Pause, SkipForward, LogOut, LogIn };
+const iconSet = { Barrel: Cylinder, ArrowRight, ArrowUp, ArrowUpRight, Camera, Check, ChevronRight, CircleHelp, Cloud, Compass, Download, Expand, Eye, Footprints, Headphones, Leaf, Maximize, Moon, Mouse, PersonStanding, Play, RotateCcw, SlidersHorizontal, Sun, Volume2, VolumeX, X, Backpack, Coins, Package, PackageOpen, Wheat, Cylinder, Beer, Shovel, Pickaxe, Wrench, Lamp, Droplet, BookOpen, Search, Pause, SkipForward, LogOut, LogIn };
 export const refreshIcons = () => createIcons({ icons: iconSet, attrs: { 'stroke-width': 1.5 } });
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 const icon = (name: string) => `<i data-lucide="${name}"></i>`;
@@ -28,35 +24,15 @@ export class WorldInterface {
   private discoveryTimer = 0;
   private lastMapFrame = 0;
   private lastHeadingLabel = '';
-  private hintRetired = false;
-  private bootedAt = performance.now();
   private abort = new AbortController();
   private adventureUI: AdventureInterface;
-  private creator = new CharacterCreator(defaultDraft());
-  private combatHud: CombatHud;
   constructor(private world: WoodlandWorld) {
     this.state = world.getState();
     this.loadPreferences(); this.applyPreferences();
-    this.adventureUI = new AdventureInterface(world, { open: (kind, nonBlocking) => this.openDialog(kind, nonBlocking), close: () => this.closeDialog(), current: () => this.dialog, toast: message => this.toast(message), icons: refreshIcons });
-    // The combat HUD lives over the canvas and never blocks the world.
-    this.combatHud = new CombatHud(document.body, world);
-    this.combatHud.onFinish = () => {
-      world.adventure.finishCombat();
-      const trail = world.adventure.readTrail();
-      if (trail) this.toast(trail.text);
-    };
-    world.adventure.onCombatLog = entries => this.combatHud.appendLog(entries);
-    world.adventure.onCombatPhase = phase => {
-      if (phase === 'sprung') this.toast('Ambush! Goblins on both sides of the road.');
-    };
-    // Aim in the world: the pointer drives targeting every frame it moves.
-    world.renderer.domElement.addEventListener('pointermove', e => {
-      const rect = world.renderer.domElement.getBoundingClientRect();
-      world.adventure.combatPointer(e.clientX - rect.left, e.clientY - rect.top, rect.width, rect.height);
-    }, { signal: this.abort.signal });
-
+    this.adventureUI = new AdventureInterface(world, { open: kind => this.openDialog(kind), close: () => this.closeDialog(), current: () => this.dialog, toast: message => this.toast(message), icons: refreshIcons });
     this.bind(); refreshIcons();
     world.controller.onStart = () => this.start();
+    world.controller.onUnlock = () => { if (!this.dialog) this.openDialog('pause'); };
     world.controller.onPointerFallback = () => this.toast('Drag to look around. WASD to follow the trail.');
     world.onUpdate = state => this.update(state);
     world.onDiscovery = name => this.discover(name);
@@ -67,8 +43,7 @@ export class WorldInterface {
   private bind() {
     const opts = { signal: this.abort.signal };
     const click = (selector: string, fn: () => void) => $(selector).addEventListener('click', fn, opts);
-    click('#enter-world', () => this.start());
-    click('#character-create', () => { this.creator = new CharacterCreator(defaultDraft()); this.openDialog('character'); });
+    click('#enter-world', () => { this.start(); this.world.controller.capturePointer(); });
     click('#map-toggle', () => this.openDialog('map'));
     click('#settings-toggle', () => this.openDialog('settings'));
     click('#time-toggle', () => this.openDialog('settings'));
@@ -87,25 +62,10 @@ export class WorldInterface {
       if (!button) return;
       const action = button.dataset.action;
       if (action === 'close') this.closeDialog();
-      if (action === 'resume') { this.closeDialog(); this.start(); }
+      if (action === 'resume') { this.closeDialog(); this.start(); this.world.controller.capturePointer(); }
       if (action === 'settings') this.openDialog('settings');
       if (action === 'help') this.openDialog('help');
       if (action === 'reset') { this.world.adventure.returnToWagon(); this.closeDialog(); this.toast('Back at the wagon. Your cargo and inventory are unchanged.'); }
-      if (action === 'character-cancel') { this.closeDialog(); }
-      if (action === 'character-create') this.createCharacter();
-      if (this.dialog === 'character') {
-        const step = button.dataset.abilityStep;
-        if (step) {
-          const [ability, delta] = step.split(':');
-          const current = this.creator.draft.abilities[ability as keyof typeof this.creator.draft.abilities];
-          this.creator.update(`ability-${ability}`, String(current + Number(delta)));
-          this.renderCharacter();
-        }
-        if (button.dataset.character === 'method' && button.dataset.value) {
-          this.creator.update('method', button.dataset.value);
-          this.renderCharacter();
-        }
-      }
       if (action === 'audio') void this.toggleAudio();
       if (button.dataset.quality) {
         this.config.quality = button.dataset.quality as Quality; this.world.setQuality(this.config.quality);
@@ -116,31 +76,17 @@ export class WorldInterface {
         this.updateSelected('[data-atmosphere]', 'atmosphere', this.config.atmosphere); this.updateTime(); this.savePreferences();
       }
     }, opts);
-    // Character creation: every control routes through the creator, which
-    // re-derives dependent choices so the draft can never go illegal.
-    const characterEvent = (e: Event) => {
-      if (this.dialog !== 'character') return;
-      const input = e.target as HTMLInputElement;
-      const field = input.dataset.character;
-      if (!field) return;
-      const isCheck = input.type === 'checkbox';
-      this.creator.update(field, input.value, isCheck ? input.checked : undefined);
-      // The name field must not re-render, or the caret jumps on every letter.
-      if (field === 'name') { this.refreshCharacterFooter(); return; }
-      this.renderCharacter();
-    };
-    $('#dialog').addEventListener('change', characterEvent, opts);
     $('#dialog').addEventListener('input', e => {
       const input = e.target as HTMLInputElement;
-      if (this.dialog === 'character' && input.dataset.character) { characterEvent(e); return; }
       if (!input.dataset.setting) return;
-      if (input.dataset.setting === 'volume') { this.config.volume = Number(input.value) / 100; this.audio.setVolume(this.config.volume); this.world.adventure.animalAudio.setVolume(this.config.volume); $('#volume-value').textContent = `${input.value}%`; }
+      if (input.dataset.setting === 'volume') { this.config.volume = Number(input.value) / 100; this.audio.setVolume(this.config.volume); $('#volume-value').textContent = `${input.value}%`; }
       if (input.dataset.setting === 'sensitivity') { this.config.sensitivity = Number(input.value); this.world.controller.sensitivity = this.config.sensitivity; $('#sensitivity-value').textContent = `${this.config.sensitivity.toFixed(1)}×`; }
       if (input.dataset.setting === 'invert') { this.config.invertY = input.checked; this.world.controller.invertY = input.checked; }
       this.savePreferences();
     }, opts);
     document.addEventListener('keydown', e => {
       if (e.code === 'Escape') {
+        if (document.pointerLockElement) return;
         e.preventDefault();
         if (this.dialog) this.closeDialog();
         else if (this.photo) this.togglePhoto();
@@ -211,32 +157,19 @@ export class WorldInterface {
       if (this.dialog === 'map' && largeMap) this.map.render(largeMap, state, true);
     }
     this.adventureUI.update(state);
-    if (this.dialog === 'cargo' && !this.world.adventure.canReach(this.adventureUI.activeCargo)) this.closeDialog();
-    document.body.dataset.locked = 'false';
+    document.body.dataset.locked = String(!!document.pointerLockElement);
     $('#region-name').textContent = state.landmark === 'cragmaw' ? 'Cragmaw Trail' : state.landmark === 'ambush' ? 'The Ambush Clearing' : 'Triboar Trail';
-    const saveNote = $('#welcome-save-note');
-    if (state.story.phase === 'title' && state.character) saveNote.textContent = `${state.character.name.toUpperCase()} · ${SPECIES[state.character.species].name.toUpperCase()} ${CLASSES[state.character.classId].name.toUpperCase()} · READY TO BEGIN`;
-    this.combatHud.render(state.combat);
-    // The drag hint retires itself once the player has looked around and moved.
-    if (!this.hintRetired && (this.world.controller.dragged || performance.now() - this.bootedAt > 20000)) {
-      const hint = document.getElementById('pointer-hint');
-      if (hint) { hint.classList.add('retired'); setTimeout(() => hint.remove(), 900); }
-      this.hintRetired = true;
-    }
     this.audio.update(state.distanceWalked, state.moving, state.grounded);
-    this.world.adventure.animalAudio.setListener(state.x, 0, state.z);
   }
   private updateTime() {
     const [name, detail, glyph] = atmosphereNames[this.config.atmosphere];
     $('#time-label').textContent = name; $('#time-detail').textContent = detail;
     const button = $('#time-toggle'); button.querySelector('svg')?.remove(); button.insertAdjacentHTML('afterbegin', icon(glyph)); refreshIcons();
   }
-  openDialog(kind: DialogKind, nonBlocking = false) {
-    this.dialog = kind;
-    if (!nonBlocking) { $('.hud').inert = true; this.world.setPaused(true); this.audio.setPaused(true); this.world.adventure.animalAudio.setPaused(true); }
+  openDialog(kind: DialogKind) {
+    this.dialog = kind; $('.hud').inert = true; this.world.setPaused(true); this.audio.setPaused(true);
     const backdrop = $('#dialog-backdrop'), dialog = $('#dialog');
-    dialog.dataset.kind = kind; backdrop.dataset.mode = kind === 'cargo' ? 'side' : 'center'; dialog.innerHTML = this.dialogHTML(kind); backdrop.hidden = false;
-    document.body.dataset.modal = nonBlocking ? 'false' : 'true';
+    dialog.dataset.kind = kind; backdrop.dataset.mode = kind === 'cargo' ? 'side' : 'center'; dialog.innerHTML = this.dialogHTML(kind); backdrop.hidden = false; document.body.dataset.modal = 'true';
     refreshIcons();
     if (kind === 'map') {
       const mapCanvas = dialog.querySelector<HTMLCanvasElement>('#world-map-canvas');
@@ -246,106 +179,23 @@ export class WorldInterface {
   }
   closeDialog() {
     this.dialog = null; $('.hud').inert = false; $('#dialog-backdrop').hidden = true; document.body.dataset.modal = 'false';
-    this.world.setPaused(false); this.audio.setPaused(false); this.world.adventure.animalAudio.setPaused(false);
+    this.world.setPaused(false); this.audio.setPaused(false);
     this.world.renderer.domElement.focus({ preventScroll: true });
-  }
-  /** Re-renders the creator in place, preserving scroll and focus. */
-  private renderCharacter() {
-    const dialog = $('#dialog');
-    const scroller = dialog.querySelector<HTMLElement>('.cc-body');
-    const scroll = scroller?.scrollTop ?? 0;
-    const activeField = (document.activeElement as HTMLElement | null)?.dataset?.character;
-    const activeValue = (document.activeElement as HTMLInputElement | null)?.value;
-    dialog.innerHTML = this.dialogHTML('character');
-    refreshIcons();
-    const restored = dialog.querySelector<HTMLElement>('.cc-body');
-    if (restored) restored.scrollTop = scroll;
-    if (activeField) {
-      const next = [...dialog.querySelectorAll<HTMLElement>(`[data-character="${activeField}"]`)]
-        .find(el => activeValue === undefined || (el as HTMLInputElement).value === activeValue);
-      next?.focus();
-    }
-  }
-
-  /**
-   * The name field re-renders only what depends on it, so the caret does not
-   * jump on every keystroke — but that must include the validation list, or a
-   * stale "choose a name" warning sits there after the name has been typed.
-   */
-  private refreshCharacterFooter() {
-    const dialog = $('#dialog');
-    const name = this.creator.draft.name.trim();
-    const heading = dialog.querySelector('.cc-sheet-name strong');
-    if (heading) heading.textContent = name || 'Unnamed';
-    const create = dialog.querySelector<HTMLButtonElement>('[data-action="character-create"]');
-    if (create) {
-      create.disabled = !this.creator.valid;
-      create.textContent = `Begin as ${name || 'your adventurer'}`;
-    }
-    const problems = this.creator.problems;
-    let list = dialog.querySelector<HTMLElement>('.cc-problems');
-    if (!problems.length) { list?.remove(); return; }
-    if (!list) {
-      list = document.createElement('div');
-      list.className = 'cc-problems';
-      dialog.querySelector('.cc-footer')?.before(list);
-    }
-    list.innerHTML = problems.map(p => `<span>${p.replace(/[<>&]/g, '')}</span>`).join('');
-  }
-
-  private createCharacter() {
-    try {
-      const sheet = finalizeCharacter(this.creator.draft);
-      localStorage.setItem(CHARACTER_STORAGE_KEY, JSON.stringify(sheet));
-      // A finalized character is the start of a new campaign, never a mutation
-      // of an existing wagon. Keep preferences and the character, discard only
-      // the chapter save, then boot the normal title flow again.
-      localStorage.removeItem('astra-journey-v1');
-      this.closeDialog();
-      location.reload();
-    } catch (error) {
-      this.toast(error instanceof Error ? error.message : 'Complete the character choices first.');
-    }
   }
   private dialogHTML(kind: DialogKind) {
     if (['inventory', 'cargo', 'manifest', 'journal'].includes(kind)) return this.adventureUI.dialogHTML(kind as AdventureDialog);
     const close = `<button class="icon-button dialog-close" data-action="close" aria-label="Close dialog">${icon('x')}</button>`;
-    if (kind === 'character') return `${close}${this.creator.render()}`;
     if (kind === 'settings') return `${close}<div class="dialog-eyebrow">THE FINER DETAILS</div><h2 id="dialog-title">Your world, your way.</h2><p class="dialog-description">Settle into the atmosphere that feels like you.</p>
       <div class="setting-section"><div class="setting-heading"><label>Visual quality</label><span>REAL-TIME RENDERING</span></div><div class="setting-segment">${(['performance', 'balanced', 'high'] as Quality[]).map(q => `<button data-quality="${q}" class="${this.config.quality === q ? 'selected' : ''}" aria-pressed="${this.config.quality === q}">${q === 'performance' ? 'Performance' : q === 'balanced' ? 'Balanced' : 'High fidelity'}</button>`).join('')}</div><small class="setting-note">High fidelity adds denser foliage, environment lighting, finer shadows, and cinematic bloom.</small></div>
       <div class="setting-section"><div class="setting-heading"><label>Time & atmosphere</label></div><div class="atmosphere-options">${(['golden', 'overcast', 'blue'] as Atmosphere[]).map(a => `<button data-atmosphere="${a}" class="${this.config.atmosphere === a ? 'selected' : ''}" aria-pressed="${this.config.atmosphere === a}">${icon(atmosphereNames[a][2])}<span>${a === 'golden' ? 'Golden hour' : a === 'overcast' ? 'Overcast' : 'Blue hour'}</span></button>`).join('')}</div></div>
       <div class="setting-section"><div class="setting-heading"><label>Forest ambience</label><button class="switch ${this.audio.enabled ? 'on' : ''}" role="switch" aria-checked="${this.audio.enabled}" aria-label="Forest ambience" data-action="audio"><span></span></button></div><div class="range-row"><label for="volume">Volume</label><input id="volume" aria-label="Ambience volume" data-setting="volume" type="range" min="0" max="100" value="${Math.round(this.config.volume * 100)}"><output id="volume-value">${Math.round(this.config.volume * 100)}%</output></div></div>
       <div class="setting-section narrator-setting"><div class="setting-heading"><label>Narrator voice</label><button class="switch ${this.world.adventure.narrator.state.voiceEnabled ? 'on' : ''}" role="switch" aria-checked="${this.world.adventure.narrator.state.voiceEnabled}" aria-label="Narrator voice" data-action="narrator-voice"><span></span></button></div><small class="setting-note">The narrated opening is included locally. No API key is needed to play.</small></div><div class="setting-section last"><div class="setting-heading"><label for="sensitivity">Look sensitivity</label><output id="sensitivity-value">${this.config.sensitivity.toFixed(1)}×</output></div><input id="sensitivity" data-setting="sensitivity" type="range" min="0.3" max="2.2" step="0.1" value="${this.config.sensitivity}"><label class="checkbox-label"><input data-setting="invert" type="checkbox" ${this.config.invertY ? 'checked' : ''}>Invert vertical look</label></div><div class="dialog-footnote">${icon('check')} Preferences are saved on this device.</div>`;
     if (kind === 'map') return `${close}<div class="dialog-eyebrow">A SMALL CORNER OF THE FORGOTTEN REALMS</div><h2 id="dialog-title">The Triboar Trail</h2><p class="dialog-description">Every path begins with a little curiosity.</p><div class="world-map-frame"><canvas id="world-map-canvas" aria-label="Map of the east-west Triboar Trail and the northern Cragmaw trail, showing your position"></canvas></div><div class="map-legend"><span><b class="player-legend">▲</b> You are here</span><span><b>◇</b> Ambush clearing</span><span class="map-footnote">NORTH IS UP · NO GRID</span></div><div class="dialog-footnote map-instruction">${icon('compass')} Follow the narrow northern trail toward Cragmaw Hideout.</div>`;
-    if (kind === 'help') return `${close}<div class="dialog-eyebrow">A FEW WAYS TO FIND YOUR FEET</div><h2 id="dialog-title">Take the scenic route.</h2><p class="dialog-description">Keep the reins, or step down and take a closer look.</p>
-      <div class="help-section"><h3>Exploring</h3><div class="help-grid">${[
-      ['W A S D', 'Walk / guide the wagon', 'W and S guide, A and D steer at the reins.'],
-      ['SHIFT', 'Sprint on foot', 'Hold while walking.'],
-      ['SPACE', 'Jump', 'Also pauses narration during the opening.'],
-      ['MOUSE', 'Look around', 'Hold the left button and drag. The cursor stays visible.'],
-      ['V', 'Change perspective', 'First person or third person.'],
-      ['SCROLL', 'Camera distance', 'Zoom in or out in third person.'],
-      ['R', 'Board / dismount', 'Step down to reach the cargo.'],
-      ['E', 'Open / examine', 'Cargo, and anything left at the roadside.'],
-    ].map(([key, label, note]) => `<div class="help-row"><kbd>${key}</kbd><div><strong>${label}</strong><span>${note}</span></div></div>`).join('')}</div></div>
-      <div class="help-section"><h3>In a fight</h3><div class="help-grid">${[
-      ['CLICK', 'Attack a target', 'Point at an enemy. The odds appear before you commit.'],
-      ['W A S D', 'Move your turn', 'You walk your own movement. The ring shows how far is left.'],
-      ['1 – 9', 'Ready a spell', 'Then click a target to cast it.'],
-      ['Q', 'Dodge', 'Attacks against you have disadvantage until your next turn.'],
-      ['F', 'Attack the hovered enemy', 'Without moving the mouse to the action bar.'],
-      ['SPACE', 'End your turn', 'Passes play to the goblins.'],
-    ].map(([key, label, note]) => `<div class="help-row"><kbd>${key}</kbd><div><strong>${label}</strong><span>${note}</span></div></div>`).join('')}</div></div>
-      <div class="help-section"><h3>Interface</h3><div class="help-grid">${[
-      ['M', 'World map', 'Find your place in the woodland.'],
-      ['I', 'Inventory', 'Currency, quantities, and gp values.'],
-      ['N', 'Story journal', 'The Narrator\u2019s complete text.'],
-      ['P', 'Photo mode', 'Hide the interface. Keep the moment.'],
-      ['ESC', 'Pause / release mouse', 'Take a breath. The world will wait.'],
-    ].map(([key, label, note]) => `<div class="help-row"><kbd>${key}</kbd><div><strong>${label}</strong><span>${note}</span></div></div>`).join('')}</div></div>
-      <div class="dialog-footnote">${icon('leaf')} Combat follows the Player\u2019s Handbook, and it happens out on the road \u2014 nothing pauses.</div>`;
+    if (kind === 'help') return `${close}<div class="dialog-eyebrow">A FEW WAYS TO FIND YOUR FEET</div><h2 id="dialog-title">Take the scenic route.</h2><p class="dialog-description">Keep the reins, or step down and take a closer look.</p><div class="help-grid">${[
+      ['W A S D', 'Walk / guide the wagon', 'W/S guide, A/D steer at the reins.'], ['SHIFT', 'Sprint on foot', 'Hold while walking.'], ['SPACE', 'Jump / wagon brake', 'Pauses narration during the cutscene.'], ['MOUSE', 'Look around', 'Click to capture, or click and drag.'], ['V', 'Change perspective', 'First person or third person.'], ['SCROLL', 'Camera distance', 'Zoom in or out in third person.'], ['M', 'World map', 'Find your place in the woodland.'], ['P', 'Photo mode', 'Hide the interface. Keep the moment.'], ['E', 'Open / inspect', 'Open nearby cargo or examine the clearing.'], ['R', 'Board / dismount', 'Step down to reach the cargo.'], ['I', 'Inventory', 'Currency, quantities, and gp values.'], ['N', 'Story journal', 'The Narrator’s complete text.'], ['ESC', 'Pause / release mouse', 'Take a breath. The world will wait.'],
+    ].map(([key, label, note]) => `<div class="help-row"><kbd>${key}</kbd><div><strong>${label}</strong><span>${note}</span></div></div>`).join('')}</div><div class="dialog-footnote">${icon('leaf')} The bean is a placeholder. The adventure is just beginning.</div>`;
     if (kind === 'pause') return `${close}<div class="pause-emblem">${icon('leaf')}</div><div class="dialog-eyebrow">THE ROAD CAN WAIT</div><h2 id="dialog-title">A moment of quiet.</h2><p class="dialog-description">Your little corner of the world will be right here.</p><div class="pause-actions"><button class="primary-action" data-action="resume">${icon('play')} Back to the woodland ${icon('arrow-right')}</button><button data-action="settings">${icon('sliders-horizontal')} World settings ${icon('chevron-right')}</button><button data-action="help">${icon('compass')} A guide to exploring ${icon('chevron-right')}</button><button data-action="reset" ${this.world.adventure.inventory.arrived ? '' : 'disabled'}>${icon('rotate-ccw')} Return to the wagon</button></div><div class="dialog-footnote">TRIBOAR TRAIL · THE SWORD COAST</div>`;
-    return `${close}<div class="dialog-eyebrow">A STORY LEFT BEHIND</div><h2 id="dialog-title">An uneasy silence.</h2><div class="inspect-divider">◇</div><p class="inspect-copy">Two living horses wander between the ransacked belongings, lowering their heads to sniff at the emptied saddlebags. Neither appears injured. Black-fletched arrows lie in the dust nearby.</p><p class="inspect-copy">To the north, a narrow trail disappears between the trees. Bent grass and disturbed earth suggest someone passed this way.</p><div class="inspect-note">${icon('leaf')} Whoever did this did not go far. Approaching the horses may not be safe.</div><button class="primary-action" data-action="close">Leave it to the forest ${icon('arrow-right')}</button>`;
+    return `${close}<div class="dialog-eyebrow">A STORY LEFT BEHIND</div><h2 id="dialog-title">An uneasy silence.</h2><div class="inspect-divider">◇</div><p class="inspect-copy">Two living horses wander between the ransacked belongings, lowering their heads to sniff at the emptied saddlebags. Neither appears injured. Black-fletched arrows lie in the dust nearby.</p><p class="inspect-copy">To the north, a narrow trail disappears between the trees. Bent grass and disturbed earth suggest someone passed this way.</p><div class="inspect-note">${icon('leaf')} The horses are alive. There are no enemies or combat in this chapter yet.</div><button class="primary-action" data-action="close">Leave it to the forest ${icon('arrow-right')}</button>`;
   }
   private trapFocus(e: KeyboardEvent) {
     const focusable = [...$('#dialog').querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), [tabindex="0"]')];
@@ -355,6 +205,7 @@ export class WorldInterface {
   }
   private togglePhoto() {
     this.photo = !this.photo; document.body.dataset.photo = String(this.photo);
+    if (this.photo && document.pointerLockElement) { this.world.controller.setPaused(true); document.exitPointerLock(); setTimeout(() => { if (!this.dialog) this.world.controller.setPaused(false); }, 30); }
     if (!this.photo) this.world.renderer.domElement.focus({ preventScroll: true });
   }
   private async capture() {
@@ -363,9 +214,6 @@ export class WorldInterface {
   private async toggleAudio() {
     try {
       await this.audio.toggle();
-      await this.world.adventure.animalAudio.setEnabled(this.audio.enabled);
-      await this.world.adventure.combatAudio.setEnabled(this.audio.enabled);
-      this.world.adventure.combatAudio.setVolume(this.config.volume);
       const button = $('#sound-toggle'); button.innerHTML = icon(this.audio.enabled ? 'volume-2' : 'volume-x');
       button.setAttribute('aria-label', this.audio.enabled ? 'Mute forest ambience' : 'Enable forest ambience'); button.title = this.audio.enabled ? 'Mute forest ambience' : 'Enable forest ambience';
       document.querySelectorAll<HTMLElement>('[data-action="audio"]').forEach(b => { b.classList.toggle('on', this.audio.enabled); b.setAttribute('aria-checked', String(this.audio.enabled)); }); refreshIcons();
@@ -388,6 +236,6 @@ export class WorldInterface {
     } catch { /* Storage may be blocked in private/embedded browsing. */ }
   }
   private savePreferences() { try { localStorage.setItem('astra-preferences-v1', JSON.stringify(this.config)); } catch { /* Settings still work for this session. */ } }
-  private applyPreferences() { this.world.setQuality(this.config.quality); this.world.setAtmosphere(this.config.atmosphere); this.world.controller.sensitivity = this.config.sensitivity; this.world.controller.invertY = this.config.invertY; this.audio.setVolume(this.config.volume); this.world.adventure.animalAudio.setVolume(this.config.volume); this.world.adventure.combatAudio.setVolume(this.config.volume); this.updateTime(); }
-  dispose() { this.abort.abort(); this.adventureUI.dispose(); this.audio.dispose(); this.world.adventure.animalAudio.dispose(); clearTimeout(this.toastTimer); clearTimeout(this.discoveryTimer); }
+  private applyPreferences() { this.world.setQuality(this.config.quality); this.world.setAtmosphere(this.config.atmosphere); this.world.controller.sensitivity = this.config.sensitivity; this.world.controller.invertY = this.config.invertY; this.audio.setVolume(this.config.volume); this.updateTime(); }
+  dispose() { this.abort.abort(); this.adventureUI.dispose(); this.audio.dispose(); clearTimeout(this.toastTimer); clearTimeout(this.discoveryTimer); }
 }
