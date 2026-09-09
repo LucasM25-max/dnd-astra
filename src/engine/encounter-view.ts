@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Encounter, type Combatant, type Vec2 } from '../game/encounter';
-import { AMBUSHERS, GOBLIN_TRAIL_MOUTH } from '../game/ambush';
+import { AMBUSHERS, AMBUSH_CENTRE, GOBLIN_TRAIL_MOUTH } from '../game/ambush';
 import { MONSTERS } from '../game/bestiary';
 import { feetToMetres, metresToFeet } from '../game/rules';
 import { WEAPONS, isRanged } from '../game/equipment';
@@ -52,8 +52,20 @@ export class EncounterView {
   private threatOverlay: THREE.Mesh;
   private pathLine: THREE.Line;
   private targetMarker: THREE.Group;
+  private combatGrid: THREE.Mesh;
+  private gridOn = false;
   private clock = 0;
   private detail: number;
+  /**
+   * The hero has no ActorView (the avatar belongs to the controller), but
+   * strikes need an anchor at both ends: arrows, bolts and slash arcs all
+   * originate from or land on the hero. The director refreshes this every
+   * frame while the fight runs.
+   */
+  private heroId: string | null = null;
+  private heroPos = new THREE.Vector3();
+  private heroHeadHeight = 1.62;
+  private heroTracked = false;
 
   /** Set by the world when the player is choosing a destination. */
   hoverPoint: THREE.Vector3 | null = null;
@@ -115,6 +127,55 @@ export class EncounterView {
 
     this.targetMarker = this.buildTargetMarker();
     this.group.add(this.targetMarker);
+
+    this.heroId = encounter.combatants.find(c => c.side === 'party')?.id ?? null;
+    this.combatGrid = this.buildCombatGrid();
+    this.group.add(this.combatGrid);
+  }
+
+  /**
+   * A subtle 5 ft battle grid that hugs the terrain around the ambush. It
+   * fades in when the trap springs and out when the fight is decided — a
+   * tactical read, not a spreadsheet.
+   */
+  private buildCombatGrid() {
+    const size = 38, segments = 110;
+    const geometry = new THREE.PlaneGeometry(size, size, segments, segments);
+    geometry.rotateX(-Math.PI / 2);
+    const positions = geometry.getAttribute('position');
+    for (let i = 0; i < positions.count; i++) {
+      const x = positions.getX(i) + AMBUSH_CENTRE.x, z = positions.getZ(i) + AMBUSH_CENTRE.z;
+      positions.setY(i, terrainHeight(x, z) + 0.05);
+    }
+    geometry.computeVertexNormals();
+    const material = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false,
+      uniforms: {
+        uCenter: { value: new THREE.Vector2(AMBUSH_CENTRE.x, AMBUSH_CENTRE.z) },
+        uCell: { value: 1.524 },   // 5 ft, the D&D battle grid
+        uOpacity: { value: 0 },
+      },
+      vertexShader: 'varying vec3 vWorld; void main(){ vec4 w = modelMatrix * vec4(position, 1.); vWorld = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
+      fragmentShader: `
+        uniform vec2 uCenter; uniform float uCell, uOpacity; varying vec3 vWorld;
+        void main(){
+          vec2 p = (vWorld.xz - uCenter) / uCell;
+          vec2 g = abs(fract(p - 0.5) - 0.5) / fwidth(p);
+          float minorLine = 1.0 - min(min(g.x, g.y), 1.0);
+          vec2 p4 = p / 4.0;
+          vec2 g4 = abs(fract(p4 - 0.5) - 0.5) / fwidth(p4);
+          float majorLine = 1.0 - min(min(g4.x, g4.y), 1.0);
+          float fade = 1.0 - smoothstep(10.0, 17.5, length(vWorld.xz - uCenter));
+          float a = (minorLine * 0.10 + majorLine * 0.17) * fade * uOpacity;
+          if (a < 0.004) discard;
+          gl_FragColor = vec4(vec3(0.82, 0.88, 0.95), a);
+        }`,
+    });
+    const grid = new THREE.Mesh(geometry, material);
+    grid.position.set(AMBUSH_CENTRE.x, 0, AMBUSH_CENTRE.z);
+    grid.renderOrder = 2;
+    grid.frustumCulled = false;
+    return grid;
   }
 
   private buildTargetMarker() {
@@ -230,6 +291,14 @@ export class EncounterView {
     for (const view of this.actors.values()) {
       view.hidden = false;
     }
+    this.gridOn = true;
+  }
+
+  /** Refresh the hero anchor the strike choreography aims with. */
+  trackHero(position: THREE.Vector3, headHeight: number) {
+    this.heroPos.copy(position);
+    this.heroHeadHeight = headHeight;
+    this.heroTracked = true;
   }
 
   /** Where the engine wants each enemy to be, snapped to the terrain. */
@@ -346,6 +415,12 @@ export class EncounterView {
       }
     }
 
+    // The battle grid breathes in with the ambush and out with the outcome.
+    const gridMat = this.combatGrid.material as THREE.ShaderMaterial;
+    gridMat.uniforms.uOpacity.value = THREE.MathUtils.damp(
+      gridMat.uniforms.uOpacity.value, this.gridOn && !this.encounter.finished ? 1 : 0, 3.5, dt);
+    this.combatGrid.visible = gridMat.uniforms.uOpacity.value > 0.01;
+
     this.updateOverlays(dt, playerPosition);
     this.updateTracers(dt);
     this.fx.update(dt, camera, window.innerWidth, window.innerHeight);
@@ -374,8 +449,11 @@ export class EncounterView {
     if (!view) return;
     view.holdUntil = 0;
     view.hpRevealed = true;
-    if (killed || view.combatant.health.dead) this.playPose(id, 'down', 1.0, 0.35);
-    else this.playPose(id, 'hurt', 0.55, 0.16);
+    if (killed || view.combatant.health.dead) {
+      this.playPose(id, 'down', 1.0, 0.35);
+      const feet = this.positionOf(id);
+      if (feet) this.fx.shockRing(feet, 0.9, '#b8a888');
+    } else this.playPose(id, 'hurt', 0.55, 0.16);
   }
 
   /** Has the movement chase caught up with the engine's square? */
@@ -396,24 +474,38 @@ export class EncounterView {
   /** Chest-height anchor for arcs, bursts and blood. */
   chestOf(id: string): THREE.Vector3 | null {
     const view = this.actors.get(id);
-    if (!view) return null;
+    if (!view) {
+      if (id === this.heroId && this.heroTracked) {
+        return new THREE.Vector3(this.heroPos.x, this.groundAt(this.heroPos.x, this.heroPos.z) + this.heroHeadHeight * 0.62, this.heroPos.z);
+      }
+      return null;
+    }
     return new THREE.Vector3(view.visual.x, this.groundAt(view.visual.x, view.visual.z) + view.body.headHeight * 0.62, view.visual.z);
   }
 
+  /** A point beside the target a missed shot sails through instead. */
+  private missPoint(target: THREE.Vector3) {
+    const a = Math.random() * Math.PI * 2;
+    const r = 0.5 + Math.random() * 0.35;
+    return new THREE.Vector3(target.x + Math.cos(a) * r, target.y + (Math.random() - 0.3) * 0.3, target.z + Math.sin(a) * r);
+  }
+
   /** Loose an arrow from one actor at another; returns the flight time in seconds. */
-  fireArrow(attackerId: string, targetId: string): number {
+  fireArrow(attackerId: string, targetId: string, miss = false): number {
     const from = this.chestOf(attackerId), to = this.chestOf(targetId);
     if (!from || !to) return 0.35;
-    this.spawnTracer(from, to, 'arrow');
-    return Math.max(0.14, from.distanceTo(to) / 34);
+    const aim = miss ? this.missPoint(to) : to;
+    this.spawnTracer(from, aim, 'arrow');
+    return Math.max(0.14, from.distanceTo(aim) / 34);
   }
 
   /** Loose a spell bolt; returns the flight time in seconds. */
-  fireBolt(fromId: string, toId: string, kind: 'fire' | 'frost' | 'force'): number {
+  fireBolt(fromId: string, toId: string, kind: 'fire' | 'frost' | 'force', miss = false): number {
     const from = this.chestOf(fromId), to = this.chestOf(toId);
     if (!from || !to) return 0.3;
-    this.spawnTracer(from, to, kind);
-    return Math.max(0.14, from.distanceTo(to) / 22);
+    const aim = miss ? this.missPoint(to) : to;
+    this.spawnTracer(from, aim, kind);
+    return Math.max(0.14, from.distanceTo(aim) / 22);
   }
 
   /** Reveal everyone's true health — used when the encounter ends. */
@@ -551,10 +643,15 @@ export class EncounterView {
     }
   }
 
-  /** World position of an enemy, for the camera and the UI. */
+  /** World position of a combatant, for the camera and the UI. */
   positionOf(id: string): THREE.Vector3 | null {
     const view = this.actors.get(id);
-    if (!view) return null;
+    if (!view) {
+      if (id === this.heroId && this.heroTracked) {
+        return new THREE.Vector3(this.heroPos.x, this.groundAt(this.heroPos.x, this.heroPos.z), this.heroPos.z);
+      }
+      return null;
+    }
     return new THREE.Vector3(view.visual.x, this.groundAt(view.visual.x, view.visual.z), view.visual.z);
   }
 
@@ -605,6 +702,7 @@ export class EncounterView {
     this.moveOverlay.geometry.dispose(); (this.moveOverlay.material as THREE.Material).dispose();
     this.threatOverlay.geometry.dispose(); (this.threatOverlay.material as THREE.Material).dispose();
     this.pathLine.geometry.dispose(); (this.pathLine.material as THREE.Material).dispose();
+    this.combatGrid.geometry.dispose(); (this.combatGrid.material as THREE.Material).dispose();
     scene.remove(this.group);
   }
 }

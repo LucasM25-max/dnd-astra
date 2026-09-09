@@ -45,7 +45,16 @@ export class PlayerController {
   /** Equipment pieces currently parented to bones, for cleanup. */
   private kit: THREE.Object3D[] = [];
   /** One-shot combat animation playing on the player's own body. */
-  private playerAction: { pose: 'attack' | 'shoot' | 'cast'; t: number; duration: number } | null = null;
+  private playerAction: { pose: 'attack' | 'shoot' | 'cast' | 'hurt'; t: number; duration: number } | null = null;
+  /** Pinned to the ground at 0 hp until the fight ends. */
+  private downed = false;
+  /**
+   * Tactical top-down framing while a fight is running. The director enables
+   * it when combat springs and steers `combatFocus` at the middle of the
+   * fight; drag still orbits and the wheel still dollies.
+   */
+  combatCamera = false;
+  readonly combatFocus = new THREE.Vector3();
   private contactShadow: THREE.Mesh;
   private disposed = new AbortController();
   onStart = () => {};
@@ -311,10 +320,21 @@ export class PlayerController {
   jump() { if (!this.paused && this.started && this.controlMode === 'foot') this.jumpQueued = true; }
   /** Play the one-shot attack animation on the player's own body. */
   playAttack(kind: 'melee' | 'ranged' | 'cast' = 'melee') {
-    if (!this.body && !this.sprite) return;
+    if ((!this.body && !this.sprite) || this.downed) return;
     const pose = kind === 'ranged' ? 'shoot' : kind === 'cast' ? 'cast' : 'attack';
     this.playerAction = { pose, t: 0, duration: kind === 'ranged' ? 0.95 : kind === 'cast' ? 1.1 : 0.8 };
   }
+  /** A visible flinch when an enemy blow lands on the player. */
+  playHurt() {
+    if ((!this.body && !this.sprite) || this.downed) return;
+    this.playerAction = { pose: 'hurt', t: 0, duration: 0.55 };
+  }
+  /** Pin the hero to the ground (0 hp) or stand them back up. */
+  setDowned(downed: boolean) {
+    this.downed = downed;
+    if (downed) this.playerAction = null;
+  }
+  get isDowned() { return this.downed; }
   setControlMode(mode: 'foot' | 'wagon' | 'cinematic') {
     this.controlMode = mode; this.clearInput(); this.cameraOverride = mode === 'cinematic';
     this.arms.visible = mode !== 'foot'; this.rig.scale.y = mode === 'foot' ? 1 : .78;
@@ -344,12 +364,12 @@ export class PlayerController {
       const len = Math.hypot(forward, strafe);
       if (len > 1) { forward /= len; strafe /= len; }
       this.sprinting = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
-      const speed = this.sprinting ? 4.7 : 2.25;
+      const speed = this.downed ? 0 : this.sprinting ? 4.7 : 2.25;
       const vx = (-Math.sin(this.yaw) * forward + Math.cos(this.yaw) * strafe) * speed;
       const vz = (-Math.cos(this.yaw) * forward - Math.sin(this.yaw) * strafe) * speed;
       this.velocity.x = THREE.MathUtils.damp(this.velocity.x, vx, 13, dt);
       this.velocity.z = THREE.MathUtils.damp(this.velocity.z, vz, 13, dt);
-      if (this.jumpQueued && this.grounded) { this.verticalVelocity = 4.25; this.grounded = false; }
+      if (this.jumpQueued && this.grounded && !this.downed) { this.verticalVelocity = 4.25; this.grounded = false; }
       this.jumpQueued = false;
       const substeps = Math.max(1, Math.ceil(dt / .016));
       for (let i = 0; i < substeps; i++) this.physicsStep(dt / substeps);
@@ -375,31 +395,31 @@ export class PlayerController {
     if (this.sprite) {
       const speed = Math.hypot(this.velocity.x, this.velocity.z);
       this.bodyPose = speed > 3.4 ? 'run' : speed > .25 ? 'walk' : 'idle';
-      let pose: HumanoidPose = this.bodyPose;
+      let pose: HumanoidPose = this.downed ? 'down' : this.bodyPose;
       let actionPhase = 0;
-      if (this.playerAction) {
+      if (this.playerAction && !this.downed) {
         this.playerAction.t += dt;
         actionPhase = this.playerAction.t / this.playerAction.duration;
         if (actionPhase >= 1) this.playerAction = null;
         else { pose = this.playerAction.pose; actionPhase = Math.max(0.02, actionPhase); }
       }
       this.sprite.root.position.y = this.position.y - terrainHeight(this.position.x, this.position.z);
-      this.sprite.update(dt, { speed: this.playerAction ? 0 : speed, pose, crouch: 0, actionPhase, lookAt: undefined }, this.camera);
+      this.sprite.update(dt, { speed: (this.playerAction || this.downed) ? 0 : speed, pose, crouch: 0, actionPhase, lookAt: undefined }, this.camera);
     }
     if (this.body) {
       const speed = Math.hypot(this.velocity.x, this.velocity.z);
       this.bodyPose = speed > 3.4 ? 'run' : speed > .25 ? 'walk' : 'idle';
       // The player's own strikes play the same one-shot animations the
       // goblins use, so a fight looks like two bodies trading blows.
-      let pose: HumanoidPose = this.bodyPose;
+      let pose: HumanoidPose = this.downed ? 'down' : this.bodyPose;
       let actionPhase = 0;
-      if (this.playerAction) {
+      if (this.playerAction && !this.downed) {
         this.playerAction.t += dt;
         actionPhase = this.playerAction.t / this.playerAction.duration;
         if (actionPhase >= 1) this.playerAction = null;
         else { pose = this.playerAction.pose; actionPhase = Math.max(0.02, actionPhase); }
       }
-      this.body.update(dt, { speed: this.playerAction ? 0 : speed, pose, crouch: 0, actionPhase, lookAt: undefined });
+      this.body.update(dt, { speed: (this.playerAction || this.downed) ? 0 : speed, pose, crouch: 0, actionPhase, lookAt: undefined });
     }
     const floor = terrainHeight(this.position.x, this.position.z);
     this.contactShadow.position.set(this.position.x, floor + .016, this.position.z);
@@ -455,6 +475,24 @@ export class PlayerController {
       this.look.set(-Math.sin(this.yaw) * Math.cos(this.pitch), -Math.sin(this.pitch), -Math.cos(this.yaw) * Math.cos(this.pitch)).add(this.camera.position);
       this.camera.lookAt(this.look);
     } else {
+      if (this.combatCamera && this.started) {
+        // Tactical top-down: a steep look at the damped combat centroid.
+        // Drag still orbits (yaw) and the wheel still dollies (zoom maps to
+        // 7.5–17 m), but the pitch stays steep so the grid, the reach disc
+        // and every combatant stay readable for the whole fight.
+        this.avatar.visible = true;
+        this.rig.children.forEach(o => { o.visible = o !== this.arms; });
+        const combatPitch = 1.06;
+        const distance = 7.5 + (this.zoom - 2.2) * 1.7;
+        this.look.copy(this.combatFocus);
+        this.look.y += 1.0;
+        const offset = new THREE.Vector3(Math.sin(this.yaw) * Math.cos(combatPitch), Math.sin(combatPitch), Math.cos(this.yaw) * Math.cos(combatPitch));
+        this.desiredCamera.copy(this.look).addScaledVector(offset, distance);
+        this.desiredCamera.y = Math.max(this.desiredCamera.y, terrainHeight(this.desiredCamera.x, this.desiredCamera.z) + 1.6);
+        this.camera.position.lerp(this.desiredCamera, 1 - Math.exp(-3.4 * dt));
+        this.camera.lookAt(this.look);
+        return;
+      }
       this.rig.children.forEach(o => { o.visible = o !== this.arms || seated; });
       const yaw = this.started ? this.yaw : this.yaw + Math.sin(this.elapsed * .055) * .022;
       const pitch = this.started ? this.pitch : .19;

@@ -82,7 +82,10 @@ export class WoodlandWorld {
     this.sun.position.set(-22, 32, -20); this.sun.target.position.set(0, 0, -2);
     this.sun.castShadow = true;
     Object.assign(this.sun.shadow.camera, { near: 5, far: 125, left: -31, right: 31, top: 31, bottom: -31 });
-    this.sun.shadow.mapSize.set(2048, 2048); this.sun.shadow.bias = -.00015; this.sun.shadow.normalBias = .025;
+    // The shadow frustum spans 62 m (6 cm texels at 1024), so the biases are
+    // scaled to the texel: anything smaller acnes badly on the normal-mapped
+    // forest floor, especially under unfiltered single-tap sampling.
+    this.sun.shadow.mapSize.set(2048, 2048); this.sun.shadow.bias = -.0004; this.sun.shadow.normalBias = .07;
     this.sun.shadow.camera.updateProjectionMatrix();
     this.sky.scale.setScalar(400);
     const uniforms = this.sky.material.uniforms;
@@ -184,7 +187,11 @@ export class WoodlandWorld {
   setQuality(quality: Quality) {
     this.quality = quality;
     this.renderDirty = true;
-    this.renderer.shadowMap.type = quality === 'performance' ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
+    // Balanced and high get soft-filtered shadows; performance gets plain
+    // PCF. A single-tap Basic map turns the leaf-dappled canopy shadows into a
+    // blocky mosaic on the forest floor — PCF's filtering keeps the dapple
+    // smooth on every tier.
+    this.renderer.shadowMap.type = quality === 'performance' ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
     if (this.environmentTexture) this.scene.environment = quality === 'performance' ? null : this.environmentTexture;
     this.scene.traverse(o => {
       if (o instanceof THREE.InstancedMesh && o.userData.density) {

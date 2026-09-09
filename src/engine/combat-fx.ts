@@ -50,6 +50,9 @@ export class CombatFx {
   private floaters: Floater[] = [];
   private layer: HTMLDivElement;
   private disposed = false;
+  private lastCamera: THREE.PerspectiveCamera | null = null;
+  private lastWidth = 0;
+  private lastHeight = 0;
 
   constructor(parent: THREE.Object3D) {
     this.group.name = 'CombatFx';
@@ -176,8 +179,15 @@ export class CombatFx {
     const el = document.createElement('div');
     el.className = `combat-floater floater-${kind}`;
     el.textContent = text;
+    // Invisible until the first update() projects it: on a slow frame a
+    // newborn floater would otherwise flash at the layer's top-left corner.
+    el.style.opacity = '0';
     this.layer.append(el);
-    this.floaters.push({ el, world: world.clone(), t: 0, life: 1.15, rise: 0, scaleIn: 0 });
+    const floater: Floater = { el, world: world.clone(), t: 0, life: 1.15, rise: 0, scaleIn: 0 };
+    this.floaters.push(floater);
+    // Position immediately when a previous frame is known, so even a
+    // single-frame read lands on the target instead of the corner.
+    if (this.lastCamera) this.placeFloater(floater, this.lastCamera, this.lastWidth, this.lastHeight);
   }
 
   update(dt: number, camera: THREE.PerspectiveCamera, width: number, height: number) {
@@ -238,26 +248,32 @@ export class CombatFx {
       }
     }
     // Floaters: project and drift.
+    this.lastCamera = camera; this.lastWidth = width; this.lastHeight = height;
     for (let i = this.floaters.length - 1; i >= 0; i--) {
       const floater = this.floaters[i];
       floater.t += dt;
       const k = Math.min(1, floater.t / floater.life);
       floater.rise += dt * 46;
       floater.scaleIn = Math.min(1, floater.scaleIn + dt * 6);
-      const p = floater.world.clone().project(camera);
-      if (p.z < 1) {
-        const x = (p.x * 0.5 + 0.5) * width;
-        const y = (-p.y * 0.5 + 0.5) * height - floater.rise;
-        const pop = 1 + (1 - floater.scaleIn) * 0.6;
-        floater.el.style.transform = `translate(-50%,-50%) translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) scale(${(floater.scaleIn * pop).toFixed(3)})`;
-        floater.el.style.opacity = String(Math.min(1, (1 - k) * 2.4));
-      } else {
-        floater.el.style.opacity = '0';
-      }
+      this.placeFloater(floater, camera, width, height);
       if (k >= 1) {
         floater.el.remove();
         this.floaters.splice(i, 1);
       }
+    }
+  }
+
+  private placeFloater(floater: Floater, camera: THREE.PerspectiveCamera, width: number, height: number) {
+    const k = Math.min(1, floater.t / floater.life);
+    const p = floater.world.clone().project(camera);
+    if (p.z < 1) {
+      const x = (p.x * 0.5 + 0.5) * width;
+      const y = (-p.y * 0.5 + 0.5) * height - floater.rise;
+      const pop = 1 + (1 - floater.scaleIn) * 0.6;
+      floater.el.style.transform = `translate(-50%,-50%) translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) scale(${(floater.scaleIn * pop).toFixed(3)})`;
+      floater.el.style.opacity = String(Math.min(1, (1 - k) * 2.4));
+    } else {
+      floater.el.style.opacity = '0';
     }
   }
 

@@ -119,6 +119,8 @@ export class CombatDirector {
   private dice: DiceTray | null = null;
   private shakeAmplitude = 0;
   private audio: CombatAudio;
+  /** Damped centroid of the fight; steers the top-down combat camera. */
+  private combatFocus = new THREE.Vector3();
 
   onNotice: (message: string) => void = () => {};
   onLog: (entries: LogEntry[]) => void = () => {};
@@ -239,6 +241,13 @@ export class CombatDirector {
     this.onLog(encounter.log.slice(-6));
     this.phase = 'active';
     this.onPhaseChange(this.phase);
+    // Tactical framing for the fight: top-down over the ambush, north-up, on
+    // the walking camera. The camera glides there; the grid fades in with it.
+    this.controller.setMode('third');
+    this.controller.combatCamera = true;
+    this.controller.yaw = 0;
+    this.combatFocus.set(playerPosition.x, 0, playerPosition.z);
+    this.controller.combatFocus.copy(this.combatFocus);
     this.scheduleEnemyTurnIfNeeded();
   }
 
@@ -383,6 +392,24 @@ export class CombatDirector {
     // a goblin's windup takes as long as it takes, not ten times it.
     this.view.update(Math.min(realDelta, 0.25), this.camera, playerPosition);
     this.dice?.update(Math.min(realDelta, 0.25));
+
+    // Every strike aims with the hero anchor, and the top-down frame rides
+    // the damped middle of the fight (hero plus living enemies).
+    this.view.trackHero(this.controller.position, this.controller.spriteBody?.headHeight ?? 1.62);
+    if (this.phase === 'active' || this.phase === 'sprung') {
+      const centroid = new THREE.Vector3(this.controller.position.x, 0, this.controller.position.z);
+      let count = 1;
+      for (const enemy of this.encounter.living('enemy')) {
+        if (!enemy.position) continue;
+        centroid.x += enemy.position.x; centroid.z += enemy.position.z; count++;
+      }
+      centroid.x /= count; centroid.z /= count;
+      const dx = centroid.x - AMBUSH_CENTRE.x, dz = centroid.z - AMBUSH_CENTRE.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist > 14) { centroid.x = AMBUSH_CENTRE.x + dx / dist * 14; centroid.z = AMBUSH_CENTRE.z + dz / dist * 14; }
+      this.combatFocus.lerp(centroid, 1 - Math.exp(-2.2 * Math.min(realDelta, 0.25)));
+      this.controller.combatFocus.copy(this.combatFocus);
+    }
 
     if (this.cluster) {
       this.updateCluster(Math.min(realDelta, 0.25));
@@ -568,9 +595,10 @@ export class CombatDirector {
               this.impactStrike(cluster);
             } else {
               const targetId = cluster.targetId;
+              const missed = !cluster.attack.hit;
               const flight = cluster.damageKind === 'arrow' && targetId
-                ? this.view.fireArrow(cluster.attackerId, targetId)
-                : targetId ? this.view.fireBolt(cluster.attackerId, targetId, cluster.damageKind === 'fire' ? 'fire' : cluster.damageKind === 'frost' ? 'frost' : 'force') : 0.3;
+                ? this.view.fireArrow(cluster.attackerId, targetId, missed)
+                : targetId ? this.view.fireBolt(cluster.attackerId, targetId, cluster.damageKind === 'fire' ? 'fire' : cluster.damageKind === 'frost' ? 'frost' : 'force', missed) : 0.3;
               cluster.phase = 'flight';
               cluster.timer = 0;
               cluster.flightDuration = flight;
@@ -658,9 +686,17 @@ export class CombatDirector {
         this.audio.impact(attack.critical ? 1.35 : 1);
         if (attack.killed) this.audio.deathCry();
         this.addShake(attack.critical ? 0.3 : cluster.attackerIsHero ? 0.14 : 0.2);
-        if (cluster.targetId) view.reactToHit(cluster.targetId, attack.killed);
+        if (cluster.targetId) {
+          if (cluster.targetId === this.heroId) {
+            // The hero is the controller's body, not a view actor: flinch, or
+            // go down and stay down when the blow drops them.
+            this.controller.playHurt();
+            if (attack.killed) this.controller.setDowned(true);
+          } else view.reactToHit(cluster.targetId, attack.killed);
+        }
       } else {
         view.fx.floater(chest, 'MISS', 'miss');
+        view.fx.impact(chest, '#b9a888', 7, 1.2, 0.35);
         this.audio.parry();
       }
     }
@@ -682,7 +718,10 @@ export class CombatDirector {
             view.fx.blood(chest, Math.min(1.4, 0.4 + (entry.amount ?? 4) / 9));
             view.fx.floater(chest, String(entry.amount ?? ''), 'spell');
             const dropped = (this.encounter?.byId(entry.targetId)?.health.hp ?? 1) <= 0;
-            view.reactToHit(entry.targetId, dropped);
+            if (entry.targetId === this.heroId) {
+              this.controller.playHurt();
+              if (dropped) this.controller.setDowned(true);
+            } else view.reactToHit(entry.targetId, dropped);
             this.audio.impact(1);
           }
         } else if (entry.kind === 'heal' && entry.targetId) {
@@ -724,10 +763,17 @@ export class CombatDirector {
     if (casterIsHero) this.controller.playAttack('cast');
     else this.view?.playPose(cluster.casterId, 'cast', 1.1, 0.5);
     for (const t of targets) this.view?.holdPose(t.id, 1.7);
+    // A flash at the caster's hands sells the release before the bolt flies.
+    const origin = this.view?.chestOf(cluster.casterId);
+    if (origin && this.view) {
+      const colour = kind === 'fire' ? '#ff8b3c' : kind === 'frost' ? '#9fd8ff' : '#c4a6ff';
+      this.view.fx.impact(origin, colour, 12, 1.4, 0.5);
+    }
     if (damageEntry) this.audio.cast();
   }
 
   dispose() {
+    this.controller.combatCamera = false;
     this.dice?.dispose(); this.dice = null;
     this.view?.dispose(this.scene);
     this.site?.dispose(this.scene);
@@ -753,6 +799,9 @@ export class CombatDirector {
 
   private resolve() {
     if (!this.encounter) return;
+    // The fight is decided: hand the camera back to the walking framing and
+    // let the grid breathe out with the view update.
+    this.controller.combatCamera = false;
     this.view?.revealAllHealth();
     if (this.encounter.outcome === 'victory') {
       this.phase = 'resolved';

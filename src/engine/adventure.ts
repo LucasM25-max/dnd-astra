@@ -366,6 +366,7 @@ export class Adventure {
     // the hero's turn must not leave the budget clamp installed.
     this.controller.endCombatTurn();
     this.controller.movementLimit = null;
+    this.controller.setDowned(false);
     this.wasPlayerTurn = false;
     this.rulesEvents.append('CombatFinished', this.clock, { outcome: this.combatDirector.encounter?.outcome ?? 'none' }, this.character?.id);
     this.setPaused(false);

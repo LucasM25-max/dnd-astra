@@ -111,12 +111,16 @@ const spriteFragmentShader = /* glsl */ `
   #include <common>
   #include <fog_pars_fragment>
   void main() {
-    vec4 a = texture2D(uMap, uRectA.xy + vUv * uRectA.zw);
-    vec4 b = texture2D(uMap, uRectB.xy + vUv * uRectB.zw);
+    // The atlas is addressed top-down (flipY disabled: v=0 is the top/head of
+    // the cell) while the card's UV has v=0 at the feet: flip V so figures
+    // stand upright instead of upside down.
+    vec2 fUv = vec2(vUv.x, 1.0 - vUv.y);
+    vec4 a = texture2D(uMap, uRectA.xy + fUv * uRectA.zw);
+    vec4 b = texture2D(uMap, uRectB.xy + fUv * uRectB.zw);
     vec4 c = mix(a, b, uBlend);
     if (c.a < 0.5) discard;
     // A gentle darkening toward the feet grounds the card in the scene light.
-    vec3 col = c.rgb * uTint * mix(1.0, uGroundShade, pow(vUv.y, 2.0));
+    vec3 col = c.rgb * uTint * mix(1.0, uGroundShade, pow(1.0 - vUv.y, 2.0));
     gl_FragColor = vec4(col, uOpacity);
     #include <fog_fragment>
   }
@@ -314,7 +318,11 @@ export class SpriteFigure implements FigureBody {
     const sway = Math.sin(this.bobT * .5) * .02 * this.bobAmp;
 
     // One-shot actions without authored art yet: a physical lunge/flinch sells the beat.
-    const acting = command.actionPhase > 0 && command.actionPhase < 1 && !this.clipFor('attack') && !this.clipFor('hurt');
+    // Hurt is judged on its own art: a figure WITH attack frames but no hurt
+    // frames (the player) must still visibly flinch when struck.
+    const oneShot = command.pose === 'attack' || command.pose === 'shoot' || command.pose === 'cast' || command.pose === 'hurt';
+    const artForPose = command.pose === 'hurt' ? this.clipFor('hurt') : this.clipFor('attack');
+    const acting = oneShot && command.actionPhase > 0 && command.actionPhase < 1 && !artForPose;
     if (acting) {
       const pulse = Math.sin(THREE.MathUtils.clamp(command.actionPhase, 0, 1) * Math.PI);
       this.lunge = damp(this.lunge, (command.pose === 'hurt' ? -.8 : 1) * pulse * .3, 20, dt);
