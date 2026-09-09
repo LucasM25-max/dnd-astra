@@ -23,19 +23,19 @@ export async function loadMaterials(renderer: THREE.WebGLRenderer, progress: (s:
     if (!normal) t.colorSpace = THREE.SRGBColorSpace;
     return t;
   };
-  progress('Unfolding the leaf-litter floor');
-  const [litter, litterN, path, pathN, bark, barkN, rock, rockN, leaf] = await Promise.all([
-    tex('ground-leaf-litter.webp'), tex('ground-leaf-litter-normal.webp', true), tex('earth-path.webp'),
+  progress('Unfolding the forest floor');
+  const [floor, floorN, path, pathN, bark, barkN, rock, rockN, leaf] = await Promise.all([
+    tex('forest-floor.webp'), tex('forest-floor-normal.webp', true), tex('earth-path.webp'),
     tex('earth-path-normal.webp', true), tex('bark-moss.webp'), tex('bark-moss-normal.webp', true),
     tex('rock.webp'), tex('rock-normal.webp', true), tex('oak-leaves.webp'),
   ]);
   bark.repeat.set(2, 3.5); barkN.repeat.copy(bark.repeat);
   leaf.wrapS = leaf.wrapT = THREE.ClampToEdgeWrapping;
   const wind = { value: 0 };
-  // The forest floor is the leaf-litter sheet itself; the trail (earth path)
+  // The forest floor is the forest-floor sheet itself; the trail (earth path)
   // and stony banks (rock) are blended in per-vertex with a dithered edge so
   // the surfaces stay organic rather than checkered.
-  const ground = new THREE.MeshStandardMaterial({ map: litter, normalMap: litterN, normalScale: new THREE.Vector2(.72, .72), roughness: .97, vertexColors: true });
+  const ground = new THREE.MeshStandardMaterial({ map: floor, normalMap: floorN, normalScale: new THREE.Vector2(.72, .72), roughness: .97, vertexColors: true });
   ground.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, { uRoad: { value: path }, uRoadN: { value: pathN }, uStone: { value: rock }, uStoneN: { value: rockN } });
     shader.vertexShader = shader.vertexShader.replace('#include <common>', `#include <common>\nattribute vec2 aBlend; varying vec2 vBlend;`)
@@ -45,17 +45,17 @@ export async function loadMaterials(renderer: THREE.WebGLRenderer, progress: (s:
         // Dither the per-vertex blend at fragment scale so path/bank edges stay organic, not checkered.
         vec2 gb = vBlend + (vec2(groundHash(vMapUv * 317.7), groundHash(vMapUv * 281.3)) - .5) * .22;
         gb.x = clamp(gb.x, 0., 1.); gb.y = clamp(gb.y, 0., .8);
-        vec4 litterCol = texture2D(map, vMapUv);
+        vec4 floorCol = texture2D(map, vMapUv);
         vec4 road = texture2D(uRoad, vMapUv * 1.25) * vec4(.90, .80, .66, 1.);
         vec4 stone = texture2D(uStone, vMapUv * .84);
-        vec4 blended = mix(litterCol, stone * vec4(.80, .86, .66, 1.), gb.y * .5);
+        vec4 blended = mix(floorCol, stone * vec4(.80, .86, .66, 1.), gb.y * .5);
         diffuseColor *= mix(blended, road, gb.x);
       `)
       .replace('vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;', `
-        vec3 litterNormal = texture2D(normalMap, vNormalMapUv).xyz;
+        vec3 floorNormal = texture2D(normalMap, vNormalMapUv).xyz;
         vec3 stoneNormal = texture2D(uStoneN, vNormalMapUv * .84).xyz;
         vec3 roadNormal = texture2D(uRoadN, vNormalMapUv * 1.25).xyz;
-        vec3 mapN = mix(mix(litterNormal, stoneNormal, vBlend.y), roadNormal, vBlend.x) * 2.0 - 1.0;
+        vec3 mapN = mix(mix(floorNormal, stoneNormal, vBlend.y), roadNormal, vBlend.x) * 2.0 - 1.0;
       `);
   };
   const barkMat = new THREE.MeshStandardMaterial({ map: bark, normalMap: barkN, normalScale: new THREE.Vector2(1.05, 1.05), color: '#e6e2d0', roughness: .98 });
@@ -96,5 +96,5 @@ export async function loadMaterials(renderer: THREE.WebGLRenderer, progress: (s:
   // Distant-ring conifers: dark, no wind, no shadow cost.
   const coniferDark = new THREE.MeshStandardMaterial({ map: leaf, alphaTest: .46, side: THREE.DoubleSide, roughness: .95, vertexColors: true, color: '#5c7355' });
   const wood = new THREE.MeshStandardMaterial({ color: '#74634c', map: bark, roughness: .95 });
-  return { ground, bark: barkMat, leaves, leafDepth, stone, grass, fern, wood, coniferDark, wind, textures: [litter, litterN, path, pathN, bark, barkN, rock, rockN, leaf] };
+  return { ground, bark: barkMat, leaves, leafDepth, stone, grass, fern, wood, coniferDark, wind, textures: [floor, floorN, path, pathN, bark, barkN, rock, rockN, leaf] };
 }

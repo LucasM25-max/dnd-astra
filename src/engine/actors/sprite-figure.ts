@@ -111,12 +111,17 @@ const spriteFragmentShader = /* glsl */ `
   #include <common>
   #include <fog_pars_fragment>
   void main() {
-    vec4 a = texture2D(uMap, uRectA.xy + vUv * uRectA.zw);
-    vec4 b = texture2D(uMap, uRectB.xy + vUv * uRectB.zw);
+    // The atlas is uploaded with flipY = false, so its v axis runs top-down in
+    // image space while the card's own uv.y runs bottom-up (0 at the feet).
+    // Flip v here so row 0 of the cell lands on the TOP of the card — without
+    // this the figures render upside down.
+    vec2 cellUv = vec2(vUv.x, 1.0 - vUv.y);
+    vec4 a = texture2D(uMap, uRectA.xy + cellUv * uRectA.zw);
+    vec4 b = texture2D(uMap, uRectB.xy + cellUv * uRectB.zw);
     vec4 c = mix(a, b, uBlend);
     if (c.a < 0.5) discard;
-    // A gentle darkening toward the feet grounds the card in the scene light.
-    vec3 col = c.rgb * uTint * mix(1.0, uGroundShade, pow(vUv.y, 2.0));
+    // A gentle darkening toward the feet (uv.y = 0) grounds the card in the scene light.
+    vec3 col = c.rgb * uTint * mix(1.0, uGroundShade, pow(1.0 - vUv.y, 2.0));
     gl_FragColor = vec4(col, uOpacity);
     #include <fog_fragment>
   }

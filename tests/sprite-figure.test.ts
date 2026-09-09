@@ -98,3 +98,34 @@ describe('sprite figure direction selection', () => {
     figure.dispose();
   });
 });
+
+describe('sprite card orientation', () => {
+  const materialOf = (f: SpriteFigure) => (f as unknown as { material: THREE.ShaderMaterial }).material;
+
+  it('flips v so the atlas (flipY = false, top-down) lands upright on the card', () => {
+    const figure = new SpriteFigure(figureDef(), new THREE.Texture());
+    const source = materialOf(figure).fragmentShader;
+    // The card's own uv.y runs bottom-up (geometry is translated so y=0 is the
+    // feet) while the atlas v runs top-down. Sampling with a raw vUv renders
+    // every figure upside down, so the shader must invert v for the lookup.
+    expect(source).toMatch(/vec2\s+cellUv\s*=\s*vec2\(\s*vUv\.x\s*,\s*1\.0\s*-\s*vUv\.y\s*\)/);
+    expect(source).not.toMatch(/texture2D\(\s*uMap\s*,\s*uRect[AB]\.xy\s*\+\s*vUv\s*\*/);
+    figure.dispose();
+  });
+
+  it('shades toward the feet (uv.y = 0), not the head', () => {
+    const figure = new SpriteFigure(figureDef(), new THREE.Texture());
+    expect(materialOf(figure).fragmentShader).toMatch(/uGroundShade,\s*pow\(\s*1\.0\s*-\s*vUv\.y\s*,\s*2\.0\s*\)/);
+    figure.dispose();
+  });
+
+  it('anchors the card so its base sits on the ground plane', () => {
+    const figure = new SpriteFigure(figureDef(), new THREE.Texture());
+    const mesh = figure.root.children.find(c => (c as THREE.Mesh).isMesh && (c as THREE.Mesh).material === materialOf(figure)) as THREE.Mesh;
+    mesh.geometry.computeBoundingBox();
+    const box = mesh.geometry.boundingBox!;
+    expect(box.min.y).toBeCloseTo(0, 5);   // feet at the origin
+    expect(box.max.y).toBeCloseTo(1, 5);   // head one unit up, before scaling
+    figure.dispose();
+  });
+});
