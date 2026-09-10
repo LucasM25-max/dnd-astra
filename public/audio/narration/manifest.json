@@ -25,6 +25,34 @@
     "06-the-horses": {
       "file": "/audio/narration/06-the-horses.mp3",
       "duration": 12.288
+    },
+    "ransacked_belongings": {
+      "file": "/audio/narration/ransacked_belongings.mp3",
+      "duration": 6.13
+    },
+    "nothing_of_interest": {
+      "file": "/audio/narration/nothing_of_interest.mp3",
+      "duration": 2.425
+    },
+    "rest_while_you_can": {
+      "file": "/audio/narration/rest_while_you_can.mp3",
+      "duration": 7.086
+    },
+    "dawn_breaks": {
+      "file": "/audio/narration/dawn_breaks.mp3",
+      "duration": 3.907
+    },
+    "something_stirs": {
+      "file": "/audio/narration/something_stirs.mp3",
+      "duration": 3.262
+    },
+    "well_rested_already": {
+      "file": "/audio/narration/well_rested_already.mp3",
+      "duration": 4.457
+    },
+    "retreated_for_now": {
+      "file": "/audio/narration/retreated_for_now.mp3",
+      "duration": 7.875
     }
   }
 }

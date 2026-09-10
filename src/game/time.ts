@@ -87,6 +87,13 @@ export class GameClock {
     else { this.day = 1; this.month = (this.month + 1) % 12; }
     this.seasonCache = MONTHS[this.month].season;
   }
+  /** Advance the game clock by whole hours (short rests, travel). */
+  advanceHours(hours: number): void {
+    let m = this.minuteOfDay + Math.round(hours * 60);
+    while (m >= MINUTES_PER_DAY) { m -= MINUTES_PER_DAY; this.nextDay(); }
+    while (m < 0) m += MINUTES_PER_DAY;
+    this.minuteOfDay = m;
+  }
   advance(realSeconds: number) {
     let m = this.minuteOfDay + Math.max(0, realSeconds) * MINUTES_PER_REAL_SECOND;
     while (m >= MINUTES_PER_DAY) { m -= MINUTES_PER_DAY; this.nextDay(); }

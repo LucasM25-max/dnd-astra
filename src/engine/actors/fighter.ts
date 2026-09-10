@@ -1,5 +1,5 @@
 import {
-  View, limb, mass, blob, mailPattern, shade, dot, speckle, sheenLine, v3, addV, subV, scaleV, normV, sortItems, type V3, type DrawItem,
+  View, limb, mass, blob, mailPattern, shade, dot, speckle, sheenLine, v3, addV, subV, scaleV, normV, sortItems, relForIndex, type V3, type DrawItem,
 } from './sprites';
 
 /**
@@ -8,7 +8,25 @@ import {
  * (idle, 6 walk, 6 sprint, 1 seated) frames.
  */
 
-export type FighterAction = 'idle' | 'walk' | 'sprint' | 'seated';
+export type FighterAction = 'idle' | 'walk' | 'sprint' | 'seated' | 'attack' | 'hit' | 'down';
+
+/** Equipment + portrait variant for the painted fighter (creation choices map here). */
+export interface FighterLook {
+  skin: string;
+  skinShade: string;
+  hairColor: string;
+  hairStyle: 'short' | 'long' | 'braid';
+  helm: boolean;
+  mainHand: 'greatsword' | 'longsword' | 'battleaxe' | 'warhammer';
+  offHand: 'shield' | 'shortsword' | null;
+  bow: boolean;
+}
+export const DEFAULT_LOOK: FighterLook = {
+  skin: '#d9b38c', skinShade: '#b98f66', hairColor: '#4a3524', hairStyle: 'short',
+  helm: true, mainHand: 'greatsword', offHand: null, bow: false,
+};
+export const lookKey = (look: FighterLook): string =>
+  [look.skin, look.hairColor, look.hairStyle, look.helm ? 'h' : 'n', look.mainHand, look.offHand ?? 'no', look.bow ? 'b' : 'nb'].join('|');
 
 export interface SwordPose { grip: V3; pommel: V3; tip: V3; guardA: V3; guardB: V3 }
 
@@ -43,11 +61,133 @@ function ik2(upper: V3, lower: V3, l1: number, l2: number, bend: 1 | -1): V3 {
   return v3(upper.x, upper.y + a * uy + h * py, upper.z + a * uz + h * pz);
 }
 
+/** Shared sword-pose builder for the flourish actions (grip + tip → full SwordPose). */
+function flourishSword(grip: V3, tip: V3): SwordPose {
+  const dir = normV(subV(tip, grip));
+  const hb = normV(v3(tip.x - grip.x, 0, tip.z - grip.z));
+  const g = v3(-hb.z, 0, hb.x);
+  return {
+    grip, tip,
+    guardA: addV(grip, scaleV(g, .13)), guardB: subV(grip, scaleV(g, .13)),
+    pommel: subV(grip, scaleV(dir, .08)),
+  };
+}
+/** Shared flail + javelins for the flourish actions (keyed sway, no wall clock). */
+function flourishGear(hipY: number, bob: number, shZ: number, sway: number): { flailPts: V3[]; flailBall: V3; javA: [V3, V3]; javB: [V3, V3] } {
+  const fx = -.15 + sway;
+  const flailPts = [v3(fx + .02, hipY - .07, .03), v3(fx, hipY - .22, .05), v3(fx - .02, hipY - .36, .06), v3(fx - .03, hipY - .45, .05)];
+  const flailBall = v3(fx - .03, hipY - .52, .05);
+  const jz = shZ - .14;
+  const javA: [V3, V3] = [v3(-.17, hipY - .02 + bob, jz - .02), v3(.17, hipY + .76 + bob, jz - .16)];
+  const javB: [V3, V3] = [v3(.15, hipY - .04 + bob, jz + .05), v3(-.15, hipY + .72 + bob, jz - .11)];
+  return { flailPts, flailBall, javA, javB };
+}
+function flourishLegs(hipL0: V3, hipR0: V3, footL: V3, footR: V3) {
+  const kneeL = ik2(hipL0, footL, .46, .44, 1);
+  const kneeR = ik2(hipR0, footR, .46, .44, 1);
+  const ankleL = v3(footL.x, footL.y + .01, footL.z - .01);
+  const ankleR = v3(footR.x, footR.y + .01, footR.z - .01);
+  const toeL = v3(footL.x, Math.max(footL.y, .012), footL.z + .125);
+  const toeR = v3(footR.x, Math.max(footR.y, .012), footR.z + .125);
+  return { kneeL, kneeR, ankleL, ankleR, toeL, toeR };
+}
+
+/**
+ * Paint-only 4-frame attack flourish (creation preview only — no hit
+ * detection, damage, or AI). Keyed from `phase`: 0 windup, 1 slash,
+ * 2 follow-through, 3 recover-to-guard.
+ */
+export function attackPose(phase: number): FighterPose {
+  const key = Math.round(phase / (Math.PI * 2) * 4) % 4;
+  const hipY = .90, bob = [0.01, -0.02, -0.03, 0][key];
+  const leanZ = [0, .08, .05, .02][key];
+  const footL = v3(-.16, .01, .18), footR = v3(.16, .01, -.14);
+  const hipL = v3(-.09, hipY + bob, 0), hipR = v3(.09, hipY + bob, 0);
+  const legs = flourishLegs(hipL, hipR, footL, footR);
+  const shY = hipY + .455 + bob, shZ = leanZ;
+  const shoulderL = v3(-.175, shY, shZ), shoulderR = v3(.175, shY, shZ);
+  const handRs = [v3(.28, 1.42, -.18), v3(-.05, 1.15, .30), v3(-.28, .85, .25), v3(.20, .95, .28)];
+  const handLs = [v3(-.25, 1.00, -.05), v3(-.30, .95, .15), v3(-.22, .90, .10), v3(-.225, hipY + .09, .02)];
+  const handR = handRs[key], handL = handLs[key];
+  const elbowL = ik2(shoulderL, handL, .29, .27, -1);
+  const elbowR = ik2(shoulderR, handR, .29, .27, -1);
+  const head = v3(0, hipY + .60 + bob, shZ + .01);
+  // One-handed slash: tip travels from high-back-right across to low-left.
+  const tips = [addV(handR, v3(.17, .48, -.37)), v3(-.55, 1.10, .45), v3(-.35, .55, .30), addV(handR, v3(-.05, -.20, .27))];
+  const sword = flourishSword(handR, tips[key]);
+  const gear = flourishGear(hipY, bob, shZ, [-.02, .05, .03, 0][key]);
+  return {
+    action: 'attack', bob, seated: false,
+    hipL, hipR, ...legs, shoulderL, shoulderR, elbowL, elbowR, handL, handR, head,
+    sword, flailPts: gear.flailPts, flailBall: gear.flailBall, javA: gear.javA, javB: gear.javB,
+  };
+}
+
+/**
+ * Paint-only 2-frame hit reaction (creation preview only): 0 impact
+ * (stagger back, blade dragged down), 1 brace-and-recover.
+ */
+export function hitPose(phase: number): FighterPose {
+  const key = phase < Math.PI ? 0 : 1;
+  const hipY = key === 0 ? .93 : .95, bob = key === 0 ? -.02 : 0;
+  const leanZ = key === 0 ? -.12 : -.03;
+  const footL = v3(-.10, .01, .10), footR = key === 0 ? v3(.12, .02, -.25) : v3(.10, .01, -.12);
+  const hipL = v3(-.09, hipY + bob, 0), hipR = v3(.09, hipY + bob, 0);
+  const legs = flourishLegs(hipL, hipR, footL, footR);
+  const shY = hipY + .455 + bob, shZ = leanZ;
+  const shoulderL = v3(-.175, shY, shZ), shoulderR = v3(.175, shY, shZ);
+  const handR = key === 0 ? v3(.25, .70, 0) : v3(.22, .85, .15);
+  const handL = key === 0 ? v3(-.28, 1.05, -.10) : v3(-.24, .95, .05);
+  const elbowL = ik2(shoulderL, handL, .29, .27, -1);
+  const elbowR = ik2(shoulderR, handR, .29, .27, -1);
+  const head = v3(0, hipY + .60 + bob + (key === 0 ? .03 : 0), shZ + (key === 0 ? -.03 : .01));
+  const sword = flourishSword(handR, key === 0 ? v3(.45, .10, .20) : v3(.40, .50, .30));
+  const gear = flourishGear(hipY, bob, shZ, key === 0 ? -.04 : -.01);
+  return {
+    action: 'hit', bob, seated: false,
+    hipL, hipR, ...legs, shoulderL, shoulderR, elbowL, elbowR, handL, handR, head,
+    sword, flailPts: gear.flailPts, flailBall: gear.flailBall, javA: gear.javA, javB: gear.javB,
+  };
+}
+
+/**
+ * Paint-only 1-frame down pose (creation preview only): on one knee,
+ * head bowed, sword point grounded.
+ */
+export function downPose(): FighterPose {
+  const hipY = .52, bob = 0;
+  const footL = v3(-.10, .01, .28), footR = v3(.16, .10, -.22);
+  const hipL = v3(-.09, hipY, 0), hipR = v3(.09, hipY, 0);
+  const kneeL = ik2(hipL, footL, .46, .44, 1);
+  const kneeR = v3(.14, .06, -.02);
+  const ankleL = v3(footL.x, footL.y + .01, footL.z - .01);
+  const ankleR = v3(footR.x, footR.y, footR.z + .06);
+  const toeL = v3(footL.x, Math.max(footL.y, .012), footL.z + .125);
+  const toeR = v3(footR.x, footR.y, footR.z + .02);
+  const shY = hipY + .44, shZ = .10;
+  const shoulderL = v3(-.175, shY, shZ), shoulderR = v3(.175, shY, shZ);
+  const handR = v3(.22, .48, .32), handL = v3(-.14, .30, .16);
+  const elbowL = ik2(shoulderL, handL, .29, .27, -1);
+  const elbowR = ik2(shoulderR, handR, .29, .27, -1);
+  const head = v3(0, hipY + .52, shZ + .06);
+  const sword = flourishSword(handR, v3(.28, .02, .44));
+  const gear = flourishGear(hipY, bob, shZ, 0);
+  return {
+    action: 'down', bob, seated: false,
+    hipL, hipR, kneeL, kneeR, ankleL, ankleR, toeL, toeR,
+    shoulderL, shoulderR, elbowL, elbowR, handL, handR, head,
+    sword, flailPts: gear.flailPts, flailBall: gear.flailBall, javA: gear.javA, javB: gear.javB,
+  };
+}
+
 /**
  * Pure pose math (no DOM). `phase` is the gait phase in radians; `t` a
  * wall-clock value for idle sway. All heights in metres, z = facing.
  */
 export function fighterPose(action: FighterAction, phase: number, t: number): FighterPose {
+  if (action === 'attack') return attackPose(phase);
+  if (action === 'hit') return hitPose(phase);
+  if (action === 'down') return downPose();
   const seated = action === 'seated';
   const hipY = seated ? .055 : .97;
   const sinP = Math.sin(phase), cosP = Math.cos(phase);
@@ -223,11 +363,41 @@ function arm(ctx: Ctx, view: View, W: number, H: number, pad: number, sh: V3, el
   });
 }
 
-function swordPaint(ctx: Ctx, view: View, W: number, H: number, pad: number, s: SwordPose) {
+function swordPaint(ctx: Ctx, view: View, W: number, H: number, pad: number, s: SwordPose, kind: FighterLook['mainHand'] = 'greatsword') {
   const blade = () => {
+    if (kind === 'battleaxe' || kind === 'warhammer') {
+      // Wooden haft from pommel to head.
+      limb(ctx, s.pommel, s.tip, kind === 'battleaxe' ? .016 : .018, '#5d4a30', view, W, H, pad);
+      const HS = view.toScreen(s.tip, W, H, pad);
+      if (kind === 'battleaxe') {
+        // Bearded axe head: dark iron wedge with a keen edge.
+        const dir = normV(subV(s.tip, s.grip));
+        const side = normV(v3(-dir.z, 0, dir.x));
+        const edge = [
+          addV(s.tip, scaleV(dir, .02)), addV(s.tip, addV(scaleV(side, .13), scaleV(dir, -.02))),
+          addV(s.tip, addV(scaleV(side, .11), scaleV(dir, -.17))), addV(s.tip, scaleV(dir, -.19)),
+        ];
+        mass(ctx, edge, '#3d434a', view, W, H, pad);
+        sheenLine(ctx, HS.x - 4, HS.y - 2, HS.x + 6, HS.y + 8, 0, '#dfe5ea', 1.6, .7);
+        blob(ctx, s.tip, .022, .022, '#2b2f34', view, W, H, pad);
+      } else {
+        // Warhammer: heavy iron head with a rear spike.
+        blob(ctx, s.tip, .055, .055, '#4a4f55', view, W, H, pad);
+        const dir = normV(subV(s.tip, s.grip));
+        const back = subV(s.tip, scaleV(dir, .10));
+        limb(ctx, s.tip, back, .012, '#33373c', view, W, H, pad);
+        dot(ctx, HS.x - 3, HS.y - 4, 1.6, '#dfe5ea', .8);
+        speckle(ctx, HS.x, HS.y, 5 * HS.scale, 5 * HS.scale, 8, 41, '#22252a', .5);
+      }
+      limb(ctx, s.grip, s.pommel, .017, '#3a2d1d', view, W, H, pad);
+      const PS = view.toScreen(s.pommel, W, H, pad);
+      dot(ctx, PS.x, PS.y, 1.4, '#8a6d3a', .9);
+      return;
+    }
     const grip = view.toScreen(s.grip, W, H, pad), tip = view.toScreen(s.tip, W, H, pad);
     const d = normV({ x: tip.x - grip.x, y: tip.y - grip.y, z: 0 });
-    const px = -d.y, py = d.x, w = .017 * view.pxPerMeter;
+    const narrow = kind === 'longsword' ? .78 : 1;
+    const px = -d.y, py = d.x, w = .017 * view.pxPerMeter * narrow;
     const path = new Path2D();
     path.moveTo(grip.x + px * w, grip.y + py * w);
     path.lineTo(tip.x + px * w * .12, tip.y + py * w * .12);
@@ -285,9 +455,10 @@ function javelinPaint(ctx: Ctx, view: View, W: number, H: number, pad: number, [
   dot(ctx, HS.x, HS.y - 1, 1.1, '#e8edf1', .8);
 }
 
-export function paintFighter(ctx: Ctx, view: View, pose: FighterPose) {
+export function paintFighter(ctx: Ctx, view: View, pose: FighterPose, look: FighterLook = DEFAULT_LOOK) {
   const W = 220, H = 270, pad = 8;
   const items: DrawItem[] = [];
+  const skin = look.skin || SKIN, skinShade = look.skinShade || SKIN_SH;
   const {
     hipL, hipR, kneeL, kneeR, ankleL, ankleR, toeL, toeR,
     shoulderL, shoulderR, elbowL, elbowR, handL, handR, head,
@@ -299,10 +470,68 @@ export function paintFighter(ctx: Ctx, view: View, pose: FighterPose) {
   arm(ctx, view, W, H, pad, shoulderL, elbowL, handL, items);
   arm(ctx, view, W, H, pad, shoulderR, elbowR, handR, items);
 
-  // Javelins across the back.
-  for (const j of [javA, javB]) {
-    const mid = v3((j[0].x + j[1].x) / 2, (j[0].y + j[1].y) / 2, (j[0].z + j[1].z) / 2);
-    items.push({ depth: view.depth(mid), draw: () => javelinPaint(ctx, view, W, H, pad, j) });
+  if (!look.bow) {
+    // Javelins across the back (legacy Wanderer kit).
+    for (const j of [javA, javB]) {
+      const mid = v3((j[0].x + j[1].x) / 2, (j[0].y + j[1].y) / 2, (j[0].z + j[1].z) / 2);
+      items.push({ depth: view.depth(mid), draw: () => javelinPaint(ctx, view, W, H, pad, j) });
+    }
+  } else {
+    // Longbow + quiver across the back.
+    const qMid = v3((javA[0].x + javA[1].x) / 2, (javA[0].y + javA[1].y) / 2, (javA[0].z + javA[1].z) / 2);
+    items.push({
+      depth: view.depth(qMid), draw: () => {
+        limb(ctx, javA[0], javA[1], .034, '#4a3826', view, W, H, pad);
+        const rim = view.toScreen(javA[1], W, H, pad);
+        dot(ctx, rim.x, rim.y, 3.2, '#2c2114', .9);
+        for (let i = 0; i < 3; i++) {
+          const t = .86 + i * .04;
+          const p = v3(javA[0].x + (javA[1].x - javA[0].x) * t, javA[0].y + (javA[1].y - javA[0].y) * t + .05, javA[0].z + (javA[1].z - javA[0].z) * t);
+          blob(ctx, p, .012, .02, i === 1 ? '#b03a2e' : '#d8d2c0', view, W, H, pad);
+        }
+      },
+    });
+    const bMid = v3((javB[0].x + javB[1].x) / 2, (javB[0].y + javB[1].y) / 2, (javB[0].z + javB[1].z) / 2);
+    items.push({
+      depth: view.depth(bMid) - .01, draw: () => {
+        const belly = v3(bMid.x, bMid.y, bMid.z - .09);
+        limb(ctx, javB[0], belly, .012, '#6b4f2e', view, W, H, pad);
+        limb(ctx, belly, javB[1], .012, '#6b4f2e', view, W, H, pad);
+        limb(ctx, javB[0], javB[1], .004, '#d8cfb8', view, W, H, pad);
+        blob(ctx, belly, .016, .016, '#3a2d1d', view, W, H, pad);
+      },
+    });
+  }
+
+  // Off-hand kit: round shield or a second short blade.
+  if (look.offHand === 'shield') {
+    const at = v3(handL.x - .07, handL.y + .03, handL.z + .03);
+    items.push({
+      depth: view.depth(at) + .03, draw: () => {
+        blob(ctx, at, .175, .175, '#5a4630', view, W, H, pad);
+        blob(ctx, at, .148, .148, '#2c3a5e', view, W, H, pad);
+        const s = view.toScreen(at, W, H, pad);
+        ctx.save();
+        ctx.translate(s.x, s.y); ctx.rotate(Math.PI / 4);
+        ctx.fillStyle = '#c9a84c';
+        const r = 7.5 * s.scale;
+        ctx.fillRect(-r / 2, -r / 2, r, r);
+        ctx.restore();
+        dot(ctx, s.x, s.y, 2.2, '#2c3a5e', .95);
+        blob(ctx, at, .034, .034, '#8d949c', view, W, H, pad);
+        dot(ctx, s.x - 2, s.y - 2.5, 1.2, '#eef2f5', .8);
+      },
+    });
+  } else if (look.offHand === 'shortsword') {
+    const dirO = normV(v3(-.35, -.8, .4));
+    const tipO = addV(handL, scaleV(dirO, .6));
+    const sideO = normV(v3(-dirO.z, 0, dirO.x));
+    const off: SwordPose = {
+      grip: handL, tip: tipO,
+      guardA: addV(handL, scaleV(sideO, .09)), guardB: subV(handL, scaleV(sideO, .09)),
+      pommel: subV(handL, scaleV(dirO, .06)),
+    };
+    items.push({ depth: view.depth(handL) + .02, draw: swordPaint(ctx, view, W, H, pad, off, 'longsword') });
   }
 
   // Chain-mail coif under the helm, with drape folds and a ring texture.
@@ -367,7 +596,7 @@ export function paintFighter(ctx: Ctx, view: View, pose: FighterPose) {
           limb(ctx, v3(0, hipY + .10 + bob, .045), v3(0, hipY - .015 + bob, .045), .007, shade(MAIL, -.30), view, W, H, pad);
         }
         if (f < -.15) {
-          // Javelin harness: crossed straps and a brass ring on the back.
+          // Harness: crossed straps and a brass ring on the back.
           limb(ctx, v3(-.14, hipY + .40 + bob, -.06), v3(.13, hipY + .10 + bob, -.05), .014, LEATHER, view, W, H, pad);
           limb(ctx, v3(.14, hipY + .40 + bob, -.06), v3(-.13, hipY + .10 + bob, -.05), .014, LEATHER, view, W, H, pad);
           blob(ctx, v3(0, hipY + .25 + bob, -.075), .020, .020, BRASS, view, W, H, pad);
@@ -416,15 +645,34 @@ export function paintFighter(ctx: Ctx, view: View, pose: FighterPose) {
     }
   } });
 
-  // Head + helm: dome, brow band, nasal, and a face that only shows on the
-  // front of the turn (profile and back views get their own treatment).
+  // Head: helm or hair, plus a face that only shows on the front of the turn.
   items.push({
     depth: view.depth(head),
     draw: () => {
-      blob(ctx, v3(0, head.y + .01, head.z), .112, .122, '#9aa1a8', view, W, H, pad);
-      const HS = view.toScreen(v3(0, head.y + .05, head.z), W, H, pad);
-      speckle(ctx, HS.x, HS.y, 13 * HS.scale, 10 * HS.scale, 22, 55, '#5c636b', .35);
-      dot(ctx, HS.x - 6 * HS.scale, HS.y - 7 * HS.scale, 2, '#eef2f5', .55);
+      if (look.helm) {
+        blob(ctx, v3(0, head.y + .01, head.z), .112, .122, '#9aa1a8', view, W, H, pad);
+        const HS = view.toScreen(v3(0, head.y + .05, head.z), W, H, pad);
+        speckle(ctx, HS.x, HS.y, 13 * HS.scale, 10 * HS.scale, 22, 55, '#5c636b', .35);
+        dot(ctx, HS.x - 6 * HS.scale, HS.y - 7 * HS.scale, 2, '#eef2f5', .55);
+      } else {
+        // Unhelmed: hair dome with style-specific falls.
+        blob(ctx, v3(0, head.y + .015, head.z), .108, .118, look.hairColor, view, W, H, pad);
+        const HS = view.toScreen(v3(0, head.y + .05, head.z), W, H, pad);
+        speckle(ctx, HS.x, HS.y, 12 * HS.scale, 9 * HS.scale, 26, 59, shade(look.hairColor, -.25), .5);
+        sheenLine(ctx, HS.x - 7 * HS.scale, HS.y - 6 * HS.scale, HS.x + 5 * HS.scale, HS.y - 8 * HS.scale, 0, shade(look.hairColor, .3), 2, .5);
+        if (look.hairStyle !== 'short') {
+          const hang = look.hairStyle === 'long' ? .20 : .16;
+          for (const sx of [-1, 1]) {
+            limb(ctx, v3(sx * .095, head.y + .02, head.z - .01), v3(sx * .105, head.y - hang, head.z - .03), look.hairStyle === 'braid' ? .020 : .030, shade(look.hairColor, -.08), view, W, H, pad);
+          }
+          if (look.hairStyle === 'braid') {
+            for (const sx of [-1, 1]) for (let i = 0; i < 3; i++) {
+              const BS = view.toScreen(v3(sx * .10, head.y - .05 - i * .05, head.z - .02), W, H, pad);
+              dot(ctx, BS.x, BS.y, 1.2, '#8a6d3a', .9);
+            }
+          }
+        }
+      }
       const facePt = v3(0, head.y - .012, head.z + .088);
       const f = view.facing;
       if (f > .1 && view.near(facePt, head)) {
@@ -432,10 +680,10 @@ export function paintFighter(ctx: Ctx, view: View, pose: FighterPose) {
         ctx.save(); ctx.globalAlpha = .45;
         blob(ctx, v3(0, head.y - .085, head.z + .045), .055, .035, '#7a5a3c', view, W, H, pad);
         ctx.restore();
-        blob(ctx, facePt, .068, .078, SKIN, view, W, H, pad);
+        blob(ctx, facePt, .068, .078, skin, view, W, H, pad);
         ctx.save(); ctx.globalAlpha = .28;
-        blob(ctx, v3(-.052, head.y - .015, head.z + .075), .020, .045, SKIN_SH, view, W, H, pad);
-        blob(ctx, v3(.052, head.y - .015, head.z + .075), .020, .045, SKIN_SH, view, W, H, pad);
+        blob(ctx, v3(-.052, head.y - .015, head.z + .075), .020, .045, skinShade, view, W, H, pad);
+        blob(ctx, v3(.052, head.y - .015, head.z + .075), .020, .045, skinShade, view, W, H, pad);
         ctx.restore();
         const JS = view.toScreen(v3(0, head.y - .052, head.z + .07), W, H, pad);
         speckle(ctx, JS.x, JS.y, 7 * JS.scale, 4.6 * JS.scale, 30, 71, '#6b4a2e', .5);
@@ -464,7 +712,7 @@ export function paintFighter(ctx: Ctx, view: View, pose: FighterPose) {
           const MS = view.toScreen(mouth, W, H, pad);
           dot(ctx, MS.x, MS.y + 2.2, 1, '#a0714f', .6);
         }
-        if (f > .3) {
+        if (f > .3 && look.helm) {
           const nasalA = v3(0, head.y + .055, head.z + .115), nasalB = v3(0, head.y - .012, head.z + .115);
           limb(ctx, nasalA, nasalB, .011, '#7c838b', view, W, H, pad);
           const NA = view.toScreen(nasalA, W, H, pad), NB = view.toScreen(nasalB, W, H, pad);
@@ -479,16 +727,16 @@ export function paintFighter(ctx: Ctx, view: View, pose: FighterPose) {
         }
       } else if (Math.abs(f) <= .1) {
         // Pure profile: brow, lashed eye, nose bridge, lips and cheek plane.
-        blob(ctx, v3(0, head.y + .004, head.z + .075), .030, .055, shade(SKIN, -.06), view, W, H, pad);
+        blob(ctx, v3(0, head.y + .004, head.z + .075), .030, .055, shade(skin, -.06), view, W, H, pad);
         blob(ctx, v3(0, head.y + .008, head.z + .10), .013, .011, '#e9e2d4', view, W, H, pad);
         blob(ctx, v3(0, head.y + .008, head.z + .106), .006, .007, '#14161a', view, W, H, pad);
         limb(ctx, v3(0, head.y + .032, head.z + .085), v3(0, head.y + .028, head.z + .115), .007, '#5c452c', view, W, H, pad);
         limb(ctx, v3(0, head.y + .02, head.z + .105), v3(0, head.y - .024, head.z + .120), .010, '#cfa87e', view, W, H, pad);
-        blob(ctx, v3(0, head.y - .026, head.z + .118), .012, .010, shade(SKIN, -.10), view, W, H, pad);
+        blob(ctx, v3(0, head.y - .026, head.z + .118), .012, .010, shade(skin, -.10), view, W, H, pad);
         limb(ctx, v3(0, head.y - .052, head.z + .095), v3(0, head.y - .052, head.z + .108), .005, '#8a5f43', view, W, H, pad);
         const browA = v3(0, head.y + .075, head.z + .045), browB = v3(0, head.y + .072, head.z + .105);
         limb(ctx, browA, browB, .018, '#7c838b', view, W, H, pad);
-      } else {
+      } else if (look.helm) {
         // Back of the turn: helm ridge, occipital rivets, longer mail curtain.
         limb(ctx, v3(0, head.y + .125, head.z - .01), v3(0, head.y - .02, head.z - .10), .012, '#7c838b', view, W, H, pad);
         for (const ry of [.06, .01]) {
@@ -496,17 +744,40 @@ export function paintFighter(ctx: Ctx, view: View, pose: FighterPose) {
           dot(ctx, RS.x, RS.y, 1.1, '#3c4147', .9);
         }
         blob(ctx, v3(0, head.y - .16, head.z - .04), .075, .055, MAIL_DARK, view, W, H, pad);
+      } else {
+        // Back of the turn, unhelmed: hair mass falling past the shoulders.
+        blob(ctx, v3(0, head.y - .10, head.z - .06), .085, look.hairStyle === 'short' ? .07 : .13, look.hairColor, view, W, H, pad);
       }
     },
   });
 
-  items.push({ depth: view.depth(sword.grip) + .02, draw: swordPaint(ctx, view, W, H, pad, sword) });
+  items.push({ depth: view.depth(sword.grip) + .02, draw: swordPaint(ctx, view, W, H, pad, sword, look.mainHand) });
 
   sortItems(items);
   for (const it of items) it.draw();
 }
 
 export const FIGHTER_SHEET = { tileW: 220, tileH: 270, pxPerMeter: 140, worldH: 270 / 140, bottomPad: 8 };
+
+/** Paint a single front-facing fighter frame (creation preview, portraits). */
+export function paintFighterPreview(
+  canvas: HTMLCanvasElement, look: FighterLook, direction = 0,
+  action: FighterAction = 'idle', frame = 0, frames = 1,
+): void {
+  canvas.width = FIGHTER_SHEET.tileW;
+  canvas.height = FIGHTER_SHEET.tileH;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const rel = relForIndex(direction);
+  const camX = -Math.sin(rel) * 12, camZ = -Math.cos(rel) * 12;
+  const view = new View(0, 0, 0, camX, camZ, FIGHTER_SHEET.pxPerMeter);
+  // Same phase convention as buildSheet so flourish keyframes match the atlas.
+  view.action = action;
+  view.phase = frames > 1 ? (frame / frames) * Math.PI * 2 : 0;
+  view.frame = frame;
+  view.t = action === 'idle' ? 0.6 : (frames > 1 ? (frame / frames) * 1.05 : 0);
+  paintFighter(ctx, view, fighterPose(action, view.phase, view.t), look);
+}
 
 // ---------------------------------------------------------------------------
 // Runtime actor
@@ -516,31 +787,53 @@ import * as THREE from 'three';
 import { SpriteActor, buildSheet, type SpriteSheet } from './sprites';
 
 export class FighterActor extends SpriteActor {
-  private static sheet: SpriteSheet | null = null;
-  constructor(camera: THREE.Camera) {
-    if (!FighterActor.sheet) {
-      FighterActor.sheet = buildSheet({
-        ...FIGHTER_SHEET,
-        actions: [
-          { name: 'idle', frames: 2 },
-          { name: 'walk', frames: 6 },
-          { name: 'sprint', frames: 6 },
-          { name: 'seated', frames: 1 },
-        ],
-        paint: (ctx, view) => paintFighter(ctx, view, fighterPose(view.action as FighterAction, view.phase, view.t)),
-      });
-    }
-    super(FighterActor.sheet, camera, {
+  private static sheets = new Map<string, SpriteSheet>();
+  private lookCacheKey: string;
+  constructor(camera: THREE.Camera, look: FighterLook = DEFAULT_LOOK) {
+    super(FighterActor.sheetFor(look), camera, {
       name: 'The Wanderer · chain-mail fighter',
       shadowRadius: .62,
       gaitHz: 2.3,
       sprintHz: 3.3,
     });
+    this.lookCacheKey = lookKey(look);
     this.anchor('handL', v3(-.22, 1.0, 0));
     this.anchor('handR', v3(.22, 1.0, 0));
   }
+  private static sheetFor(look: FighterLook): SpriteSheet {
+    const key = lookKey(look);
+    const cached = FighterActor.sheets.get(key);
+    if (cached) return cached;
+    if (FighterActor.sheets.size > 5) {
+      const oldest = FighterActor.sheets.keys().next();
+      if (!oldest.done && oldest.value) FighterActor.sheets.delete(oldest.value);
+    }
+    const sheet = buildSheet({
+      ...FIGHTER_SHEET,
+      actions: [
+        { name: 'idle', frames: 2 },
+        { name: 'walk', frames: 6 },
+        { name: 'sprint', frames: 6 },
+        { name: 'seated', frames: 1 },
+        // Paint-only flourish frames (creation preview only; never picked in gameplay).
+        { name: 'attack', frames: 4 },
+        { name: 'hit', frames: 2 },
+        { name: 'down', frames: 1 },
+      ],
+      paint: (ctx, view) => paintFighter(ctx, view, fighterPose(view.action as FighterAction, view.phase, view.t), look),
+    });
+    FighterActor.sheets.set(key, sheet);
+    return sheet;
+  }
+  /** Swap equipment/portrait visuals (rebuilds the cached sprite sheet). */
+  setLook(look: FighterLook): void {
+    const key = lookKey(look);
+    if (key === this.lookCacheKey) return;
+    this.lookCacheKey = key;
+    this.setSheet(FighterActor.sheetFor(look));
+  }
   protected applyPose(_state: { seated?: boolean }) {
-    const pose = fighterPose(this.actionName as FighterAction, this.gait, this.clock);
+    const pose = fighterPose(this.currentAction as FighterAction, this.gait, this.clock);
     this.plane.position.y = pose.bob;
     this.setAnchor('handL', pose.handL);
     this.setAnchor('handR', pose.handR);

@@ -9,7 +9,7 @@ export function renderShell(host: HTMLElement) {
           <div class="brand">${mark}<div class="brand-name">ASTRA<span>A WORLD BEYOND THE MAP</span></div><span class="preview-tag">CHAPTER ONE</span></div>
           <div class="compass"><canvas id="compass-canvas" aria-label="Compass heading east"></canvas></div>
           <nav class="world-tools" aria-label="World tools">
-            <span class="live-indicator"><span></span><span id="live-mode">THE OPENING CHAPTER</span></span><span class="hud-wallet"><i data-lucide="coins"></i><span id="hud-gold">0 gp</span></span><button class="icon-button inventory-tool" id="inventory-toggle" aria-label="Open inventory" title="Inventory · I"><i data-lucide="backpack"></i><span id="inventory-count">0</span></button><button class="icon-button" id="journal-toggle" aria-label="Open story journal" title="Story journal · N"><i data-lucide="book-open"></i></button>
+            <span class="live-indicator"><span></span><span id="live-mode">THE OPENING CHAPTER</span></span><span class="hud-wallet"><i data-lucide="coins"></i><span id="hud-gold">0 gp</span></span><button class="hero-plate" id="hero-plate" aria-label="Open character sheet" title="Character sheet · C" hidden><span id="hero-plate-hp">–</span></button><button class="icon-button inventory-tool" id="inventory-toggle" aria-label="Open inventory" title="Inventory · I"><i data-lucide="backpack"></i><span id="inventory-count">0</span></button><button class="icon-button" id="journal-toggle" aria-label="Open story journal" title="Story journal · N"><i data-lucide="book-open"></i></button>
             <button class="icon-button" id="sound-toggle" aria-label="Enable forest ambience" title="Enable forest ambience"><i data-lucide="volume-x"></i></button>
             <button class="icon-button" id="photo-toggle" aria-label="Photo mode" title="Photo mode · P"><i data-lucide="camera"></i></button>
             <span class="tool-separator"></span>
@@ -52,7 +52,7 @@ export function renderShell(host: HTMLElement) {
         </footer>
         <div class="pointer-hint" id="pointer-hint"><span class="hint-dot"></span> Click to look around <span>·</span> <kbd>ESC</kbd> to release</div>
         <div class="crosshair" aria-hidden="true"></div>
-        <button id="inspect-prompt" class="inspect-prompt" hidden><kbd>E</kbd><span id="inspect-label">Inspect</span></button>
+        <button id="inspect-prompt" class="inspect-prompt" hidden><span id="inspect-icon" aria-hidden="true"></span><kbd>E</kbd><span id="inspect-label">Inspect</span></button>
         <button id="journey-skip" class="journey-skip" hidden><span>Skip opening</span><i data-lucide="skip-forward"></i></button>
         <section id="narrator-panel" class="narrator-panel" aria-label="Narrator dialogue">
           <div class="narrator-top"><span class="narrator-seal">◇</span><span class="narrator-name">NARRATOR</span><span class="narrator-heading" id="narrator-heading"></span><span class="narrator-page" id="narrator-page">1 / 4</span></div>

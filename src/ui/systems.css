@@ -1,0 +1,125 @@
+/* Shared chrome for the five video-game systems: camp, rest, subtitles, hero plate.
+   Layer order: HUD < camp menu (110) < cinematic subtitles (115) < dice overlay (120). */
+
+/* --- Cinematic subtitles (BG3 style: bottom-centre, white on shadow, no box) --- */
+#cinematic-subtitles {
+  position: fixed; left: 0; right: 0; bottom: 9%; z-index: 115;
+  display: none; justify-content: center; pointer-events: none; padding: 0 24px;
+}
+#cinematic-subtitles.visible { display: flex; }
+#cinematic-subtitles-text {
+  max-width: 760px; text-align: center; color: #fff;
+  font-family: Georgia, 'Times New Roman', serif; font-size: clamp(17px, 2.4vw, 23px); line-height: 1.5;
+  text-shadow: 0 1px 3px #000, 0 0 12px rgba(0, 0, 0, .9), 0 2px 8px #000;
+}
+
+/* --- Camp menu --- */
+#camp-menu {
+  position: fixed; inset: 0; z-index: 110; display: none;
+  background: rgba(10, 10, 20, .55); backdrop-filter: blur(2px);
+  overflow-y: auto; padding: 30px 16px;
+}
+#camp-menu.visible { display: block; }
+#camp-menu.busy .camp-primary { pointer-events: none; opacity: .55; }
+.camp-frame { max-width: 640px; margin: 0 auto; color: #e8e0d0; font-family: 'Segoe UI', system-ui, sans-serif; }
+.camp-head { display: flex; align-items: center; gap: 10px; justify-content: center; margin-bottom: 14px; }
+.camp-head h2 { font-family: Cinzel, Georgia, serif; letter-spacing: 3px; font-size: 26px; color: #f2e9c8; margin: 0; }
+.camp-card {
+  background: rgba(20, 20, 36, .92); border: 1px solid #3a3a5c; border-radius: 12px;
+  padding: 16px 18px; margin-bottom: 12px;
+}
+.camp-card.locked { opacity: .6; }
+.camp-card-title { font-family: Cinzel, Georgia, serif; color: #f2e9c8; font-size: 17px; letter-spacing: 1px; }
+.camp-card-title .lock { float: right; }
+.camp-card-sub { color: #a99f88; font-size: 13px; margin: 4px 0 10px; }
+.camp-rows { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; font-size: 13px; }
+.camp-row { display: flex; justify-content: space-between; color: #d8cfb8; }
+.camp-row strong { color: #8fd18f; }
+.camp-primary {
+  width: 100%; background: linear-gradient(180deg, #e8c96a, #c9a84c); border: none; color: #1a1a2e;
+  font-weight: 800; border-radius: 8px; padding: 12px; font-size: 14px; letter-spacing: 1px;
+  cursor: pointer; font-family: Cinzel, Georgia, serif;
+}
+.camp-primary:disabled { opacity: .45; cursor: default; }
+.camp-note { color: #ff9d9d; font-size: 12px; margin-top: 8px; }
+.camp-links { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+.camp-links button {
+  background: rgba(20, 20, 36, .92); border: 1px solid #3a3a5c; border-radius: 10px; color: #e8e0d0;
+  padding: 12px; cursor: pointer; font-family: inherit; font-size: 13px; letter-spacing: 1px;
+  display: flex; flex-direction: column; gap: 3px; text-align: left;
+}
+.camp-links button span { color: #8f8672; font-size: 12px; letter-spacing: 0; }
+.camp-links button:hover { border-color: #c9a84c; }
+.camp-break {
+  width: 100%; background: transparent; border: 1px solid #55557a; color: #b6ac96; border-radius: 8px;
+  padding: 11px; letter-spacing: 2px; font-size: 13px; cursor: pointer; font-family: inherit;
+}
+.camp-break:hover { border-color: #c9a84c; color: #f2e9c8; }
+
+/* --- Rest cinematic chrome --- */
+#rest-fade { position: fixed; inset: 0; z-index: 114; background: #000; opacity: 0; pointer-events: none; transition: opacity .6s ease; }
+#rest-fade.black { opacity: 1; }
+#rest-clock {
+  position: fixed; top: 26px; left: 50%; transform: translateX(-50%); z-index: 115;
+  display: none; align-items: center; gap: 10px; color: #f2e9c8;
+  font-family: Cinzel, Georgia, serif; font-size: 19px; letter-spacing: 2px;
+  text-shadow: 0 1px 4px #000, 0 0 14px rgba(0, 0, 0, .8); pointer-events: none;
+}
+#rest-clock.visible { display: flex; }
+#rest-clock .rest-moon { color: #c9a84c; }
+
+/* --- Floating combat text --- */
+.float-text {
+  position: fixed; z-index: 60; pointer-events: none; transform: translate(-50%, -50%);
+  font-family: Cinzel, Georgia, serif; font-weight: 700; font-size: 26px;
+  animation: float-rise 2.2s ease-out forwards;
+}
+.float-text.heal { color: #7ee787; text-shadow: 0 0 12px rgba(60, 200, 90, .7), 0 2px 4px #000; }
+.float-text.info { color: #e8c96a; text-shadow: 0 0 12px rgba(201, 168, 76, .7), 0 2px 4px #000; }
+.float-text.debuff { color: #ff9d9d; text-shadow: 0 0 12px rgba(200, 60, 60, .7), 0 2px 4px #000; }
+@keyframes float-rise {
+  0% { opacity: 0; margin-top: 10px; }
+  12% { opacity: 1; }
+  100% { opacity: 0; margin-top: -90px; }
+}
+
+/* --- Hero plate (topbar) --- */
+.hero-plate {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(20, 20, 36, .8); border: 1px solid #c9a84c; border-radius: 999px;
+  color: #f2e9c8; font-size: 12px; padding: 5px 12px; cursor: pointer; font-family: inherit;
+}
+.hero-plate[hidden] { display: none; }
+.hero-plate:hover { background: rgba(40, 40, 66, .9); }
+.hero-plate .hp-low { color: #ff9d9d; font-weight: 700; }
+
+/* --- Character sheet dialog --- */
+.sheet-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0; }
+@media (max-width: 560px) { .sheet-grid { grid-template-columns: repeat(2, 1fr); } }
+.sheet-ability { background: rgba(255, 255, 255, .05); border: 1px solid rgba(201, 168, 76, .3); border-radius: 8px; padding: 8px; text-align: center; }
+.sheet-ability b { display: block; font-size: 11px; letter-spacing: 1px; color: #c9a84c; }
+.sheet-ability strong { font-size: 20px; font-family: Cinzel, Georgia, serif; }
+.sheet-ability span { display: block; font-size: 12px; color: #8fd18f; }
+.sheet-section { margin: 10px 0; font-size: 13.5px; line-height: 1.55; }
+.sheet-section h4 { color: #c9a84c; font-size: 12px; letter-spacing: 2px; margin: 12px 0 4px; text-transform: uppercase; }
+.sheet-skills { columns: 2; font-size: 13px; }
+.sheet-skills div { break-inside: avoid; padding: 1px 0; }
+.sheet-skills .prof { color: #8fd18f; }
+
+/* Creation gates the welcome screen. */
+body[data-creating="true"] .welcome,
+body[data-creating="true"] .journey-status { visibility: hidden; }
+
+@media (prefers-reduced-motion: reduce) {
+  .float-text { animation-duration: .01s; }
+  #rest-fade { transition-duration: .01s; }
+}
+
+/* HUD HP globe + world-prompt icon. */
+#hero-plate-hp { display: inline-flex; align-items: center; gap: 7px; }
+#hero-plate-hp .hp-globe { display: block; }
+#hero-plate-hp .hp-num { font-size: 23px; }
+.hero-pips { color: #e8e0d0; font-size: 12px; letter-spacing: 3px; }
+#inspect-icon { display: inline-flex; color: #c9a84c; }
+#inspect-icon:empty { display: none; }
+#inspect-icon svg { width: 15px; height: 15px; }

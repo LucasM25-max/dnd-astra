@@ -1,0 +1,49 @@
+{
+  "id": "human",
+  "name": "Human",
+  "title": "HUMAN — Versatile and Determined",
+  "cardBlurb": "Who are your ancestors? What languages do they speak?",
+  "flavour": "Humans are the most adaptable and ambitious of the common species. Their short lives drive them to achieve as much as they can — and the Sword Coast remembers those who try.",
+  "size": "Medium",
+  "speed": 30,
+  "speedNote": "Your movement speed. Sprint with Shift to move much faster on foot.",
+  "pointBuy": {
+    "points": 27,
+    "min": 8,
+    "max": 15,
+    "note": "Your Soldier background determines your primary ability increases."
+  },
+  "abilityRanks": [
+    { "score": 8, "rank": "Feeble" },
+    { "score": 9, "rank": "Frail" },
+    { "score": 10, "rank": "Average" },
+    { "score": 11, "rank": "Steady" },
+    { "score": 12, "rank": "Capable" },
+    { "score": 13, "rank": "Sharp" },
+    { "score": 14, "rank": "Exceptional" },
+    { "score": 15, "rank": "Heroic" }
+  ],
+  "abilityGuidance": {
+    "STR": "Melee attacks hit harder; force open stuck doors and win grapples.",
+    "DEX": "Move quietly, react quickly, and strike true with bows and light blades.",
+    "CON": "More health and grit — shrug off poison, cold, and long marches.",
+    "INT": "Recall lore, solve riddles, and notice what others overlook in books and ruins.",
+    "WIS": "Spot ambushes, read people, and survive the wilds between towns.",
+    "CHA": "Bargain, persuade, and stare down trouble before steel is drawn."
+  },
+  "recommendedBuild": {
+    "STR": 15, "DEX": 12, "CON": 14, "INT": 8, "WIS": 13, "CHA": 10,
+    "rationale": "Balanced frontline warrior. High Strength for melee, good Constitution for health, decent Wisdom for spotting ambushes."
+  },
+  "languages": {
+    "fixed": ["Common"],
+    "choices": ["Dwarvish", "Elvish", "Goblin", "Orc", "Halfling"],
+    "recommended": "Goblin",
+    "recommendReason": "Useful for understanding the enemies you'll face early on."
+  },
+  "traits": [
+    { "id": "resourceful", "name": "Resourceful", "pitch": "Start each day with 1 Inspiration charge. Spend it to reroll any d20 check — a glowing star in your HUD." },
+    { "id": "skillful", "name": "Skillful", "pitch": "Proficiency in one additional skill of your choice." },
+    { "id": "versatile", "name": "Versatile", "pitch": "You gain an Origin feat of your choice." }
+  ]
+}

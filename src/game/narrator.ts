@@ -74,8 +74,31 @@ export class Narrator {
     try { await this.audio.play(); }
     catch (error) {
       if (token !== this.generation || this.pauseReasons.size || !this.active || (error instanceof DOMException && error.name === 'AbortError')) return;
+      if (error instanceof DOMException && error.name === 'NotAllowedError') this.armAutoplayRetry();
       this.useTextFallback();
     }
+  }
+  private autoplayArmed = false;
+  /**
+   * The title→forge→load gap can outlive user activation, so autoplay may
+   * block the opening line. Retry on the next gesture and glide back to
+   * voice in sync with the subtitles.
+   */
+  private armAutoplayRetry(): void {
+    if (this.autoplayArmed) return;
+    this.autoplayArmed = true;
+    const retry = (): void => {
+      if (!this.active) return;
+      if (this.fallback) this.audio.currentTime = this.fallbackTime;
+      void this.audio.play().then(() => {
+        this.autoplayArmed = false;
+        window.removeEventListener('pointerdown', retry);
+        window.removeEventListener('keydown', retry);
+        if (this.fallback) { this.fallback = false; this.onChange(); }
+      }).catch(() => { /* Still blocked; wait for the next gesture. */ });
+    };
+    window.addEventListener('pointerdown', retry);
+    window.addEventListener('keydown', retry);
   }
   private useTextFallback() {
     if (this.fallback) return;

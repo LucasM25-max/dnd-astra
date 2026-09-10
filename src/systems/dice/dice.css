@@ -1,0 +1,154 @@
+/* Astra dice overlay — BG3-style roll presentation. */
+:root {
+  --astra-bg: #1a1a2e;
+  --astra-panel: #23233a;
+  --astra-ink: #e8e0d0;
+  --astra-gold: #c9a84c;
+  --astra-gold-hi: #e8c96a;
+  --astra-iron: #3a3a4e;
+  --astra-success: #7ee787;
+  --astra-failure: #ff7b72;
+}
+#dice-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 120;
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+#dice-overlay.visible { display: flex; }
+#dice-overlay .dice-backdrop {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% 45%, rgba(10, 10, 22, 0.55), rgba(8, 8, 18, 0.88));
+  backdrop-filter: blur(2px) brightness(0.6);
+}
+#dice-overlay .dice-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px 18px;
+  pointer-events: none;
+  max-height: 100%;
+  overflow: hidden;
+}
+.dice-check {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  font-family: Cinzel, 'Cormorant Garamond', Georgia, serif;
+  font-size: 26px;
+  letter-spacing: 1px;
+  color: var(--astra-ink);
+  text-shadow: 0 2px 18px #000;
+}
+.dice-check #dice-dc {
+  font-family: Manrope, Arial, sans-serif;
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: var(--astra-gold);
+  border: 1px solid rgba(201, 168, 76, 0.5);
+  border-radius: 3px;
+  padding: 3px 9px;
+}
+.dice-check #dice-dc.hidden { display: none; }
+.dice-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+}
+.dice-canvas { display: block; }
+.dice-readout {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 74px;
+}
+#dice-natural {
+  font-family: Cinzel, 'Cormorant Garamond', Georgia, serif;
+  font-size: 74px;
+  line-height: 1;
+  color: #f5eeda;
+  text-shadow: 0 0 26px rgba(201, 168, 76, 0.65), 0 3px 10px #000;
+  opacity: 0;
+}
+#dice-natural.zoom { animation: dice-zoom 0.45s cubic-bezier(0.2, 1.6, 0.4, 1) forwards; }
+@keyframes dice-zoom {
+  from { opacity: 0; transform: scale(2.4); }
+  to { opacity: 1; transform: scale(1); }
+}
+#dice-badge {
+  font-family: Manrope, Arial, sans-serif;
+  font-weight: 700;
+  font-size: 24px;
+  color: #241d08;
+  background: linear-gradient(160deg, var(--astra-gold-hi), var(--astra-gold));
+  border: 1px solid #f0d894;
+  border-radius: 999px;
+  padding: 6px 18px;
+  box-shadow: 0 4px 22px rgba(201, 168, 76, 0.5);
+  opacity: 0;
+}
+#dice-badge:empty { display: none; }
+#dice-badge.slam { animation: dice-slam 0.38s cubic-bezier(0.2, 1.8, 0.35, 1) forwards; }
+@keyframes dice-slam {
+  0% { opacity: 0; transform: translateX(120px) scale(1.5) rotate(8deg); }
+  60% { opacity: 1; transform: translateX(-8px) scale(0.96) rotate(-2deg); }
+  100% { opacity: 1; transform: none; }
+}
+#dice-total {
+  font-family: Cinzel, 'Cormorant Garamond', Georgia, serif;
+  font-size: 30px;
+  color: var(--astra-ink);
+  min-height: 38px;
+  letter-spacing: 1px;
+}
+#dice-total.pulse { animation: dice-pulse 0.8s ease-out; }
+@keyframes dice-pulse {
+  0% { transform: scale(1.6); color: #fff8e2; text-shadow: 0 0 30px rgba(232, 201, 106, 0.9); }
+  100% { transform: scale(1); }
+}
+#dice-banner {
+  font-family: Manrope, Arial, sans-serif;
+  font-weight: 700;
+  font-size: 20px;
+  letter-spacing: 6px;
+  min-height: 28px;
+  opacity: 0;
+}
+#dice-banner.banner { animation: dice-banner-in 0.5s ease-out forwards; }
+#dice-banner.success { color: var(--astra-success); text-shadow: 0 0 24px rgba(126, 231, 135, 0.8); }
+#dice-banner.failure { color: var(--astra-failure); text-shadow: 0 0 24px rgba(255, 123, 114, 0.8); }
+@keyframes dice-banner-in {
+  from { opacity: 0; transform: scale(1.5); letter-spacing: 14px; }
+  to { opacity: 1; transform: scale(1); }
+}
+#dice-overlay.success .dice-backdrop { box-shadow: inset 0 0 180px rgba(126, 231, 135, 0.22); }
+#dice-overlay.failure .dice-backdrop { box-shadow: inset 0 0 180px rgba(255, 60, 40, 0.28); }
+.dice-hint {
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  color: rgba(232, 224, 208, 0.55);
+  margin-top: 4px;
+}
+#dice-overlay.reduced #dice-natural,
+#dice-overlay.reduced #dice-badge,
+#dice-overlay.reduced #dice-total,
+#dice-overlay.reduced #dice-banner { animation: none; opacity: 1; transform: none; }
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+@media (max-width: 760px) {
+  .dice-check { font-size: 20px; }
+  #dice-natural { font-size: 58px; }
+  #dice-badge { font-size: 19px; }
+}

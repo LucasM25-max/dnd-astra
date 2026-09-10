@@ -1,4 +1,4 @@
-import { createIcons, ArrowRight, ArrowUp, ArrowUpRight, Camera, Check, ChevronRight, CircleHelp, Cloud, CloudLightning, CloudRain, Compass, Download, Expand, Eye, Footprints, Headphones, Leaf, Maximize, Moon, Mouse, PersonStanding, Play, RotateCcw, SlidersHorizontal, Snowflake, Sun, Volume2, VolumeX, Wind, X, Backpack, Coins, Package, PackageOpen, Wheat, Cylinder, Beer, Shovel, Pickaxe, Wrench, Lamp, Droplet, BookOpen, Search, Pause, SkipForward, LogOut, LogIn } from 'lucide';
+import { createIcons, ArrowRight, ArrowUp, ArrowUpRight, Camera, Check, ChevronRight, CircleHelp, Cloud, CloudLightning, CloudRain, Compass, Dices, Download, Expand, Eye, Footprints, Headphones, Leaf, Maximize, Moon, Mouse, PersonStanding, Play, RotateCcw, SlidersHorizontal, Snowflake, Sun, Volume2, VolumeX, Wind, X, Backpack, Coins, Package, PackageOpen, Wheat, Cylinder, Beer, Shovel, Pickaxe, Wrench, Lamp, Droplet, BookOpen, Search, Pause, SkipForward, LogOut, LogIn } from 'lucide';
 import { ForestAudio } from '../engine/audio';
 import { isFormControl, type CameraMode } from '../engine/controller';
 import { WoodlandWorld, type Quality, type WorldState } from '../engine/world';
@@ -12,7 +12,7 @@ interface Preferences {
   quality: Quality; volume: number; sensitivity: number; invertY: boolean;
   musicVolume: number; musicEnabled: boolean; weatherOverride: WeatherId | 'auto';
 }
-const iconSet = { Barrel: Cylinder, ArrowRight, ArrowUp, ArrowUpRight, Camera, Check, ChevronRight, CircleHelp, Cloud, CloudLightning, CloudRain, Compass, Download, Expand, Eye, Footprints, Headphones, Leaf, Maximize, Moon, Mouse, PersonStanding, Play, RotateCcw, SlidersHorizontal, Snowflake, Sun, Volume2, VolumeX, Wind, X, Backpack, Coins, Package, PackageOpen, Wheat, Cylinder, Beer, Shovel, Pickaxe, Wrench, Lamp, Droplet, BookOpen, Search, Pause, SkipForward, LogOut, LogIn };
+const iconSet = { Barrel: Cylinder, ArrowRight, ArrowUp, ArrowUpRight, Camera, Check, ChevronRight, CircleHelp, Cloud, CloudLightning, CloudRain, Compass, Dices, Download, Expand, Eye, Footprints, Headphones, Leaf, Maximize, Moon, Mouse, PersonStanding, Play, RotateCcw, SlidersHorizontal, Snowflake, Sun, Volume2, VolumeX, Wind, X, Backpack, Coins, Package, PackageOpen, Wheat, Cylinder, Beer, Shovel, Pickaxe, Wrench, Lamp, Droplet, BookOpen, Search, Pause, SkipForward, LogOut, LogIn };
 export const refreshIcons = () => createIcons({ icons: iconSet, attrs: { 'stroke-width': 1.5 } });
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 const icon = (name: string) => `<i data-lucide="${name}"></i>`;
@@ -48,6 +48,9 @@ export class WorldInterface {
     world.onDiscovery = name => this.discover(name);
     world.onNotice = message => this.toast(message);
     world.onControlHandoff = () => { this.adventureUI.update(world.getState()); this.toast('You have the reins. Press R to step down and inspect the cargo.'); };
+    // Camp menu cross-links: close camp before opening a full dialog.
+    world.onOpenInventoryRequest = () => { world.restSystem.closeCamp(); this.openDialog('inventory'); };
+    world.onOpenSheetRequest = () => { world.restSystem.closeCamp(); this.openDialog('sheet'); };
     this.update(this.state);
   }
   private bind() {
@@ -63,7 +66,6 @@ export class WorldInterface {
     click('#sound-toggle', () => { void this.toggleAudio(); });
     click('#fullscreen-toggle', () => { void this.fullscreen(); });
     click('#inspect-prompt', () => this.adventureUI.interact());
-    $('#inspect-prompt').addEventListener('inspect-horses', () => this.openDialog('inspect'), opts);
     click('#touch-jump', () => { if (!this.world.controller.started) this.start(); if (this.world.adventure.mounted) this.adventureUI.toggleMounted(); else this.world.controller.jump(); });
     document.querySelectorAll<HTMLButtonElement>('[data-view]').forEach(b => b.addEventListener('click', () => this.setMode(b.dataset.view as CameraMode), opts));
     $('#dialog-backdrop').addEventListener('click', e => { if (e.target === e.currentTarget) this.closeDialog(); }, opts);
@@ -86,7 +88,7 @@ export class WorldInterface {
         this.updateSelected('[data-weather]', 'weather', this.config.weatherOverride); this.savePreferences();
       }
       if (action === 'music') this.toggleMusic();
-      if (action === 'long-rest') { const line = this.world.longRest(); if (line) { this.closeDialog(); this.toast(line); } }
+      if (action === 'long-rest') { this.closeDialog(); this.world.openCamp(); }
     }, opts);
     $('#dialog').addEventListener('input', e => {
       const input = e.target as HTMLInputElement;
@@ -224,7 +226,7 @@ export class WorldInterface {
       const h = holidayOf(t.month, d);
       cells.push(`<span class="cal-day${d === t.day ? ' today' : ''}${h ? ' ' + h.tone : ''}"${h ? ` title="${h.name}"` : ''}>${d}</span>`);
     }
-    strip.innerHTML = `<div class="cal-month"><b>${month.name}</b><span>${month.epithet}</span></div><div class="cal-days">${cells.join('')}</div><small class="cal-note">${today ? `<b>${today.name}</b> falls today.` : next ? `Next: ${next.holiday.name}, in ${next.inDays} day${next.inDays === 1 ? '' : 's'}.` : `The ${t.day}${t.day === 1 ? 'st' : t.day === 2 ? 'nd' : t.day === 3 ? 'rd' : 'th'} day of ${month.name}.`}</small>`;
+    strip.innerHTML = `<div class="cal-month"><b>${month.name}</b><span>${month.epithet}</span></div><div class="cal-days">${cells.join('')}</div><small class="cal-note">${today ? `<b>${today.name}</b> falls today.` : next ? `Next: ${next.holiday.name}, in ${next.inDays} day${next.inDays === 1 ? 's' : 's'}.` : `The ${t.day}${t.day === 1 ? 'st' : t.day === 2 ? 'nd' : t.day === 3 ? 'rd' : 'th'} day of ${month.name}.`}</small>`;
   }
   openDialog(kind: DialogKind) {
     this.dialog = kind; $('.hud').inert = true; this.world.setPaused(true); this.audio.setPaused(true); this.music.setPaused(true);
@@ -244,7 +246,7 @@ export class WorldInterface {
     this.world.renderer.domElement.focus({ preventScroll: true });
   }
   private dialogHTML(kind: DialogKind) {
-    if (['inventory', 'cargo', 'journal'].includes(kind)) return this.adventureUI.dialogHTML(kind as AdventureDialog);
+    if (['inventory', 'cargo', 'journal', 'sheet'].includes(kind)) return this.adventureUI.dialogHTML(kind as AdventureDialog);
     const close = `<button class="icon-button dialog-close" data-action="close" aria-label="Close dialog">${icon('x')}</button>`;
     if (kind === 'settings') return `${close}<div class="dialog-eyebrow">THE FINER DETAILS</div><h2 id="dialog-title">Your world, your way.</h2><p class="dialog-description">Settle into the atmosphere that feels like you.</p>
       <div class="setting-section"><div class="setting-heading"><label>Visual quality</label><span>REAL-TIME RENDERING</span></div><div class="setting-segment">${(['performance', 'balanced', 'high'] as Quality[]).map(q => `<button data-quality="${q}" class="${this.config.quality === q ? 'selected' : ''}" aria-pressed="${this.config.quality === q}">${q === 'performance' ? 'Performance' : q === 'balanced' ? 'Balanced' : 'High fidelity'}</button>`).join('')}</div><small class="setting-note">High fidelity adds denser foliage, environment lighting, finer shadows, and cinematic bloom.</small></div>
@@ -255,9 +257,9 @@ export class WorldInterface {
       <div class="setting-section narrator-setting"><div class="setting-heading"><label>Narrator voice</label><button class="switch ${this.world.adventure.narrator.state.voiceEnabled ? 'on' : ''}" role="switch" aria-checked="${this.world.adventure.narrator.state.voiceEnabled}" aria-label="Narrator voice" data-action="narrator-voice"><span></span></button></div><small class="setting-note">The narrated opening is included locally. No API key is needed to play.</small></div><div class="setting-section last"><div class="setting-heading"><label for="sensitivity">Look sensitivity</label><output id="sensitivity-value">${this.config.sensitivity.toFixed(1)}×</output></div><input id="sensitivity" data-setting="sensitivity" type="range" min="0.3" max="2.2" step="0.1" value="${this.config.sensitivity}"><label class="checkbox-label"><input data-setting="invert" type="checkbox" ${this.config.invertY ? 'checked' : ''}>Invert vertical look</label></div><div class="dialog-footnote">${icon('check')} Preferences are saved on this device.</div>`;
     if (kind === 'map') return `${close}<div class="dialog-eyebrow">A SMALL CORNER OF THE FORGOTTEN REALMS</div><h2 id="dialog-title">The Triboar Trail</h2><p class="dialog-description">Every path begins with a little curiosity.</p><div class="world-map-frame"><canvas id="world-map-canvas" aria-label="Map of the east-west Triboar Trail and the northern Cragmaw trail, showing your position"></canvas></div><div class="map-legend"><span><b class="player-legend">▲</b> You are here</span><span><b>◇</b> Ambush clearing</span><span class="map-footnote">NORTH IS UP · NO GRID</span></div><div id="calendar-strip" class="calendar-strip"></div><div class="dialog-footnote map-instruction">${icon('compass')} Follow the narrow northern trail toward Cragmaw Hideout.</div>`;
     if (kind === 'help') return `${close}<div class="dialog-eyebrow">A FEW WAYS TO FIND YOUR FEET</div><h2 id="dialog-title">Take the scenic route.</h2><p class="dialog-description">Keep the reins, or step down and take a closer look.</p><div class="help-grid">${[
-      ['W A S D', 'Walk / guide the wagon', 'W/S guide, A/D steer at the reins.'], ['SHIFT', 'Sprint on foot', 'Hold while walking.'], ['SPACE', 'Jump / wagon brake', 'Pauses narration during the cutscene.'], ['MOUSE', 'Look around', 'Click to capture, or click and drag.'], ['V', 'Change perspective', 'First person or third person.'], ['SCROLL', 'Camera distance', 'Zoom in or out in third person.'], ['M', 'World map', 'Find your place in the woodland.'], ['P', 'Photo mode', 'Hide the interface. Keep the moment.'], ['E', 'Open / inspect', 'Open nearby cargo or examine the clearing.'], ['R', 'Board / dismount', 'Step down to reach the cargo.'], ['I', 'Inventory', 'Currency, quantities, and gp values.'], ['N', 'Story journal', 'The Narrator’s complete text.'], ['ESC', 'Pause / release mouse', 'Take a breath. The world will wait.'],
+      ['W A S D', 'Walk / guide the wagon', 'W/S guide, A/D steer at the reins.'], ['SHIFT', 'Sprint on foot', 'Hold while walking.'], ['SPACE', 'Jump / wagon brake', 'Pauses narration during the cutscene.'], ['MOUSE', 'Look around', 'Click to capture, or click and drag.'], ['V', 'Change perspective', 'First person or third person.'], ['SCROLL', 'Camera distance', 'Zoom in or out in third person.'], ['M', 'World map', 'Find your place in the woodland.'], ['P', 'Photo mode', 'Hide the interface. Keep the moment.'], ['E', 'Open / interact', 'Open cargo, examine the clearing, or make camp.'], ['R', 'Board / dismount', 'Step down to reach the cargo.'], ['I', 'Inventory', 'Currency, quantities, and gp values.'], ['C', 'Character sheet', 'Your hero: abilities, skills, and gear.'], ['N', 'Story journal', 'The Narrator’s complete text.'], ['ESC', 'Pause / release mouse', 'Take a breath. The world will wait.'],
     ].map(([key, label, note]) => `<div class="help-row"><kbd>${key}</kbd><div><strong>${label}</strong><span>${note}</span></div></div>`).join('')}</div><div class="dialog-footnote">${icon('leaf')} The bean is a placeholder. The adventure is just beginning.</div>`;
-    if (kind === 'pause') return `${close}<div class="pause-emblem">${icon('leaf')}</div><div class="dialog-eyebrow">THE ROAD CAN WAIT</div><h2 id="dialog-title">A moment of quiet.</h2><p class="dialog-description">Your little corner of the world will be right here.</p><div class="pause-actions"><button class="primary-action" data-action="resume">${icon('play')} Back to the woodland ${icon('arrow-right')}</button><button data-action="settings">${icon('sliders-horizontal')} World settings ${icon('chevron-right')}</button><button data-action="help">${icon('compass')} A guide to exploring ${icon('chevron-right')}</button><button data-action="reset" ${this.world.adventure.inventory.arrived ? '' : 'disabled'}>${icon('rotate-ccw')} Return to the wagon</button><button data-action="long-rest" ${this.world.adventure.inventory.arrived && this.world.controller.started ? '' : 'disabled'}>${icon('moon')} Long rest — sleep until morning</button></div><div class="dialog-footnote">TRIBOAR TRAIL · THE SWORD COAST</div>`;
+    if (kind === 'pause') return `${close}<div class="pause-emblem">${icon('leaf')}</div><div class="dialog-eyebrow">THE ROAD CAN WAIT</div><h2 id="dialog-title">A moment of quiet.</h2><p class="dialog-description">Your little corner of the world will be right here.</p><div class="pause-actions"><button class="primary-action" data-action="resume">${icon('play')} Back to the woodland ${icon('arrow-right')}</button><button data-action="settings">${icon('sliders-horizontal')} World settings ${icon('chevron-right')}</button><button data-action="help">${icon('compass')} A guide to exploring ${icon('chevron-right')}</button><button data-action="reset" ${this.world.adventure.inventory.arrived ? '' : 'disabled'}>${icon('rotate-ccw')} Return to the wagon</button><button data-action="long-rest" ${this.world.adventure.inventory.arrived && this.world.controller.started ? '' : 'disabled'}>${icon('moon')} Make camp — rest at the campfire</button></div><div class="dialog-footnote">TRIBOAR TRAIL · THE SWORD COAST</div>`;
     return `${close}<div class="dialog-eyebrow">A STORY LEFT BEHIND</div><h2 id="dialog-title">An uneasy silence.</h2><div class="inspect-divider">◇</div><p class="inspect-copy">Two living horses wander between the ransacked belongings, lowering their heads to sniff at the emptied saddlebags. Neither appears injured. Black-fletched arrows lie in the dust nearby.</p><p class="inspect-copy">To the north, a narrow trail disappears between the trees. Bent grass and disturbed earth suggest someone passed this way.</p><div class="inspect-note">${icon('leaf')} The horses are alive. There are no enemies or combat in this chapter yet.</div><button class="primary-action" data-action="close">Leave it to the forest ${icon('arrow-right')}</button>`;
   }
   private trapFocus(e: KeyboardEvent) {
