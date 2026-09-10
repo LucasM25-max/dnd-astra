@@ -5,6 +5,8 @@ export const DICE_TIMING = {
   bannerDelayMs: 950,
   dismissMs: 2500,
   physicsTimeoutMs: 3200,
+  /** Free-tumble seconds before the final-window guidance eases in. */
+  guideBeginSec: 1.15,
   reduced: {
     settleDelayMs: 350,
     dismissMs: 2200,

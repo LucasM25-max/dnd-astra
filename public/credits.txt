@@ -49,7 +49,11 @@ a private environment key, natural-language direction, and inline audio tags.
 It is not run automatically or called from browser code.
 
 Additional original AI-generated texture sources: wagon oak, flax sackcloth,
-and short animal coat. Normal maps are derived, not photogrammetry scans.
+short animal coat, the ivory dice-body PBR set, the dragon dice tray, and the
+campfire ember/smoke sprites. Normal maps are derived, not photogrammetry
+scans. The dice and particle WebP files are size-optimized conversions of
+those sources (scripts/prepare-system-assets.mjs); the dust-mote sprite is a
+procedural soft dot after its source shipped with a baked-in artefact.
 The wagon, cargo containers, casks, sacks, tools, lanterns, yoke, reins, and
 hinged lids are procedural models created for this chapter.
 The character and animal sprites are painted in code (canvas 2D) as

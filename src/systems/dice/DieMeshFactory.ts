@@ -2,30 +2,104 @@ import * as THREE from 'three';
 import type { DieType } from './DiceResultResolver';
 
 /**
- * Ivory-and-gold dice: procedural PBR-style materials plus per-face gold numerals.
- * Faces are extracted from each solid (coplanar triangles merged), so the
- * physics die can be guided to land any pre-determined value face-up.
+ * Ivory-and-gold dice: PBR bone body (albedo/normal/roughness WebP) plus
+ * per-face chiselled gold numerals. Faces are extracted from each solid
+ * (coplanar triangles merged), so the physics die can be guided to land any
+ * pre-determined value face-up.
+ *
+ * Body maps load asynchronously and are cached for the session; the factory
+ * stays synchronous and falls back to a procedural ivory material until the
+ * cache settles (first roll on a slow connection). Call `preloadDiceMaps()`
+ * from the roller initialisation path so later rolls always get full PBR.
  */
 export interface DieFace { value: number; normal: THREE.Vector3; center: THREE.Vector3 }
 export interface DieMesh { group: THREE.Group; radius: number; faces: DieFace[] }
+export interface DiceBodyMaps { map: THREE.Texture; normalMap: THREE.Texture; roughnessMap: THREE.Texture }
 
 const IVORY = '#f0e7d3';
-const GOLD_NUMERAL = '#8a6d2f';
-const EDGE = '#7a6430';
+const EDGE_INLAY = '#8a6d3a';
 
+const MAP_URLS = {
+  map: '/textures/dice/dice_body_albedo.webp',
+  normalMap: '/textures/dice/dice_body_normal.webp',
+  roughnessMap: '/textures/dice/dice_body_roughness.webp',
+} as const;
+
+/** Session cache for the shared body maps (never disposed per-roll). */
+let cachedMaps: DiceBodyMaps | null = null;
+let mapsSettled = false;
+let mapsPromise: Promise<DiceBodyMaps | null> | null = null;
+const sharedTextures = new Set<THREE.Texture>();
+
+function configureMap(texture: THREE.Texture, srgb: boolean): THREE.Texture {
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.anisotropy = 4;
+  if (srgb) texture.colorSpace = THREE.SRGBColorSpace;
+  sharedTextures.add(texture);
+  return texture;
+}
+
+async function loadMaps(): Promise<DiceBodyMaps | null> {
+  try {
+    const loader = new THREE.TextureLoader();
+    const [map, normalMap, roughnessMap] = await Promise.all([
+      loader.loadAsync(MAP_URLS.map),
+      loader.loadAsync(MAP_URLS.normalMap),
+      loader.loadAsync(MAP_URLS.roughnessMap),
+    ]);
+    return {
+      map: configureMap(map, true),
+      normalMap: configureMap(normalMap, false),
+      roughnessMap: configureMap(roughnessMap, false),
+    };
+  } catch {
+    return null; // Procedural ivory fallback stays in place.
+  }
+}
+
+/** Begin (or await) loading the shared PBR body maps. Never rejects. */
+export function preloadDiceMaps(): Promise<DiceBodyMaps | null> {
+  if (!mapsPromise) {
+    mapsPromise = loadMaps().then(maps => {
+      cachedMaps = maps;
+      mapsSettled = true;
+      return maps;
+    });
+  }
+  return mapsPromise;
+}
+
+/** Synchronously peek at the session cache (null until settled with maps). */
+export function diceMapsReady(): DiceBodyMaps | null {
+  return mapsSettled ? cachedMaps : null;
+}
+
+/** Gold-inlay numeral: dark engraving bed, gold gradient fill, incised top-light. */
 function numeralTexture(text: string, size: number): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d')!;
   ctx.clearRect(0, 0, size, size);
-  ctx.font = `700 ${Math.floor(size * 0.52)}px Georgia, serif`;
+  ctx.font = `700 ${Math.floor(size * 0.52)}px Georgia, 'Times New Roman', serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.lineWidth = Math.max(2, size * 0.03);
-  ctx.strokeStyle = 'rgba(60,45,15,0.85)';
-  ctx.strokeText(text, size / 2, size / 2 + size * 0.02);
-  ctx.fillStyle = GOLD_NUMERAL;
-  ctx.fillText(text, size / 2, size / 2 + size * 0.02);
+  const cx = size / 2, cy = size / 2 + size * 0.02;
+  // Engraved bed.
+  ctx.lineWidth = Math.max(2, size * 0.045);
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = 'rgba(58, 42, 14, 0.92)';
+  ctx.strokeText(text, cx, cy);
+  // Gold fill with a vertical falloff (bright crown, deep base).
+  const gold = ctx.createLinearGradient(0, size * 0.24, 0, size * 0.78);
+  gold.addColorStop(0, '#f0d894');
+  gold.addColorStop(0.45, '#d0b781');
+  gold.addColorStop(1, '#8a6d2f');
+  ctx.fillStyle = gold;
+  ctx.fillText(text, cx, cy);
+  // Incised top-light: a faint bright copy lifted by a hair.
+  ctx.fillStyle = 'rgba(255, 248, 226, 0.5)';
+  ctx.fillText(text, cx, cy - Math.max(1, size * 0.014));
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = 4;
@@ -117,6 +191,13 @@ function buildD10(radius: number): { geometry: THREE.BufferGeometry; faces: DieF
   });
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  // Planar UVs so the bone-grain maps have coordinates to sample (three.js
+  // solids ship their own UVs; this hand-built solid needs them explicit).
+  const uvs: number[] = [];
+  for (let i = 0; i < positions.length; i += 3) {
+    uvs.push((positions[i] / radius) * 0.35 + 0.5, (positions[i + 1] / radius) * 0.35 + 0.5);
+  }
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geometry.computeVertexNormals();
   return { geometry, faces };
 }
@@ -154,19 +235,32 @@ export function createDieMesh(die: DieType): DieMesh {
   }
 
   const group = new THREE.Group();
-  const material = new THREE.MeshStandardMaterial({
-    color: IVORY, roughness: 0.38, metalness: 0.12, flatShading: true,
-  });
+  const maps = diceMapsReady();
+  const material = maps
+    ? new THREE.MeshStandardMaterial({
+        map: maps.map,
+        normalMap: maps.normalMap,
+        normalScale: new THREE.Vector2(0.7, 0.7),
+        roughnessMap: maps.roughnessMap,
+        color: '#ffffff',
+        metalness: 0.18,
+        roughness: 1.0,
+        flatShading: true,
+      })
+    : new THREE.MeshStandardMaterial({
+        color: IVORY, roughness: 0.38, metalness: 0.12, flatShading: true,
+      });
   const body = new THREE.Mesh(geometry, material);
   body.castShadow = true;
   group.add(body);
+  // Gold-inlaid edge wear: crisp metallic seams along every facet edge.
   const edges = new THREE.LineSegments(
     new THREE.EdgesGeometry(geometry, 12),
-    new THREE.LineBasicMaterial({ color: EDGE, transparent: true, opacity: 0.55 }),
+    new THREE.LineBasicMaterial({ color: EDGE_INLAY, transparent: true, opacity: 0.7 }),
   );
   group.add(edges);
 
-  // Gold numerals floating just above each face.
+  // Gold-inlay numerals floating just above each face.
   const numeralSize = die === 20 ? 0.34 : die === 6 ? 0.5 : 0.4;
   for (const face of faces) {
     const texture = numeralTexture(faceLabel(die, face.value), 128);
@@ -209,7 +303,12 @@ export function disposeDieMesh(mesh: DieMesh): void {
       const material = obj.material as THREE.Material | THREE.Material[];
       for (const m of Array.isArray(material) ? material : [material]) {
         const withMap = m as THREE.MeshBasicMaterial;
-        if (withMap.map) withMap.map.dispose();
+        // Shared session maps belong to the cache — never dispose per-roll.
+        if (withMap.map && !sharedTextures.has(withMap.map)) withMap.map.dispose();
+        const standard = m as THREE.MeshStandardMaterial;
+        for (const t of [standard.normalMap, standard.roughnessMap]) {
+          if (t && !sharedTextures.has(t)) t.dispose();
+        }
         m.dispose();
       }
     }

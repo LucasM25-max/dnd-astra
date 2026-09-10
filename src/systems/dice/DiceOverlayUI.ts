@@ -1,5 +1,6 @@
 import type { DiceRollResult } from './DiceResultResolver';
 import { diceSfx } from './DiceSfx';
+import { DICE_TIMING } from './DiceAnimationController';
 
 /** BG3-style dice overlay: dark backdrop, 3D stage, slam badge, total, verdict banner. */
 let root: HTMLElement | null = null;
@@ -25,6 +26,7 @@ function ensure(): HTMLElement {
   root.innerHTML = `
     <div class="dice-backdrop"></div>
     <div class="dice-panel">
+      <div class="dice-eyebrow">◇ FATE DECIDES</div>
       <div class="dice-check"><span id="dice-label"></span><span id="dice-dc"></span></div>
       <div class="dice-stage" id="dice-stage"></div>
       <div class="dice-readout">
@@ -116,8 +118,8 @@ export function showDiceResult(res: DiceRollResult): void {
     showBadge();
     showBanner();
   } else {
-    window.setTimeout(showBadge, 420);
-    window.setTimeout(showBanner, 950);
+    window.setTimeout(showBadge, DICE_TIMING.badgeDelayMs);
+    window.setTimeout(showBanner, DICE_TIMING.bannerDelayMs);
   }
 }
 
