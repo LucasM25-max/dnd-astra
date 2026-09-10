@@ -70,6 +70,36 @@ export function directionBlend(yaw: number, x: number, z: number, camX: number, 
 /** Camera-relative angle at which atlas direction `dir` is painted. */
 export const relForIndex = (dir: number) => normalizeAngle(dir * (Math.PI / 8));
 
+// ---------------------------------------------------------------------------
+// Normal-mapped sprite lighting
+// ---------------------------------------------------------------------------
+
+/**
+ * Shared per-frame light rig for every sprite actor. world.ts refreshes these
+ * from the sun + hemisphere each frame; all sprite materials reference the
+ * SAME uniform objects, so one update lights every billboard.
+ */
+export const spriteLightUniforms = {
+  uSunDir: { value: new THREE.Vector3(0, 1, 0) },
+  uSunColor: { value: new THREE.Color(1, 1, 1) },
+  uHemiSky: { value: new THREE.Color(.5, .5, .5) },
+  uHemiGround: { value: new THREE.Color(.3, .3, .3) },
+};
+
+/**
+ * Pure Sobel normal kernel in billboard tangent space (U right, V up, W
+ * toward the viewer). Canvas row+1 points V-down, matching the normal
+ * convention in scripts/prepare-textures.mjs. `heightAt` is sampled with
+ * tile-clamped coordinates by the caller so tiles never bleed into each
+ * other. Returns RGB triplets in 0..1.
+ */
+export function sobelNormal(heightAt: (x: number, y: number) => number, x: number, y: number, strength: number): [number, number, number] {
+  const dx = (heightAt(x + 1, y) - heightAt(x - 1, y)) * strength;
+  const dy = (heightAt(x, y + 1) - heightAt(x, y - 1)) * strength;
+  const n = 1 / Math.sqrt(dx * dx + dy * dy + 1);
+  return [-dx * n * .5 + .5, dy * n * .5 + .5, n * .5 + .5];
+}
+
 /**
  * Projects character-space points to the billboard's canvas.
  * Character space: x = right, y = up, z = facing. The camera sits at `rel`
@@ -300,7 +330,10 @@ export function coatPattern(ctx: Ctx): CanvasPattern | null {
 
 export interface SheetAction { name: string; frames: number; offset: number }
 export interface SpriteSheet {
-  canvas: HTMLCanvasElement; cols: number; rows: number; tileW: number; tileH: number;
+  canvas: HTMLCanvasElement;
+  /** Half-resolution normal atlas with the same tile layout (same UVs sample it). */
+  normalCanvas: HTMLCanvasElement;
+  cols: number; rows: number; tileW: number; tileH: number;
   pxPerMeter: number; worldW: number; worldH: number; bottomPad: number;
   actions: SheetAction[];
   tile(actionIndex: number, frame: number, dir: number): { col: number; row: number };
@@ -359,8 +392,35 @@ export function buildSheet(spec: SheetSpec): SpriteSheet {
       }
     }
   }
+  // Half-resolution normal atlas derived from the painted tiles (same layout,
+  // so the same tile UVs sample it). Sobel sampling is clamped inside each
+  // tile so neighbours never bleed across tile borders. The transparent
+  // background reads as low "height", which bevels the silhouette slightly.
+  const normalCanvas = document.createElement('canvas');
+  normalCanvas.width = canvas.width >> 1; normalCanvas.height = canvas.height >> 1;
+  {
+    const src = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    const nctx = normalCanvas.getContext('2d')!;
+    const out = nctx.createImageData(normalCanvas.width, normalCanvas.height);
+    const lumAt = (x: number, y: number) => {
+      const i = (y * canvas.width + x) * 4;
+      return (src[i] * .299 + src[i + 1] * .587 + src[i + 2] * .114) / 255;
+    };
+    const strength = 2.4, hw = spec.tileW >> 1, hh = spec.tileH >> 1;
+    for (let ty = 0; ty < rows; ty++) for (let tx = 0; tx < cols; tx++) {
+      const x0 = tx * spec.tileW, y0 = ty * spec.tileH;
+      const x1 = x0 + spec.tileW - 1, y1 = y0 + spec.tileH - 1;
+      const h = (x: number, y: number) => lumAt(Math.min(x1, Math.max(x0, x)), Math.min(y1, Math.max(y0, y)));
+      for (let j = 0; j < hh; j++) for (let i = 0; i < hw; i++) {
+        const [r, g, b] = sobelNormal(h, x0 + i * 2, y0 + j * 2, strength);
+        const o = ((ty * hh + j) * normalCanvas.width + tx * hw + i) * 4;
+        out.data[o] = r * 255; out.data[o + 1] = g * 255; out.data[o + 2] = b * 255; out.data[o + 3] = 255;
+      }
+    }
+    nctx.putImageData(out, 0, 0);
+  }
   return {
-    canvas, cols, rows, tileW: spec.tileW, tileH: spec.tileH, pxPerMeter: spec.pxPerMeter,
+    canvas, normalCanvas, cols, rows, tileW: spec.tileW, tileH: spec.tileH, pxPerMeter: spec.pxPerMeter,
     worldW: spec.worldH * spec.tileW / spec.tileH, worldH: spec.worldH, bottomPad: spec.bottomPad,
     actions: spec.actions.map((a, i) => ({ name: a.name, frames: a.frames, offset: offsets[i] })),
     tile(actionIndex, frame, dir) {
@@ -407,6 +467,12 @@ export class SpriteActor {
     texture.magFilter = THREE.LinearFilter;
     texture.anisotropy = 4;
     texture.generateMipmaps = true;
+    // Linear (non-colour) normal atlas; same layout, so the same tile UVs sample it.
+    const normalTexture = new THREE.CanvasTexture(sheet.normalCanvas);
+    normalTexture.minFilter = THREE.LinearMipmapLinearFilter;
+    normalTexture.magFilter = THREE.LinearFilter;
+    normalTexture.anisotropy = 4;
+    normalTexture.generateMipmaps = true;
     this.material = new THREE.ShaderMaterial({
       fog: true,
       transparent: true, // soft anti-aliased silhouette instead of a hard cutout
@@ -414,8 +480,10 @@ export class SpriteActor {
         THREE.UniformsLib.fog,
         {
           uAtlas: { value: texture },
+          uNormal: { value: normalTexture },
           uTileA: { value: new THREE.Vector2() }, uTileB: { value: new THREE.Vector2() },
           uMix: { value: 0 }, uSize: { value: new THREE.Vector2(1, 1) },
+          uFaceYaw: { value: 0 },
         },
       ]),
       vertexShader: `
@@ -432,19 +500,34 @@ export class SpriteActor {
           #include <fog_vertex>
         }`,
       fragmentShader: `
-        uniform sampler2D uAtlas;
-        uniform float uMix;
+        uniform sampler2D uAtlas, uNormal;
+        uniform float uMix, uFaceYaw;
+        uniform vec3 uSunDir, uSunColor, uHemiSky, uHemiGround;
         varying vec2 vUvA;
         varying vec2 vUvB;
         #include <fog_pars_fragment>
         void main() {
           vec4 c = mix(texture2D(uAtlas, vUvA), texture2D(uAtlas, vUvB), uMix);
           if (c.a < .05) discard;
-          gl_FragColor = c;
+          // Normal-mapped sun + hemisphere: the billboard's tangent-space
+          // normal is yawed into world space like the plane itself.
+          vec3 n = normalize(mix(texture2D(uNormal, vUvA).rgb, texture2D(uNormal, vUvB).rgb, uMix) * 2.0 - 1.0);
+          float cy = cos(uFaceYaw), sy = sin(uFaceYaw);
+          vec3 wN = vec3(n.x * cy + n.z * sy, n.y, -n.x * sy + n.z * cy);
+          vec3 hemi = mix(uHemiGround, uHemiSky, wN.y * .5 + .5);
+          float ndl = max(dot(wN, uSunDir), 0.0);
+          vec3 light = hemi * .8 + uSunColor * (ndl * .85 + .15) + vec3(.10);
+          gl_FragColor = vec4(c.rgb * light, c.a);
           #include <fog_fragment>
         }`,
       side: THREE.DoubleSide,
     });
+    // All actors share one light rig: point at the same uniform objects that
+    // world.ts refreshes every frame (merge() above cloned them, so re-link).
+    this.material.uniforms.uSunDir = spriteLightUniforms.uSunDir;
+    this.material.uniforms.uSunColor = spriteLightUniforms.uSunColor;
+    this.material.uniforms.uHemiSky = spriteLightUniforms.uHemiSky;
+    this.material.uniforms.uHemiGround = spriteLightUniforms.uHemiGround;
     const geo = new THREE.PlaneGeometry(sheet.worldW, sheet.worldH);
     geo.translate(0, sheet.worldH / 2, 0); // feet at the origin
     this.plane = new THREE.Mesh(geo, this.material);
@@ -521,10 +604,12 @@ export class SpriteActor {
     // root itself is turned.
     const dx = camera.position.x - this.worldPos.x, dz = camera.position.z - this.worldPos.z;
     if (dx * dx + dz * dz > 1e-6) {
-      this.faceEuler.set(0, Math.atan2(dx, dz), 0);
+      const faceYaw = Math.atan2(dx, dz);
+      this.faceEuler.set(0, faceYaw, 0);
       this.faceQuat.setFromEuler(this.faceEuler);
       this.root.getWorldQuaternion(this.rootQuat);
       this.plane.quaternion.copy(this.rootQuat.invert().multiply(this.faceQuat));
+      (u.uFaceYaw.value as number) = faceYaw;
     }
     this.shadow.position.y = .015 - Math.max(0, this.shadowDrop);
     this.shadow.visible = !state.seated;
@@ -542,6 +627,7 @@ export class SpriteActor {
   dispose() {
     this.material.dispose();
     (this.material.uniforms.uAtlas.value as THREE.Texture).dispose();
+    (this.material.uniforms.uNormal.value as THREE.Texture).dispose();
     (this.plane.geometry as THREE.BufferGeometry).dispose();
     (this.shadow.material as THREE.MeshBasicMaterial).map?.dispose();
     (this.shadow.material as THREE.Material).dispose();

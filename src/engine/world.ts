@@ -14,6 +14,7 @@ import { PlayerController, type CameraMode } from './controller';
 import { Adventure, type AdventureState } from './adventure';
 import { WeatherEngine, type WeatherFrame } from './weather';
 import { MONTHS, WEATHER_NAMES, type Season, type WeatherId } from '../game/time';
+import { spriteLightUniforms } from './actors/sprites';
 
 export type Quality = 'performance' | 'balanced' | 'high';
 export interface WorldState extends AdventureState {
@@ -261,6 +262,15 @@ export class WoodlandWorld {
     if (!this.controller.paused && this.weather && this.adventure.clock) {
       this.weather.tick(realDelta, this.adventure.clock);
       this.weatherFrame = this.weather.apply(Math.min(realDelta, .25), this.adventure.clock, this.camera);
+    }
+    // Shared normal-mapped light rig for the sprite actors (sun/moon +
+    // hemisphere, normalized from scene intensities to sprite multipliers).
+    {
+      const K = .24;
+      spriteLightUniforms.uSunDir.value.copy(this.sun.position).sub(this.sun.target.position).normalize();
+      spriteLightUniforms.uSunColor.value.copy(this.sun.color).multiplyScalar(this.sun.intensity * K);
+      spriteLightUniforms.uHemiSky.value.copy(this.hemisphere.color).multiplyScalar(this.hemisphere.intensity * K);
+      spriteLightUniforms.uHemiGround.value.copy(this.hemisphere.groundColor).multiplyScalar(this.hemisphere.intensity * K);
     }
     for (const shaft of this.shafts) {
       const axis = shaft.end.clone().sub(shaft.start), view = this.camera.position.clone().sub(shaft.start), side = axis.cross(view).normalize();
