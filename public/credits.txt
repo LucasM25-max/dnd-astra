@@ -21,12 +21,11 @@ https://github.com/pmndrs/drei-assets/blob/master/hdri/forest_slope_1k.hdr
 https://polyhaven.com/a/forest_slope
 https://polyhaven.com/license
 
-HORSE MESH
-Horse.glb from the Three.js examples, used as a rest-surface reference for
-new subdivided, textured, skeletally animated horse and ox actors:
-https://github.com/mrdoob/three.js/blob/dev/examples/models/gltf/Horse.glb
-The upstream repository's MIT license is included in licenses/three-MIT.txt.
-Review upstream asset provenance/terms before a commercial distribution.
+CHARACTERS & ANIMALS
+The Wanderer, the yoked oxen, and the horses are original procedurally
+painted canvas sprites (sixteen direction variants per actor), displayed on
+camera-facing billboards. No external character meshes, rigs, or
+image-generated sprite sheets are used.
 
 LIBRARIES & TYPEFACES
 Three.js — three.js authors — MIT (licenses/three-MIT.txt)
@@ -51,8 +50,6 @@ Additional original AI-generated texture sources: wagon oak, flax sackcloth,
 and short animal coat. Normal maps are derived, not photogrammetry scans.
 The wagon, cargo containers, casks, sacks, tools, lanterns, yoke, reins, and
 hinged lids are procedural models created for this chapter.
-The animal surfaces are derived from the credited Horse.glb, reshaped into
-standing horse/ox bodies, subdivided, textured, and given new skeletal rigs
-for walking, breathing, head lowering, looking, and tail movement.
-Loop subdivision uses three-subdivide — Stevinz — MIT:
-licenses/three-subdivide-MIT.txt
+The character and animal sprites are painted in code (canvas 2D) as
+sixteen-direction billboards covering walking, breathing, head lowering,
+looking, and tail movement; no external sprite art is bundled.

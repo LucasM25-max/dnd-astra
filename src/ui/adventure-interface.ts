@@ -3,7 +3,7 @@ import { isFormControl } from '../engine/controller';
 import { CONTAINERS, ITEMS, ITEM_IDS, countOf, formatGp, valueOf, type ContainerId, type ItemId } from '../game/items';
 import { NARRATION } from '../game/narrator';
 
-export type AdventureDialog = 'inventory' | 'cargo' | 'manifest' | 'journal';
+export type AdventureDialog = 'inventory' | 'cargo' | 'journal';
 interface Hooks {
   open: (kind: AdventureDialog) => void; close: () => void; current: () => string | null;
   toast: (message: string) => void; icons: () => void;
@@ -45,11 +45,9 @@ export class AdventureInterface {
       if (!button) return;
       const action = button.dataset.action;
       if (action === 'inventory') hooks.open('inventory');
-      if (action === 'manifest') hooks.open('manifest');
       if (action === 'journal') hooks.open('journal');
       if (action === 'narrator-voice') this.toggleVoice();
-      if (action === 'dismount') { hooks.close(); this.toggleMounted(); }
-      if (button.dataset.openContainer) this.openCargo(button.dataset.openContainer as ContainerId);
+      if (action === 'close-crate') this.closeCargo();
       if (button.dataset.category && button.dataset.category in categories) { this.filter = button.dataset.category as keyof typeof categories; this.renderContents(); }
       if (button.dataset.selectItem && ITEM_IDS.includes(button.dataset.selectItem as ItemId)) { this.selected = button.dataset.selectItem as ItemId; this.renderContents(); }
       if (button.dataset.qtyItem) {
@@ -100,9 +98,18 @@ export class AdventureInterface {
   interact() {
     const interaction = this.world.adventure.interaction();
     if (!interaction) return;
-    if (interaction.kind === 'manifest') this.hooks.open('manifest');
-    else if (interaction.kind === 'cargo') this.openCargo(interaction.id as ContainerId);
-    else { $('#inspect-prompt').dispatchEvent(new CustomEvent('inspect-horses')); }
+    if (interaction.kind === 'cargo') {
+      const id = interaction.id as ContainerId;
+      if (this.world.adventure.inventory.isOpen(id)) this.closeCargo(id);
+      else this.openCargo(id);
+    } else { $('#inspect-prompt').dispatchEvent(new CustomEvent('inspect-horses')); }
+  }
+  closeCargo(id?: ContainerId) {
+    const container = id ?? this.activeCargo;
+    if (!this.world.adventure.closeCargo(container)) return;
+    this.hooks.toast('The lid swings shut.');
+    this.hooks.close();
+    this.update(this.world.getState());
   }
   openCargo(id: ContainerId) {
     if (!CONTAINERS.some(c => c.id === id)) return;
@@ -168,9 +175,8 @@ export class AdventureInterface {
     }
   }
   dialogHTML(kind: AdventureDialog) {
-    if (kind === 'inventory') return `${close}<div class="dialog-eyebrow">THE WANDERER’S BELONGINGS</div><h2 id="dialog-title">Your inventory.</h2><p class="dialog-description">A place for the things you carry, and the stories they keep.</p>${this.purse()}<div class="inventory-layout"><div class="inventory-main"><label class="inventory-search">${icon('search')}<input id="inventory-search" placeholder="Find an item…" aria-label="Search inventory" value="${escape(this.search)}"></label><div class="inventory-filters" role="group" aria-label="Filter inventory">${Object.entries(categories).map(([id, label]) => `<button data-category="${id}" class="${this.filter === id ? 'selected' : ''}" aria-pressed="${this.filter === id}">${label}</button>`).join('')}</div><div id="inventory-list">${this.inventoryList()}</div></div><aside id="item-detail" class="item-detail">${this.itemDetail()}</aside></div><div class="inventory-foot"><span>${icon('check')} ${this.world.adventure.inventory.persistenceAvailable ? 'Saved on this device' : 'Session only · device storage unavailable'}</span><button data-action="manifest">View wagon manifest ${icon('arrow-up-right')}</button></div>`;
+    if (kind === 'inventory') return `${close}<div class="dialog-eyebrow">THE WANDERER’S BELONGINGS</div><h2 id="dialog-title">Your inventory.</h2><p class="dialog-description">A place for the things you carry, and the stories they keep.</p>${this.purse()}<div class="inventory-layout"><div class="inventory-main"><label class="inventory-search">${icon('search')}<input id="inventory-search" placeholder="Find an item…" aria-label="Search inventory" value="${escape(this.search)}"></label><div class="inventory-filters" role="group" aria-label="Filter inventory">${Object.entries(categories).map(([id, label]) => `<button data-category="${id}" class="${this.filter === id ? 'selected' : ''}" aria-pressed="${this.filter === id}">${label}</button>`).join('')}</div><div id="inventory-list">${this.inventoryList()}</div></div><aside id="item-detail" class="item-detail">${this.itemDetail()}</aside></div><div class="inventory-foot"><span>${icon('check')} ${this.world.adventure.inventory.persistenceAvailable ? 'Saved on this device' : 'Session only · device storage unavailable'}</span><span>Walk alongside the wagon’s containers and press <kbd>E</kbd> to load cargo.</span></div>`;
     if (kind === 'cargo') return this.cargoHTML();
-    if (kind === 'manifest') return this.manifestHTML();
     return `${close}<div class="dialog-eyebrow">CHAPTER I · THE TRIBOAR TRAIL</div><h2 id="dialog-title">The road so far.</h2><p class="dialog-description">The Narrator’s words, kept here whenever you need them.</p><div class="journal-scroll"><div class="journal-heading">${icon('book-open')} A delivery for Gundren</div><p>${escape(NARRATION.slice(0, 3).map(l => l.text).join(' '))}</p><p>${escape(NARRATION[3].text)}</p><div class="journal-divider">◇</div><div class="journal-heading">${icon('footprints')} The ambush clearing</div><p>${escape(NARRATION.slice(4).map(l => l.text).join(' '))}</p></div><div class="journal-contract"><span>THE AGREEMENT</span><p><strong>10 gp</strong> on safe delivery to Barthen’s Provisions.<br><small>This payment has not been earned or added to your purse.</small></p></div><div class="dialog-footnote">${icon('volume-2')} The narrated text is presented verbatim, in readable pages.</div>`;
   }
   private purse() {
@@ -195,18 +201,11 @@ export class AdventureInterface {
     return `${close}<div class="dialog-eyebrow">GUNDREN’S CONSIGNMENT</div><h2 id="dialog-title">${definition.name}</h2><p class="dialog-description">${definition.subtitle}</p><div class="cargo-summary"><span>${icon('package-open')} ${countOf(stock) ? 'OPEN · READY TO UNLOAD' : 'EMPTY · ALL ITEMS COLLECTED'}</span><strong>${formatGp(valueOf(stock))}</strong></div><div class="loot-list">${ids.map(id => {
       const amount = Math.min(this.quantities[id], Math.max(1, stock[id]));
       return `<div class="loot-row ${stock[id] === 0 ? 'depleted' : ''}"><div class="loot-item-header"><span class="item-icon ${ITEMS[id].category}">${icon(ITEMS[id].icon)}</span><div><strong>${ITEMS[id].name}</strong><span>${stock[id]} available · ${formatGp(ITEMS[id].unitValue)} each</span></div></div><p>${ITEMS[id].description}</p><div class="loot-actions"><div class="quantity-control"><button data-qty-item="${id}" data-delta="-1" aria-label="Take fewer ${ITEMS[id].plural}" ${!stock[id] ? 'disabled' : ''}>−</button><input type="number" inputmode="numeric" min="1" max="${Math.max(1, stock[id])}" value="${amount}" data-loot-quantity="${id}" aria-label="Quantity of ${ITEMS[id].plural} to take" ${!stock[id] ? 'disabled' : ''}><button data-qty-item="${id}" data-delta="1" aria-label="Take more ${ITEMS[id].plural}" ${!stock[id] ? 'disabled' : ''}>+</button></div><button class="take-button" data-take-item="${id}" ${!stock[id] ? 'disabled' : ''}>${stock[id] ? 'Take' : 'Collected'} ${icon(stock[id] ? 'arrow-right' : 'check')}</button></div></div>`;
-    }).join('')}</div><button class="primary-action cargo-take-all" data-action="take-all" ${!countOf(stock) ? 'disabled' : ''}>${icon('backpack')} ${countOf(stock) ? 'Take everything in this container' : 'This container is empty'} ${icon('arrow-right')}</button><div class="cargo-pack-status"><span>Your pack</span><strong>${countOf(store.inventory)} items · ${formatGp(store.inventoryValue)}</strong></div><div class="cargo-bottom-actions"><button data-action="inventory">${icon('backpack')} Open inventory <kbd>I</kbd></button><button data-action="manifest">Cargo manifest ${icon('arrow-up-right')}</button></div><p class="cargo-value-note">Taking supplies adds goods to your inventory, not gold to your purse.</p>`;
-  }
-  private manifestHTML() {
-    const store = this.world.adventure.inventory;
-    return `${close}<div class="dialog-eyebrow">NEVERWINTER → PHANDALIN</div><h2 id="dialog-title">A wagon full of promise.</h2><p class="dialog-description">Provisions and mining supplies, bound for Barthen’s trading post.</p><div class="manifest-total"><div><span>REMAINING ON THE WAGON</span><strong>${formatGp(store.cargoValue)}</strong></div><div><span>IN YOUR INVENTORY</span><strong>${formatGp(store.inventoryValue)}</strong></div><div class="consignment-original"><span>ORIGINAL APPRAISAL</span><strong>100 gp</strong></div></div><div class="manifest-grid">${CONTAINERS.map(c => {
-      const stock = store.stock(c.id), canReach = this.world.adventure.canReach(c.id);
-      return `<button class="manifest-card ${canReach ? 'reachable' : ''}" data-open-container="${c.id}"><div class="manifest-card-top">${icon(c.kind === 'barrel' ? 'barrel' : c.kind === 'rack' ? 'package' : 'package-open')}<span>${countOf(stock) === 0 ? 'EMPTY' : store.isOpen(c.id) ? 'OPEN' : c.kind === 'rack' ? 'STOWED' : 'SEALED'}</span></div><h3>${c.name}</h3><p>${c.subtitle}</p><div class="manifest-card-bottom"><strong>${formatGp(valueOf(stock))}</strong><small>${canReach ? 'Open container' : 'Move closer'}</small>${icon('arrow-up-right')}</div></button>`;
-    }).join('')}</div>${this.world.adventure.mounted ? `<button class="primary-action" data-action="dismount" ${!store.arrived ? 'disabled' : ''}>${icon('log-out')} ${store.arrived ? 'Step down to inspect the cargo' : 'Cargo is accessible after the opening journey'} ${icon('arrow-right')}</button>` : `<div class="dialog-footnote">${icon('footprints')} Walk alongside a container and press E to open it.</div>`}<div class="manifest-note">Cargo values are fixed sale appraisals. The wagon and oxen are not part of the 100 gp inventory.</div>`;
+    }).join('')}</div><button class="primary-action cargo-take-all" data-action="take-all" ${!countOf(stock) ? 'disabled' : ''}>${icon('backpack')} ${countOf(stock) ? 'Take everything in this container' : 'This container is empty'} ${icon('arrow-right')}</button><div class="cargo-pack-status"><span>Your pack</span><strong>${countOf(store.inventory)} items · ${formatGp(store.inventoryValue)}</strong></div><div class="cargo-bottom-actions"><button data-action="inventory">${icon('backpack')} Open inventory <kbd>I</kbd></button><button data-action="close-crate">${icon('x')} Close the container <kbd>E</kbd></button></div><p class="cargo-value-note">Taking supplies adds goods to your inventory, not gold to your purse.</p>`;
   }
   private renderInventoryList() { const list = document.querySelector('#inventory-list'); if (list) { list.innerHTML = this.inventoryList(); this.hooks.icons(); } }
   private renderContents() {
-    const kind = this.hooks.current(); if (!['cargo', 'inventory', 'manifest'].includes(kind ?? '')) return;
+    const kind = this.hooks.current(); if (!['cargo', 'inventory'].includes(kind ?? '')) return;
     const dialog = $('#dialog'), scroll = dialog.scrollTop;
     dialog.innerHTML = this.dialogHTML(kind as AdventureDialog); dialog.scrollTop = scroll; this.hooks.icons();
   }

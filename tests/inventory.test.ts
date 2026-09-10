@@ -61,3 +61,26 @@ describe('the 100 gp consignment', () => {
     expect(store.persistenceAvailable).toBe(false); expect(store.inventoryValue).toBe(300);
   });
 });
+describe('closeable containers', () => {
+  it('closes an opened container, blocks further takes, and persists the closed lid', () => {
+    const disk = storage();
+    const a = new InventoryStore(disk); a.setArrived();
+    a.open('flour-a'); expect(a.isOpen('flour-a')).toBe(true);
+    expect(a.take('flour-a', 'flour', 1)).toBe(true);
+    expect(a.close('flour-a')).toBe(true);
+    expect(a.isOpen('flour-a')).toBe(false);
+    expect(a.take('flour-a', 'flour', 1)).toBe(false);
+    expect(a.close('flour-a')).toBe(false); // already closed is a no-op
+    a.open('flour-a');
+    const b = new InventoryStore(disk);
+    expect(b.isOpen('flour-a')).toBe(true);
+    expect(b.inventory.flour).toBe(1);
+    expect(b.cargoValue + b.inventoryValue).toBe(10000);
+  });
+  it('still conserves all cargo when every container is opened, closed, then emptied', () => {
+    const store = unlocked();
+    for (const c of CONTAINERS) { store.close(c.id); expect(store.isOpen(c.id)).toBe(false); store.open(c.id); }
+    for (const c of CONTAINERS) { store.takeAll(c.id); expect(store.takeAll(c.id)).toEqual(emptyStock()); }
+    expect(store.inventory).toEqual(TOTAL_CARGO); expect(store.gold).toBe(0);
+  });
+});

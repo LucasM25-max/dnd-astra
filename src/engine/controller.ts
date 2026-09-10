@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CollisionField, SPAWN, clamp, terrainHeight } from './landscape';
+import { FighterActor } from './actors/fighter';
 
 export type CameraMode = 'first' | 'third';
 export class PlayerController {
@@ -14,7 +15,7 @@ export class PlayerController {
   controlMode: 'foot' | 'wagon' | 'cinematic' = 'foot';
   cameraOverride = false;
   private vehicleYaw = 0;
-  private arms = new THREE.Group();
+  readonly actor: FighterActor;
   started = false;
   paused = false;
   grounded = true;
@@ -33,43 +34,16 @@ export class PlayerController {
   private elapsed = 0;
   private look = new THREE.Vector3();
   private desiredCamera = new THREE.Vector3();
-  private rig = new THREE.Group();
-  private contactShadow: THREE.Mesh;
   private disposed = new AbortController();
   onStart = () => {};
   onUnlock = () => {};
   onPointerFallback = () => {};
 
   constructor(private camera: THREE.PerspectiveCamera, private canvas: HTMLCanvasElement, private collision: CollisionField, scene: THREE.Scene) {
-    const beanMat = new THREE.MeshStandardMaterial({ color: '#e3ddc9', roughness: .63, metalness: .035 });
-    const bean = new THREE.Mesh(new THREE.CapsuleGeometry(.305, .82, 9, 20), beanMat);
-    bean.position.y = .745; bean.castShadow = true; bean.receiveShadow = true;
-    this.rig.add(bean);
-    for (const side of [-1, 1]) {
-      const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(side * .265, .95, -.02), new THREE.Vector3(side * .365, .77, -.17), new THREE.Vector3(side * .24, .90, -.33)]);
-      const arm = new THREE.Mesh(new THREE.TubeGeometry(curve, 12, .067, 8, false), beanMat); arm.castShadow = true;
-      const hand = new THREE.Mesh(new THREE.SphereGeometry(.071, 10, 8), beanMat); hand.position.set(side * .24, .90, -.33); hand.castShadow = true;
-      this.arms.add(arm, hand);
-    }
-    this.arms.visible = false; this.rig.add(this.arms);
-    const shadowCanvas = document.createElement('canvas'); shadowCanvas.width = shadowCanvas.height = 64;
-    const shadowCtx = shadowCanvas.getContext('2d')!;
-    const gradient = shadowCtx.createRadialGradient(32, 32, 2, 32, 32, 31);
-    gradient.addColorStop(0, 'rgba(12,16,10,.65)'); gradient.addColorStop(.4, 'rgba(12,16,10,.3)'); gradient.addColorStop(1, 'rgba(12,16,10,0)');
-    shadowCtx.fillStyle = gradient; shadowCtx.fillRect(0, 0, 64, 64);
-    this.contactShadow = new THREE.Mesh(new THREE.PlaneGeometry(1.05, 1.05), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(shadowCanvas), transparent: true, depthWrite: false, opacity: .62, polygonOffset: true, polygonOffsetFactor: -2 }));
-    this.contactShadow.rotation.x = -Math.PI / 2; this.contactShadow.renderOrder = 1; scene.add(this.contactShadow);
-    // An intentionally simple placeholder, not a finished character model.
-    const faceMat = new THREE.MeshStandardMaterial({ color: '#393d32', roughness: .4 });
-    for (const x of [-.093, .093]) {
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(.029, 8, 8), faceMat);
-      eye.position.set(x, 1.08, -.286); eye.scale.z = .55; this.rig.add(eye);
-    }
-    const belt = new THREE.Mesh(new THREE.CylinderGeometry(.309, .31, .065, 28, 1, true), new THREE.MeshStandardMaterial({ color: '#827257', roughness: .9 }));
-    belt.position.y = .60; belt.castShadow = true; this.rig.add(belt);
-    const clasp = new THREE.Mesh(new THREE.BoxGeometry(.075, .067, .027), new THREE.MeshStandardMaterial({ color: '#b49b6a', metalness: .55, roughness: .55 }));
-    clasp.position.set(0, .60, -.31); this.rig.add(clasp);
-    this.avatar.add(this.rig); this.avatar.position.copy(this.position); this.avatar.rotation.y = this.yaw; scene.add(this.avatar);
+    // The Wanderer: a 16-position painted fighter (chain mail, greatsword, flail, javelins).
+    this.actor = new FighterActor(this.camera);
+    this.avatar.add(this.actor.root);
+    this.avatar.position.copy(this.position); this.avatar.rotation.y = this.yaw; scene.add(this.avatar);
     this.canvas.tabIndex = 0;
     this.canvas.setAttribute('aria-label', 'Interactive 3D woodland. Use WASD to move, drag to look, V to switch camera.');
     this.bindInput();
@@ -143,8 +117,7 @@ export class PlayerController {
   jump() { if (!this.paused && this.started && this.controlMode === 'foot') this.jumpQueued = true; }
   setControlMode(mode: 'foot' | 'wagon' | 'cinematic') {
     this.controlMode = mode; this.clearInput(); this.cameraOverride = mode === 'cinematic';
-    this.arms.visible = mode !== 'foot'; this.rig.scale.y = mode === 'foot' ? 1 : .78;
-    this.rig.position.y = 0; this.rig.rotation.set(0, 0, 0); this.zoom = mode === 'foot' ? 5.4 : 8.2;
+    this.zoom = mode === 'foot' ? 5.4 : 8.2;
   }
   attachToSeat(position: THREE.Vector3, yaw: number) {
     if (this.controlMode === 'wagon') this.yaw += Math.atan2(Math.sin(yaw - this.vehicleYaw), Math.cos(yaw - this.vehicleYaw));
@@ -185,16 +158,13 @@ export class PlayerController {
         const diff = Math.atan2(Math.sin(direction - this.avatar.rotation.y), Math.cos(direction - this.avatar.rotation.y));
         this.avatar.rotation.y += diff * Math.min(1, dt * 12);
       }
-      const moving = Math.min(1, moveSpeed / 2);
-      this.rig.position.y = this.grounded ? Math.abs(Math.sin(this.walkDistance * 4.8)) * .032 * moving : 0;
-      this.rig.rotation.z = Math.sin(this.walkDistance * 4.8) * .027 * moving;
-      this.rig.rotation.x = -.025 * moving;
+      this.actor.update({ dt, speed: moveSpeed, sprint: this.sprinting, seated: this.controlMode !== 'foot', paused: this.paused });
+    } else {
+      this.actor.update({ dt, speed: 0, seated: this.controlMode !== 'foot', paused: this.paused });
     }
     this.avatar.position.copy(this.position);
     const floor = terrainHeight(this.position.x, this.position.z);
-    this.contactShadow.position.set(this.position.x, floor + .016, this.position.z);
-    (this.contactShadow.material as THREE.MeshBasicMaterial).opacity = .62 / (1 + Math.max(0, this.position.y - floor) * 3);
-    this.contactShadow.visible = this.mode === 'third' && this.controlMode === 'foot';
+    this.actor.shadowDrop = Math.max(0, this.position.y - floor);
     this.updateCamera(dt);
   }
   private physicsStep(dt: number) {
@@ -219,18 +189,17 @@ export class PlayerController {
     }
   }
   private updateCamera(dt: number) {
-    if (this.cameraOverride) { this.avatar.visible = true; this.rig.children.forEach(o => { o.visible = true; }); return; }
+    if (this.cameraOverride) { this.avatar.visible = true; return; }
     const seated = this.controlMode === 'wagon';
     const breathing = this.paused ? 0 : Math.sin(this.elapsed * 1.4) * .004;
     if (this.mode === 'first') {
-      this.avatar.visible = seated;
-      this.rig.children.forEach(o => { o.visible = seated && o === this.arms; });
+      // The painted fighter is only drawn in third person; first person is a clean over-shoulder view.
+      this.avatar.visible = false;
       const bob = this.grounded && this.started && !this.paused ? Math.sin(this.walkDistance * 9.6) * .012 * Math.min(1, this.velocity.length()) : 0;
       this.camera.position.copy(this.position).add(new THREE.Vector3(0, (seated ? 1.02 : 1.35) + bob + breathing, 0));
       this.look.set(-Math.sin(this.yaw) * Math.cos(this.pitch), -Math.sin(this.pitch), -Math.cos(this.yaw) * Math.cos(this.pitch)).add(this.camera.position);
       this.camera.lookAt(this.look);
     } else {
-      this.rig.children.forEach(o => { o.visible = o !== this.arms || seated; });
       const yaw = this.started ? this.yaw : this.yaw + Math.sin(this.elapsed * .055) * .022;
       const pitch = this.started ? this.pitch : .19;
       const distance = this.started ? this.zoom : 7.7;
@@ -254,7 +223,10 @@ export class PlayerController {
       this.avatar.visible = this.camera.position.distanceTo(this.look) > .75;
     }
   }
-  dispose() { this.disposed.abort(); if (document.pointerLockElement === this.canvas) document.exitPointerLock(); }
+  handPosition(side: 'left' | 'right', target: THREE.Vector3): THREE.Vector3 {
+    return this.actor.anchorPosition(side === 'left' ? 'handL' : 'handR', target);
+  }
+  dispose() { this.disposed.abort(); this.actor.dispose(); if (document.pointerLockElement === this.canvas) document.exitPointerLock(); }
 }
 export function isFormControl(target: EventTarget | null) {
   return target instanceof HTMLElement && (['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName) || target.isContentEditable);
