@@ -1,0 +1,102 @@
+{
+  "weapons": [
+    {
+      "id": "longsword",
+      "name": "Longsword",
+      "slot": "mainhand",
+      "damageDie": "1d8",
+      "properties": ["versatile (1d10)"],
+      "socket": "mainhand",
+      "socketOffset": [0, 0.02, 0.01],
+      "animSet": "sword_shield",
+      "icon": "sword",
+      "pitch": "A balanced knight's blade. Reliable, quick, and true.",
+      "paint": { "blade": "straight", "length": 1.0, "guard": "cross", "grip": "leather" },
+      "texture": "/textures/weapons/longsword.png"
+    },
+    {
+      "id": "battleaxe",
+      "name": "Battleaxe",
+      "slot": "mainhand",
+      "damageDie": "1d8",
+      "properties": ["versatile (1d10)"],
+      "socket": "mainhand",
+      "socketOffset": [0, 0.02, 0.01],
+      "animSet": "sword_shield",
+      "icon": "axe",
+      "pitch": "Dark iron head on an ash haft. It bites deep.",
+      "paint": { "blade": "axe", "length": 0.9, "guard": "none", "grip": "wood" },
+      "texture": "/textures/weapons/battleaxe.png"
+    },
+    {
+      "id": "warhammer",
+      "name": "Warhammer",
+      "slot": "mainhand",
+      "damageDie": "1d8",
+      "properties": ["versatile (1d10)"],
+      "socket": "mainhand",
+      "socketOffset": [0, 0.02, 0.01],
+      "animSet": "sword_shield",
+      "icon": "hammer",
+      "pitch": "A heavy head that crushes plate and bone alike.",
+      "paint": { "blade": "hammer", "length": 0.85, "guard": "none", "grip": "studded" },
+      "texture": "/textures/weapons/warhammer.png"
+    },
+    {
+      "id": "shortsword",
+      "name": "Shortsword",
+      "slot": "offhand",
+      "damageDie": "1d6",
+      "properties": ["light", "finesse"],
+      "socket": "offhand",
+      "socketOffset": [0, 0.02, 0.01],
+      "animSet": "dual",
+      "icon": "sword",
+      "pitch": "A short, quick blade with a brass pommel — made for the off hand.",
+      "paint": { "blade": "straight", "length": 0.62, "guard": "cross", "grip": "brass" },
+      "texture": "/textures/weapons/shortsword.png"
+    },
+    {
+      "id": "longbow",
+      "name": "Longbow",
+      "slot": "ranged",
+      "damageDie": "1d8",
+      "properties": ["ammunition", "heavy", "two-handed"],
+      "socket": "back",
+      "socketOffset": [-0.16, 1.1, -0.18],
+      "animSet": "bow",
+      "icon": "bow",
+      "pitch": "Yew wood and sinew string. Every fighter needs an answer at range.",
+      "paint": { "blade": "bow", "length": 1.0, "guard": "none", "grip": "wood" },
+      "texture": "/textures/weapons/longbow.png"
+    },
+    {
+      "id": "quiver",
+      "name": "Quiver",
+      "slot": "back",
+      "damageDie": null,
+      "properties": ["holds 20 arrows"],
+      "socket": "back_hip",
+      "socketOffset": [0.18, 0.95, -0.16],
+      "animSet": "bow",
+      "icon": "quiver",
+      "pitch": "A leather quiver of twenty arrows, slung at the hip.",
+      "paint": { "blade": "quiver", "length": 0.7, "guard": "none", "grip": "leather" },
+      "texture": "/textures/weapons/quiver.png"
+    },
+    {
+      "id": "shield",
+      "name": "Shield",
+      "slot": "offhand",
+      "damageDie": null,
+      "properties": ["+2 AC"],
+      "socket": "offhand",
+      "socketOffset": [0, 0, 0.06],
+      "animSet": "sword_shield",
+      "icon": "shield",
+      "pitch": "Wooden round shield with an iron rim and the gold Astra sigil. +2 Armour Class.",
+      "paint": { "blade": "shield", "length": 0.55, "guard": "rim", "grip": "boss" },
+      "texture": "/textures/weapons/shield.png"
+    }
+  ]
+}

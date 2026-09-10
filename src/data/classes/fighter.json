@@ -1,0 +1,47 @@
+{
+  "id": "fighter",
+  "name": "Fighter",
+  "title": "FIGHTER — Champion of the Battlefield",
+  "cardBlurb": "What are your vocations, special talents, and favoured tactics?",
+  "flavour": "Fighters rule many battlefields. They are expert warriors who combine martial prowess with personal stamina, training relentlessly to push body and mind to peak combat readiness.",
+  "hitDie": 10,
+  "hpBase": 10,
+  "proficiencies": {
+    "armour": ["Light", "Medium", "Heavy", "Shield"],
+    "weapons": ["Simple", "Martial"],
+    "savingThrows": ["STR", "CON"]
+  },
+  "skillChoices": {
+    "count": 2,
+    "options": [
+      { "id": "acrobatics", "name": "Acrobatics", "ability": "DEX", "pitch": "Keep your footing on treacherous ground and tumble out of harm's way." },
+      { "id": "animal_handling", "name": "Animal Handling", "ability": "WIS", "pitch": "Calm nervous oxen, read wary horses, and ride with confidence." },
+      { "id": "athletics", "name": "Athletics", "ability": "STR", "pitch": "Force stuck doors, climb cliffs, and win contests of brute strength." },
+      { "id": "history", "name": "History", "ability": "INT", "pitch": "Recall old wars, fallen keeps, and what the ruins along the road once were." },
+      { "id": "insight", "name": "Insight", "ability": "WIS", "pitch": "Read faces and motives — know when a merchant, or a goblin, is lying." },
+      { "id": "intimidation", "name": "Intimidation", "ability": "CHA", "pitch": "Stare down threats and end some fights before they begin." },
+      { "id": "perception", "name": "Perception", "ability": "WIS", "pitch": "Spot hidden traps, ambushes, and secrets before they find you." },
+      { "id": "survival", "name": "Survival", "ability": "WIS", "pitch": "Track quarry, read the weather, and live off the wilds between towns." }
+    ]
+  },
+  "fightingStyles": [
+    { "id": "defense", "name": "Defense", "pitch": "+1 to Armour Class while wearing armour. You're tougher to hit.", "icon": "shield" },
+    { "id": "dueling", "name": "Dueling", "pitch": "+2 damage with a one-handed weapon and no other weapon. Precision strikes.", "icon": "sword" },
+    { "id": "great_weapon", "name": "Great Weapon Fighting", "pitch": "Reroll 1s and 2s on two-handed weapon damage. Go big or go home.", "icon": "axe" },
+    { "id": "two_weapon", "name": "Two-Weapon Fighting", "pitch": "Add your ability modifier to off-hand damage. Twice the steel, twice the pain.", "icon": "swords" }
+  ],
+  "secondWind": {
+    "usesMax": 1,
+    "healDie": 10,
+    "healBonus": 1,
+    "pitch": "Once per rest, catch your breath to recover 1d10 + 1 HP. A fighter's grit keeps them standing."
+  },
+  "equipment": {
+    "primary": ["longsword", "battleaxe", "warhammer"],
+    "offhand": ["shield", "shortsword"],
+    "ranged": "longbow",
+    "arrows": 20,
+    "armour": "chain_mail",
+    "pack": "explorer"
+  }
+}

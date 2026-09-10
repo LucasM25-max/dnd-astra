@@ -1,0 +1,28 @@
+{
+  "feats": [
+    {
+      "id": "alert",
+      "name": "Alert",
+      "tagline": "You always act first in ambushes. Enemies can never get the drop on you.",
+      "detail": "You can't be surprised while conscious, and you gain a +5 bonus to initiative.",
+      "icon": "eye",
+      "recommend": "experienced"
+    },
+    {
+      "id": "tough",
+      "name": "Tough",
+      "tagline": "Simply harder to kill. Your health globe is noticeably larger.",
+      "detail": "Your hit point maximum increases by 2 per level (+2 HP now, more as you grow).",
+      "icon": "heart",
+      "recommend": "new"
+    },
+    {
+      "id": "savage_attacker",
+      "name": "Savage Attacker",
+      "tagline": "Your melee hits are more consistently devastating. Less whiffing, more crunching.",
+      "detail": "Once per turn, reroll melee weapon damage and use the higher result.",
+      "icon": "zap",
+      "recommend": null
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "ambushChance": 0.1,
+  "ambushThreshold": 2,
+  "cooldownHours": 24,
+  "longRestHours": 8,
+  "shortRestHours": 1,
+  "perceptionDC": 12,
+  "partialHealFraction": 0.5,
+  "poorlyRested": {
+    "name": "Poorly Rested",
+    "effect": "perception_penalty",
+    "value": -1,
+    "durationHours": 1
+  },
+  "cinematicMs": {
+    "dollyOut": 900,
+    "nightHold": 1400,
+    "dawnHold": 1200,
+    "fadeMs": 600
+  }
+}

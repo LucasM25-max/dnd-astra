@@ -550,6 +550,24 @@ export class SpriteActor {
     const o = new THREE.Object3D(); o.position.set(local.x, local.y, local.z); this.root.add(o);
     this.anchors.set(name, o); return o;
   }
+  /** Swap the sprite sheet (equipment/portrait variants share the same layout). */
+  setSheet(sheet: SpriteSheet): void {
+    (this.material.uniforms.uAtlas.value as THREE.Texture).dispose();
+    (this.material.uniforms.uNormal.value as THREE.Texture).dispose();
+    const texture = new THREE.CanvasTexture(sheet.canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.anisotropy = 4;
+    const normalTexture = new THREE.CanvasTexture(sheet.normalCanvas);
+    normalTexture.minFilter = THREE.LinearMipmapLinearFilter;
+    normalTexture.magFilter = THREE.LinearFilter;
+    normalTexture.anisotropy = 4;
+    this.material.uniforms.uAtlas.value = texture;
+    this.material.uniforms.uNormal.value = normalTexture;
+    this.sheet = sheet;
+  }
+  get currentAction(): string { return this.actionName; }
   anchorPosition(name: string, target: THREE.Vector3): THREE.Vector3 {
     const a = this.anchors.get(name);
     return a ? a.getWorldPosition(target) : target.set(0, 0, 0);
@@ -565,6 +583,17 @@ export class SpriteActor {
   /** Height of the root above the ground; keeps the shadow blob on the floor while airborne. */
   shadowDrop = 0;
   protected frameOverride: number | undefined;
+  /** Creation-preview only: force-painted action (e.g. 'attack'). Always null during gameplay. */
+  private previewName: string | null = null;
+  private previewT = 0;
+  /**
+   * Force the actor to paint `name` instead of its picked gait action. Creation
+   * preview / flourish use only — callers must call clearPreview() afterwards.
+   * Paint-only: no hit detection, damage, or AI is involved.
+   */
+  previewAction(name: string): void { this.previewName = name; this.previewT = 0; }
+  clearPreview(): void { this.previewName = null; this.previewT = 0; }
+  get isPreviewing(): boolean { return this.previewName !== null; }
   /** Choose the animation for this frame (subclasses override for species/actors). */
   protected pickAction(_state: ActorState, _sheet: SpriteSheet): SheetAction {
     const name = _state.seated ? 'seated' : _state.speed > .18 ? (_state.sprint ? 'sprint' : 'walk') : 'idle';
@@ -575,6 +604,11 @@ export class SpriteActor {
     const camera = this.camera, { dt, speed, paused } = state;
     const sheet = this.sheet;
     this.actionName = this.pickAction(state, sheet).name;
+    // Creation preview / flourish: force-paint the preview action (paint-only).
+    if (this.previewName && sheet.actions.some(a => a.name === this.previewName)) {
+      this.actionName = this.previewName;
+      if (!paused) this.previewT += dt;
+    }
     if (!paused) {
       this.clock += dt;
       const hz = this.actionName === 'sprint' ? this.sprintHz : this.gaitHz;
@@ -584,6 +618,9 @@ export class SpriteActor {
     const gaitFrame = Math.floor(this.gait / (Math.PI * 2) * act.frames) % act.frames;
     const idleFrame = act.frames > 1 ? Math.floor(this.clock * .4) % act.frames : 0;
     this.frame = this.frameOverride ?? (act.name === 'idle' ? idleFrame : gaitFrame);
+    if (this.previewName && act.name === this.previewName && act.frames > 1) {
+      this.frame = Math.floor(this.previewT * 6) % act.frames;
+    }
     this.root.getWorldPosition(this.worldPos);
     const blend = directionBlend(
       this.worldYaw(), this.worldPos.x, this.worldPos.z, camera.position.x, camera.position.z,

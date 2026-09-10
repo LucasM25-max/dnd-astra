@@ -1,14 +1,15 @@
+import { validateCharacter, type PlayerCharacter } from './character';
 import { CONTAINERS, ITEM_IDS, TOTAL_CARGO, emptyStock, initialCargo, valueOf, type ContainerId, type ItemId, type Stock } from './items';
 export const SAVE_KEY = 'astra-journey-v1';
 export interface PositionSave { x: number; z: number; yaw: number }
 export interface TimeSave { month: number; day: number; minuteOfDay: number }
 export interface JourneySave {
-  version: 1; revision: number; gold: number; inventory: Stock; cargo: Record<ContainerId, Stock>;
+  version: 1 | 2; revision: number; gold: number; inventory: Stock; cargo: Record<ContainerId, Stock>;
   opened: ContainerId[]; arrived: boolean; mounted: boolean; wagon: PositionSave | null; player: PositionSave | null;
-  time?: TimeSave | null;
+  time?: TimeSave | null; character: PlayerCharacter | null; inspected: string[];
 }
 export function newJourney(): JourneySave {
-  return { version: 1, revision: 0, gold: 0, inventory: emptyStock(), cargo: initialCargo(), opened: [], arrived: false, mounted: true, wagon: null, player: null, time: null };
+  return { version: 2, revision: 0, gold: 0, inventory: emptyStock(), cargo: initialCargo(), opened: [], arrived: false, mounted: true, wagon: null, player: null, time: null, character: null, inspected: [] };
 }
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const integer = (v: unknown) => Number.isSafeInteger(v) && Number(v) >= 0;
@@ -22,9 +23,11 @@ function validTime(v: unknown): v is TimeSave | null {
   return Number.isInteger(month) && month >= 0 && month < 12 && Number.isInteger(day) && day >= 1 && day <= 30 && Number.isInteger(minuteOfDay) && minuteOfDay >= 0 && minuteOfDay < 1440;
 }
 export function validateSave(v: unknown): v is JourneySave {
-  if (!isObject(v) || v.version !== 1 || !integer(v.revision) || !integer(v.gold) || Number(v.gold) > 1e9 || typeof v.arrived !== 'boolean' || typeof v.mounted !== 'boolean') return false;
+  if (!isObject(v) || (v.version !== 1 && v.version !== 2) || !integer(v.revision) || !integer(v.gold) || Number(v.gold) > 1e9 || typeof v.arrived !== 'boolean' || typeof v.mounted !== 'boolean') return false;
   if (!isObject(v.inventory) || !isObject(v.cargo) || !Array.isArray(v.opened) || !validPosition(v.wagon) || !validPosition(v.player)) return false;
   if ('time' in v && !validTime(v.time)) return false;
+  if ('character' in v && v.character !== null && !validateCharacter(v.character)) return false;
+  if ('inspected' in v && (!Array.isArray(v.inspected) || !v.inspected.every(s => typeof s === 'string' && s.length < 64))) return false;
   if (!v.opened.every(id => CONTAINERS.some(c => c.id === id)) || new Set(v.opened).size !== v.opened.length) return false;
   for (const id of ITEM_IDS) {
     if (!integer(v.inventory[id])) return false;
@@ -53,7 +56,17 @@ export class InventoryStore {
       if (text) {
         let candidate: unknown;
         try { candidate = JSON.parse(text); } catch { candidate = null; }
-        if (validateSave(candidate)) this.data = candidate;
+        if (validateSave(candidate)) {
+          this.data = candidate;
+          if (this.data.version === 1) {
+            // Migrate legacy saves: no hero yet, nothing inspected.
+            this.data.version = 2;
+            this.data.character = null;
+            this.data.inspected = [];
+          }
+          if (!this.data.inspected) this.data.inspected = [];
+          if (this.data.character === undefined) this.data.character = null;
+        }
         else { this.recoveredInvalidSave = true; storage?.setItem(`${SAVE_KEY}-recovery`, text); }
       }
     } catch { this.persistenceAvailable = false; }
@@ -67,6 +80,14 @@ export class InventoryStore {
   isOpen(container: ContainerId) { return this.data.opened.includes(container); }
   get inventoryValue() { return valueOf(this.data.inventory); }
   get cargoValue() { return CONTAINERS.reduce((n, c) => n + valueOf(this.data.cargo[c.id]), 0); }
+  /** Live hero record (mutate then call saveCharacter). Null until forged. */
+  getCharacter(): PlayerCharacter | null { return this.data.character; }
+  saveCharacter(c: PlayerCharacter) { this.data.character = structuredClone(c); this.persist(); }
+  isInspected(id: string) { return this.data.inspected.includes(id); }
+  markInspected(id: string) {
+    if (this.data.inspected.includes(id)) return;
+    this.data.inspected.push(id); this.persist(false);
+  }
   open(container: ContainerId) {
     if (!CONTAINERS.some(c => c.id === container) || !this.data.arrived) return false;
     if (!this.isOpen(container)) { this.data.opened.push(container); this.persist(); }

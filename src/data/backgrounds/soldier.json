@@ -1,0 +1,51 @@
+{
+  "id": "soldier",
+  "name": "Soldier",
+  "title": "SOLDIER — Forged in Battle",
+  "cardBlurb": "How did you spend the years leading up to a life of adventure?",
+  "flavour": "War has been your life for as long as you care to remember. You trained as a youth, studied the use of weapons and armour, and learned basic survival techniques.",
+  "abilityIncreases": {
+    "plusTwoFrom": ["STR", "DEX", "CON"],
+    "plusOneFrom": ["STR", "DEX", "CON"],
+    "recommended": { "plusTwo": "STR", "plusOne": "CON" }
+  },
+  "skills": ["athletics", "intimidation"],
+  "tools": ["Vehicles (land)"],
+  "toolNote": "You can expertly drive carts and wagons. Useful on the road to Phandalin.",
+  "gold": 18,
+  "feat": "savage_attacker",
+  "personality": {
+    "traits": [
+      "I'm always polite and respectful — until someone draws steel.",
+      "I can stare down a hell hound without flinching.",
+      "I face problems head-on. A simple, direct solution is the best path.",
+      "I never leave a companion behind, no matter the cost.",
+      "I keep my kit immaculate. A soldier's gear is their lifeline.",
+      "I speak little, but I remember every face I've fought beside."
+    ],
+    "ideals": [
+      "Duty. My word, once given, is iron.",
+      "Courage. Fear is a compass — it points at what matters.",
+      "Comrades. No one fights alone while I draw breath.",
+      "Honour. A clean fight and a clean conscience.",
+      "Freedom. No tyrant's banner flies over my road.",
+      "Glory. Let the bards earn their keep."
+    ],
+    "bonds": [
+      "I carry a token from a fallen shield-sibling.",
+      "The folk of Phandalin are under my protection now.",
+      "I owe Gundren Rockseeker a debt I mean to repay.",
+      "My old unit's banner is folded in my pack.",
+      "Someone back in Neverwinter is counting on my pay.",
+      "The road itself is my home; I defend all who walk it."
+    ],
+    "flaws": [
+      "I charge in before the plan is finished.",
+      "I trust soldiers and distrust smooth talkers.",
+      "Old war wounds ache when rain is coming — and I complain.",
+      "I can't resist a wager or a contest of strength.",
+      "I drink to forget the worst days, then remember them anyway.",
+      "I follow orders even when my gut says otherwise."
+    ]
+  }
+}

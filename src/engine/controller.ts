@@ -19,6 +19,8 @@ export class PlayerController {
   started = false;
   paused = false;
   grounded = true;
+  /** Forced seated pose (campfire rest) regardless of control mode. */
+  forceSeated = false;
   sprinting = false;
   sensitivity = 1;
   invertY = false;
@@ -158,9 +160,9 @@ export class PlayerController {
         const diff = Math.atan2(Math.sin(direction - this.avatar.rotation.y), Math.cos(direction - this.avatar.rotation.y));
         this.avatar.rotation.y += diff * Math.min(1, dt * 12);
       }
-      this.actor.update({ dt, speed: moveSpeed, sprint: this.sprinting, seated: this.controlMode !== 'foot', paused: this.paused });
+      this.actor.update({ dt, speed: moveSpeed, sprint: this.sprinting, seated: this.controlMode !== 'foot' || this.forceSeated, paused: this.paused });
     } else {
-      this.actor.update({ dt, speed: 0, seated: this.controlMode !== 'foot', paused: this.paused });
+      this.actor.update({ dt, speed: 0, seated: this.controlMode !== 'foot' || this.forceSeated, paused: this.paused });
     }
     this.avatar.position.copy(this.position);
     const floor = terrainHeight(this.position.x, this.position.z);

@@ -1,0 +1,17 @@
+{
+  "packs": [
+    {
+      "id": "explorer",
+      "name": "Explorer's Pack",
+      "contents": [
+        { "name": "Bedroll", "icon": "bed" },
+        { "name": "Mess kit", "icon": "utensils" },
+        { "name": "Tinderbox", "icon": "flame" },
+        { "name": "Torches ×10", "icon": "torch" },
+        { "name": "Rations ×10", "icon": "apple" },
+        { "name": "Waterskin", "icon": "droplet" },
+        { "name": "50 ft hempen rope", "icon": "cable" }
+      ]
+    }
+  ]
+}

@@ -9,12 +9,24 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { CollisionField, LANDMARKS, seededRandom, terrainHeight } from './landscape';
 import { loadMaterials, type Materials } from './materials';
 import { createTerrain, createForest, type Nature } from './nature';
-import { createAmbush } from './props';
+import { createAmbush, createCampfireSite } from './props';
 import { PlayerController, type CameraMode } from './controller';
 import { Adventure, type AdventureState } from './adventure';
 import { WeatherEngine, type WeatherFrame } from './weather';
 import { MONTHS, WEATHER_NAMES, type Season, type WeatherId } from '../game/time';
 import { spriteLightUniforms } from './actors/sprites';
+import { InteractionManager } from '../systems/interaction/InteractionManager';
+import { createRansackedBelongingsInteraction } from '../systems/interaction/interactions/RansackedBelongingsInteraction';
+import { NarratorCamera } from '../systems/narration/NarratorCamera';
+import { NarratorSystem } from '../systems/narration/NarratorSystem';
+import { PlayerCharacterController } from '../character/PlayerCharacterController';
+import { ParticleEffects } from '../world/ParticleEffects';
+import { FloatingText } from '../world/FloatingText';
+import { SkyboxManager } from '../world/SkyboxManager';
+import { RestCinematic } from '../systems/rest/RestCinematic';
+import { RestSystem } from '../systems/rest/RestSystem';
+import { createCampfireInteraction } from '../systems/rest/CampfireInteraction';
+import { roller } from '../systems/dice/DiceRoller';
 
 export type Quality = 'performance' | 'balanced' | 'high';
 export interface WorldState extends AdventureState {
@@ -22,23 +34,40 @@ export interface WorldState extends AdventureState {
   started: boolean; paused: boolean; fps: number; landmark: string | null; distanceWalked: number;
   time: { month: number; day: number; minuteOfDay: number; date: string; time: string; season: Season };
   weather: WeatherFrame & { name: string; monthName: string };
+  worldPrompt: string | null;
+  worldPromptIcon: string | null;
 }
 export class WoodlandWorld {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(59, 1, .08, 260);
   readonly collision = new CollisionField();
+  readonly interactions = new InteractionManager();
   controller!: PlayerController;
   adventure!: Adventure;
+  hero!: PlayerCharacterController;
+  narratorSystem!: NarratorSystem;
+  restSystem!: RestSystem;
+  private narratorCamera!: NarratorCamera;
+  private fx!: ParticleEffects;
+  private floatText!: FloatingText;
+  private sky!: SkyboxManager;
+  private emberLoop: { dispose: () => void } | null = null;
+  private campfireLight = new THREE.PointLight('#ff9a3c', 26, 18, 1.8);
+  private campfirePos = new THREE.Vector3();
+  private pauseReasons = new Set<string>();
+  private wasPaused = false;
   private lastActorShadow = 0;
   onNotice: (message: string) => void = () => {};
   onControlHandoff = () => {};
+  onOpenInventoryRequest = () => {};
+  onOpenSheetRequest = () => {};
   private material!: Materials;
   private nature!: Nature;
   private composer!: EffectComposer;
   private bloom!: UnrealBloomPass;
   private film!: ShaderPass;
-  private sky = new Sky();
+  private skyDome = new Sky();
   private sun = new THREE.DirectionalLight('#ffe0a6', 3.8);
   private hemisphere = new THREE.HemisphereLight('#d1ded9', '#746b48', 1.95);
   private fill = new THREE.DirectionalLight('#e1e4ca', .75);
@@ -91,11 +120,11 @@ export class WoodlandWorld {
     Object.assign(this.sun.shadow.camera, { near: 5, far: 125, left: -31, right: 31, top: 31, bottom: -31 });
     this.sun.shadow.mapSize.set(2048, 2048); this.sun.shadow.bias = -.00015; this.sun.shadow.normalBias = .025;
     this.sun.shadow.camera.updateProjectionMatrix();
-    this.sky.scale.setScalar(400);
-    const uniforms = this.sky.material.uniforms;
+    this.skyDome.scale.setScalar(400);
+    const uniforms = this.skyDome.material.uniforms;
     uniforms.turbidity.value = 6; uniforms.rayleigh.value = 1.65; uniforms.mieCoefficient.value = .007; uniforms.mieDirectionalG.value = .86;
     uniforms.sunPosition.value.copy(this.sun.position).normalize();
-    this.scene.add(this.sky);
+    this.scene.add(this.skyDome);
     this.observer = new ResizeObserver(() => this.resize()); this.observer.observe(this.host);
     const lost = (e: Event) => { e.preventDefault(); this.stop(); this.onContextLost(); };
     this.renderer.domElement.addEventListener('webglcontextlost', lost);
@@ -127,10 +156,11 @@ export class WoodlandWorld {
     this.adventure = await Adventure.create(this.scene, this.camera, this.controller, this.collision, this.renderer);
     this.adventure.onNotice = message => this.onNotice(message);
     this.adventure.onHandoff = () => { this.renderer.shadowMap.needsUpdate = true; this.renderDirty = true; this.onControlHandoff(); };
+    this.initializeSystems();
     this.addAtmosphere();
     this.weather = new WeatherEngine({
       scene: this.scene, renderer: this.renderer, sun: this.sun, fill: this.fill, hemisphere: this.hemisphere,
-      sky: this.sky, shaftMaterial: this.shaftMaterial, dustMaterial: this.particles.material as THREE.ShaderMaterial,
+      sky: this.skyDome, shaftMaterial: this.shaftMaterial, dustMaterial: this.particles.material as THREE.ShaderMaterial,
       onThunder: (s, p) => this.onThunder(s, p),
     }, this.quality);
     this.setupPostprocessing(); this.setQuality(this.quality); this.resize();
@@ -140,6 +170,79 @@ export class WoodlandWorld {
     this.composer.render();
     progress(100, 'The trail is yours');
     this.running = true; this.lastFrame = performance.now(); this.raf = requestAnimationFrame(this.frame);
+  }
+  /** Dice, narration, hero, camp, and world interactions. Called once adventure exists. */
+  private initializeSystems() {
+    this.fx = new ParticleEffects(this.scene);
+    this.floatText = new FloatingText(this.camera);
+    this.sky = new SkyboxManager();
+    this.narratorCamera = new NarratorCamera(this.controller, this.camera, this.collision);
+    this.narratorSystem = new NarratorSystem(this.narratorCamera);
+    void this.narratorSystem.initialize();
+    this.narratorSystem.setVoiceEnabled(this.adventure.narrator.state.voiceEnabled);
+    this.hero = new PlayerCharacterController(this.controller, this.scene);
+    roller.initialize({ pause: reason => this.pause(reason), resume: reason => this.resume(reason) });
+    const campfire = createCampfireSite(this.scene, this.collision);
+    this.campfirePos.copy(campfire.position);
+    this.campfireLight.position.copy(campfire.position).add(new THREE.Vector3(0, 1, 0));
+    this.scene.add(this.campfireLight);
+    this.emberLoop = this.fx.campfireLoop(campfire.position.clone().add(new THREE.Vector3(0, .35, 0)));
+    const cinematic = new RestCinematic(
+      this.camera, this.controller, this.narratorCamera, this.sky,
+      () => this.adventure.clock.minuteOfDay,
+      minutes => this.setTimeOfDay(minutes),
+    );
+    this.restSystem = new RestSystem({
+      store: this.adventure.inventory,
+      clock: this.adventure.clock,
+      hero: this.hero,
+      heroPosition: () => this.controller.position.clone().add(new THREE.Vector3(0, 1.2, 0)),
+      narrator: this.narratorSystem,
+      cinematic,
+      fx: this.fx,
+      floatText: this.floatText,
+      firePosition: () => this.campfirePos.clone(),
+      pause: reason => this.pause(reason),
+      resume: reason => this.resume(reason),
+      toast: message => this.onNotice(message),
+      openInventory: () => this.onOpenInventoryRequest(),
+      openSheet: () => this.onOpenSheetRequest(),
+    });
+    this.registerWorldInteractions();
+    this.syncHeroFromSave();
+  }
+  private registerWorldInteractions() {
+    const onFoot = () =>
+      this.adventure.inventory.arrived && this.controller.started &&
+      !this.adventure.mounted && this.adventure.narrator.state.phase !== 'journey';
+    const bags = new THREE.Vector3(8.9, terrainHeight(8.9, 1.9), 1.9);
+    const focusPos = new THREE.Vector3(6.2, terrainHeight(6.2, 4.8) + 2.3, 4.8);
+    this.interactions.register(createRansackedBelongingsInteraction({
+      position: bags,
+      focus: { position: focusPos, lookAt: bags.clone().add(new THREE.Vector3(0, .45, 0)) },
+      isInspected: () => this.adventure.inventory.isInspected('ransacked_belongings'),
+      setInspected: () => this.adventure.inventory.markInspected('ransacked_belongings'),
+      dustBurst: position => this.fx.dustBurst(position.clone().add(new THREE.Vector3(0, .5, 0))),
+      canInteract: onFoot,
+    }));
+    this.interactions.register(createCampfireInteraction({
+      position: this.campfirePos,
+      canInteract: onFoot,
+      onOpenCamp: () => this.restSystem.openCamp(),
+    }));
+  }
+  /** Repaint the hero from the saved character record (creation, load, restore). */
+  syncHeroFromSave() {
+    const character = this.adventure.inventory.getCharacter();
+    if (character) this.hero.syncFromCharacter(character);
+  }
+  hasNearbyInteraction(): boolean {
+    return this.interactions.nearest(this.controller.position) !== null;
+  }
+  async interactNearest(): Promise<boolean> {
+    const def = this.interactions.nearest(this.controller.position);
+    if (!def) return false;
+    return this.interactions.interact({ hero: this.hero, narrator: this.narratorSystem }, def);
   }
   private setupPostprocessing() {
     this.composer = new EffectComposer(this.renderer);
@@ -224,12 +327,8 @@ export class WoodlandWorld {
   setWeatherOverride(override: WeatherId | 'auto') { this.weather.setOverride(override); this.renderDirty = true; }
   /** Set the in-game clock directly (minutes since midnight). */
   setTimeOfDay(minuteOfDay: number) { this.adventure.clock.setMinuteOfDay(minuteOfDay); this.renderDirty = true; }
-  /** Optional long rest: sleep until 06:00. Returns a toast line, or null if unavailable. */
-  longRest(): string | null {
-    const line = this.adventure.longRest();
-    if (line) this.renderDirty = true;
-    return line;
-  }
+  /** Pause-menu rest shortcut: rest happens at the campfire, so open the camp menu. */
+  openCamp() { this.restSystem?.openCamp(); }
   setMode(mode: CameraMode) {
     if (this.adventure?.narrator.state.phase === 'journey') return;
     this.renderDirty = true; this.renderer.shadowMap.needsUpdate = true;
@@ -245,16 +344,31 @@ export class WoodlandWorld {
       grounded: c.grounded, started: c.started, paused: c.paused, fps: this.fps, landmark: place?.id ?? null, distanceWalked: c.walkDistance,
       time: { month: clock.month, day: clock.day, minuteOfDay: clock.minuteOfDay, date: clock.dateLabel(), time: clock.timeLabel(), season: clock.season },
       weather: { ...this.weatherFrame, name: WEATHER_NAMES[this.weatherFrame.current], monthName: month.name },
+      worldPrompt: this.interactions.nearest(p)?.prompt ?? null,
+      worldPromptIcon: this.interactions.nearest(p)?.icon ?? null,
     };
   }
   beginAdventure() { this.adventure.begin(); this.renderDirty = true; }
-  setPaused(paused: boolean) { this.adventure.setPaused(paused); if (!paused) this.renderDirty = true; }
+  setPaused(paused: boolean) { paused ? this.pause('menu') : this.resume('menu'); }
+  /** Nested pause: menus, dice, camp, and cinematics each hold their own reason. */
+  pause(reason: string) { this.pauseReasons.add(reason); this.applyPause(); }
+  resume(reason: string) { this.pauseReasons.delete(reason); this.applyPause(); }
+  private applyPause() {
+    const paused = this.pauseReasons.size > 0;
+    if (paused === this.wasPaused) return;
+    this.wasPaused = paused;
+    this.adventure.setPaused(paused);
+    if (!paused) this.renderDirty = true;
+  }
   private frame = (now: number) => {
     if (!this.running) return;
     const realDelta = Math.max(0, (now - this.lastFrame) / 1000);
     const dt = Math.min(realDelta, .1); this.lastFrame = now; this.elapsed += dt;
     this.adventure.update(dt, realDelta);
     this.controller.update(dt);
+    this.hero?.update();
+    this.fx?.update(dt, this.elapsed);
+    this.campfireLight.intensity = 26 + Math.sin(this.elapsed * 9.3) * 4 + Math.sin(this.elapsed * 23.7) * 2.5;
     this.material.wind.value = this.elapsed;
     const particleMat = this.particles.material as THREE.ShaderMaterial;
     particleMat.uniforms.time.value = this.elapsed; this.shaftMaterial.uniforms.time.value = this.elapsed;
@@ -314,7 +428,9 @@ export class WoodlandWorld {
   get diagnostics() { return { ...this.renderer.info.render, quality: this.quality, trees: this.nature?.trees ?? 0 }; }
   stop() { this.running = false; cancelAnimationFrame(this.raf); this.controller?.setPaused(true); this.adventure?.narrator.setPaused(true); }
   dispose() {
-    this.stop(); this.observer.disconnect(); this.weather?.dispose(); this.adventure?.dispose(); this.controller?.dispose(); this.cleanups.forEach(fn => fn());
+    this.stop(); this.observer.disconnect(); this.weather?.dispose(); this.adventure?.dispose(); this.controller?.dispose();
+    this.emberLoop?.dispose(); this.fx?.dispose(); this.sky?.dispose(); this.hero?.dispose(); this.restSystem?.menu.hide();
+    this.cleanups.forEach(fn => fn());
     const geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>(), textures = new Set<THREE.Texture>();
     this.scene.traverse(o => {
       if (o instanceof THREE.Mesh || o instanceof THREE.Points) {
