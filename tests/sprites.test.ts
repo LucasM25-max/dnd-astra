@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { directionIndex, viewAngle, relForIndex } from '../src/engine/actors/sprites';
+import { directionBlend, directionIndex, viewAngle, relForIndex } from '../src/engine/actors/sprites';
 import { fighterPose } from '../src/engine/actors/fighter';
 import { animalPose } from '../src/engine/actors/animalSprite';
 const D2R = Math.PI / 180;
@@ -38,6 +38,46 @@ describe('16-position sprite direction picking', () => {
     const a1 = viewAngle(0, 0, 0, camAt(350).x, camAt(350).z);
     const a2 = viewAngle(0, 0, 0, camAt(10).x, camAt(10).z);
     expect(Math.abs(a1 - a2)).toBeLessThan(20 * D2R);
+  });
+});
+
+describe('smooth 16-direction blending', () => {
+  it('shows a single closest-side variant at tile centres', () => {
+    for (let i = 0; i < 16; i++) {
+      const c = camAt(i * 22.5);
+      expect(directionBlend(0, 0, 0, c.x, c.z)).toEqual({ a: i, b: i, t: 0 });
+    }
+  });
+  it('crossfades evenly on the boundary between variants', () => {
+    const c = camAt(11.25); // halfway between variant 0 and 1
+    const bl = directionBlend(0, 0, 0, c.x, c.z);
+    expect(bl.a).toBe(0); expect(bl.b).toBe(1); expect(bl.t).toBeCloseTo(.5, 6);
+  });
+  it('blends across the 15 → 0 wrap-around', () => {
+    const c = camAt(-11.25);
+    const bl = directionBlend(0, 0, 0, c.x, c.z);
+    expect(bl.a).toBe(15); expect(bl.b).toBe(0); expect(bl.t).toBeCloseTo(.5, 6);
+  });
+  it('ramps the mix monotonically from one variant to the next', () => {
+    let prev = -1;
+    for (let deg = 2; deg <= 14; deg += 2) {
+      const c = camAt(deg);
+      const bl = directionBlend(0, 0, 0, c.x, c.z);
+      expect(bl.a).toBe(0); expect(bl.b).toBe(bl.t === 0 ? 0 : 1);
+      expect(bl.t).toBeGreaterThanOrEqual(prev);
+      prev = bl.t;
+    }
+    // Past the zone it settles fully onto variant 1.
+    const c = camAt(20);
+    expect(directionBlend(0, 0, 0, c.x, c.z)).toEqual({ a: 1, b: 1, t: 0 });
+  });
+  it('agrees with the hard index outside the blend zone', () => {
+    for (let i = 0; i < 16; i++) {
+      const c = camAt(i * 22.5 + 4);
+      const bl = directionBlend(0, 0, 0, c.x, c.z);
+      expect(bl.t).toBe(0);
+      expect(bl.a).toBe(directionIndex(0, 0, 0, c.x, c.z));
+    }
   });
 });
 

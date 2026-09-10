@@ -6,7 +6,7 @@ import path from 'node:path';
  * World environment texture preparation.
  *
  * Canonical mapping (the user-supplied environment set):
- *   ground (forest floor)  <- leaf litter      (assets-source/leaf-litter.jpg)
+ *   ground (forest floor)  <- forest soil        (assets-source/forest-soil.jpg)
  *   tree bark / deadwood   <- mossy bark       (assets-source/mossy-bark-detail.jpg)
  *   trail / road surface   <- earth path       (assets-source/earth-path.jpg)
  *   rocks / stones         <- rock             (assets-source/rock.jpg)
@@ -66,7 +66,9 @@ async function preparePbr(source, outName, { size = 1024, strength = 2.4, qualit
 await mkdir('public/textures', { recursive: true });
 await mkdir(INCOMING, { recursive: true });
 
-// Ground: the leaf-litter sheet becomes the forest floor itself.
+// Ground: bare forest soil is the forest floor itself (no leaf litter).
+await preparePbr(await resolveSource('forest-soil'), 'ground-forest-soil', { strength: 2.6 });
+// The original leaf-litter sheet is still prepared for reuse (dressing, clearings).
 await preparePbr(await resolveSource('leaf-litter'), 'ground-leaf-litter', { strength: 2.6 });
 // Tree bark, deadwood, stumps and posts: the mossy bark close-up.
 await preparePbr(await resolveSource('mossy-bark-detail'), 'bark-moss', { strength: 3.2 });
@@ -88,4 +90,4 @@ await preparePbr(await resolveSource('rock'), 'rock', { strength: 3.3 });
   await sharp(out, { raw: { width: info.width, height: info.height, channels: 4 } }).webp({ quality: 94, alphaQuality: 100 }).toFile('public/textures/oak-leaves.webp');
 }
 
-console.log('Prepared the world environment set: leaf-litter ground, mossy bark, earth path, rock, oak foliage.');
+console.log('Prepared the world environment set: forest-soil ground, leaf litter, mossy bark, earth path, rock, oak foliage.');

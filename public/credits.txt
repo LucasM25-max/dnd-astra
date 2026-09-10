@@ -7,8 +7,9 @@ The user supplied a Goblin Ambush reference map. Its image is not bundled;
 the continuous environment and in-game cartography are recreated in code.
 
 ORIGINAL ENVIRONMENT MATERIALS
-The earth-path, leaf-litter (forest floor), mossy-bark, rock, and oak-branch
-source images in assets-source/ were AI-generated for this prototype.
+The earth-path, forest-soil (forest floor), leaf-litter, mossy-bark, rock,
+and oak-branch source images in assets-source/ were AI-generated for this
+prototype.
 Optimized WebP textures, alpha masks, and image-derived normal maps were
 prepared locally with Sharp. These are not claimed to be scanned/photogrammetry
 materials. Terrain, plants, rocks, character proxy, UI, and map graphics are
@@ -23,9 +24,10 @@ https://polyhaven.com/license
 
 CHARACTERS & ANIMALS
 The Wanderer, the yoked oxen, and the horses are original procedurally
-painted canvas sprites (sixteen direction variants per actor), displayed on
-camera-facing billboards. No external character meshes, rigs, or
-image-generated sprite sheets are used.
+painted canvas sprite sheets (sixteen direction variants per actor, with
+idle, walk, sprint, seated, and head-down animation frames), displayed on
+upright billboards that crossfade between neighbouring directions. No
+external character meshes, rigs, or image-generated sprite sheets are used.
 
 LIBRARIES & TYPEFACES
 Three.js — three.js authors — MIT (licenses/three-MIT.txt)

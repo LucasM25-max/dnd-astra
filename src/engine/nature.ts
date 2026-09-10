@@ -69,7 +69,7 @@ export function createTerrain(scene: THREE.Scene, mat: Materials) {
     const t = clamp((slope - .40) / .22, 0, 1);
     const stone = t * t * (3 - 2 * t) * (.62 + fbm(x * .12, z * .12) * .45);
     blend.push(amount, clamp(stone, 0, .72));
-    // The leaf-litter ground sheet carries its own colour; vertex tint only
+    // The bare-soil ground sheet carries its own colour; vertex tint only
     // breathes gentle large-scale variation (damp hollows, dry rises) over it.
     const variation = .86 + fbm(x * .19, z * .19) * .24;
     const damp = .96 + fbm(x * .05 + 9, z * .05 + 3) * .07;

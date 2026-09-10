@@ -21,9 +21,9 @@ The Narrator currently delivers this **authored chapter**. It is not yet a free-
 
 The wagon includes individual weathered timber boards, iron fittings, twelve-spoke rotating wheels, a driving bench, a drawbar, a double yoke, flexible traces/reins, and six separately inspectable cargo containers. Crate/case lids open on hinges; looted supplies disappear from their physical stacks. The small oil barrel contains approximately fifty flask measures, not fifty separate bottles.
 
-The Wanderer, the two yoked oxen, and the two horses are stylized 2.5D actors: each is procedurally painted on a canvas atlas as sixteen direction variants (plus idle, walk, sprint, seated, or head-down poses) and shown on a camera-facing billboard, so they read as turning, breathing, tail-wagging creatures from any angle. The horses alternate between short walks and investigating the belongings. Moving actors and the wagon have collision volumes. Driving is constrained by terrain, obstacles, and space: the full wagon cannot simply cross steep banks or squeeze along the narrow Cragmaw trail.
+The Wanderer, the two yoked oxen, and the two horses are 2.5D actors: 2D animation frames playing inside the 3D world. Each is procedurally painted onto a canvas sprite sheet as sixteen direction variants (plus idle, walk, sprint, seated, or head-down poses) and shown on an upright billboard that always faces the camera, so the side closest to the viewer is visible at any moment and neighbours crossfade instead of popping as you orbit. They read as turning, breathing, tail-wagging figures from any angle. The horses alternate between short walks and investigating the belongings. Moving actors and the wagon have collision volumes. Driving is constrained by terrain, obstacles, and space: the full wagon cannot simply cross steep banks or squeeze along the narrow Cragmaw trail.
 
-**Art scope:** this remains a realism-focused browser prototype. The wagon/cargo geometry is procedural; the characters and animals are procedurally painted canvas sprites (no image-generated sprite sheets, no external meshes or rigs). Terrain/plant textures are image-based with derived normal maps, not a production photogrammetry set. A finished AAA-photorealistic art pass and broader hardware profiling remain future work.
+**Art scope:** this remains a realism-focused browser prototype. The wagon/cargo geometry is procedural; the characters and animals are procedurally painted canvas sprite sheets (no image-generated sprites, no external meshes or rigs), supersampled with photographic grain so they sit next to the image-based terrain/plant textures and their derived normal maps. The forest floor is bare soil; the trail and stony banks blend over it. This is not a production photogrammetry set: a finished AAA-photorealistic art pass and broader hardware profiling remain future work.
 
 ## Inventory and gold pieces
 
@@ -130,7 +130,7 @@ npm run narration:gemini
 ## Validation and asset preparation
 
 ```bash
-npm test                  # 47 deterministic map, economy, story, transport, and sprite checks
+npm test                  # 67 deterministic map, economy, story, transport, and sprite checks
 npm run build             # type-check and production bundle
 npm run test:browser      # real-browser integration suite; dev server must already be running
 npm run assets:prepare    # original forest textures from included sources

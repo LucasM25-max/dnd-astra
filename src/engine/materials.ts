@@ -22,18 +22,18 @@ export async function loadMaterials(renderer: THREE.WebGLRenderer, progress: (s:
     if (!normal) t.colorSpace = THREE.SRGBColorSpace;
     return t;
   };
-  progress('Unfolding the leaf-litter floor');
+  progress('Turning the forest soil');
   const [litter, litterN, path, pathN, bark, barkN, rock, rockN, leaf] = await Promise.all([
-    tex('ground-leaf-litter.webp'), tex('ground-leaf-litter-normal.webp', true), tex('earth-path.webp'),
+    tex('ground-forest-soil.webp'), tex('ground-forest-soil-normal.webp', true), tex('earth-path.webp'),
     tex('earth-path-normal.webp', true), tex('bark-moss.webp'), tex('bark-moss-normal.webp', true),
     tex('rock.webp'), tex('rock-normal.webp', true), tex('oak-leaves.webp'),
   ]);
   bark.repeat.set(2, 3.5); barkN.repeat.copy(bark.repeat);
   leaf.wrapS = leaf.wrapT = THREE.ClampToEdgeWrapping;
   const wind = { value: 0 };
-  // The forest floor is the leaf-litter sheet itself; the trail (earth path)
-  // and stony banks (rock) are blended in per-vertex with a dithered edge so
-  // the surfaces stay organic rather than checkered.
+  // The forest floor is bare soil; the trail (earth path) and stony banks
+  // (rock) are blended in per-vertex with a dithered edge so the surfaces
+  // stay organic rather than checkered.
   const ground = new THREE.MeshStandardMaterial({ map: litter, normalMap: litterN, normalScale: new THREE.Vector2(.72, .72), roughness: .97, vertexColors: true });
   ground.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, { uRoad: { value: path }, uRoadN: { value: pathN }, uStone: { value: rock }, uStoneN: { value: rockN } });
