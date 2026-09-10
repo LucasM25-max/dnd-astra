@@ -28,7 +28,7 @@ export function renderShell(host: HTMLElement) {
         </section>
         <div class="journey-status"><div class="traveller-emblem"><i data-lucide="footprints"></i></div><div><span class="micro-label" id="travel-mode">AT THE REINS</span><p id="travel-flavour">A promise to keep.</p></div><div class="journey-line"></div></div>
         <button id="mount-toggle" class="mount-button" hidden><i data-lucide="log-out"></i><span id="mount-label">Step down</span><kbd>R</kbd></button><aside class="map-cluster" aria-label="Local area">
-          <button id="time-toggle" class="time-of-day" aria-label="Change atmosphere"><i data-lucide="sun"></i><div><span id="time-label">GOLDEN HOUR</span><small id="time-detail">A quiet afternoon</small></div></button>
+          <button id="time-toggle" class="time-of-day" aria-label="Time and weather"><i data-lucide="sun"></i><div><span id="time-label">15 CHES</span><small id="time-detail">A quiet sky</small></div></button>
           <button class="minimap-panel" id="map-toggle" aria-label="Open world map" aria-haspopup="dialog">
             <div class="minimap-heading"><span>YOUR SURROUNDINGS</span><i data-lucide="expand"></i></div>
             <div class="minimap-frame"><canvas id="minimap-canvas" aria-label="Live local map without grid"></canvas><div class="minimap-corner tl"></div><div class="minimap-corner tr"></div><div class="minimap-corner bl"></div><div class="minimap-corner br"></div></div>
@@ -52,7 +52,7 @@ export function renderShell(host: HTMLElement) {
         </footer>
         <div class="pointer-hint" id="pointer-hint"><span class="hint-dot"></span> Click to look around <span>·</span> <kbd>ESC</kbd> to release</div>
         <div class="crosshair" aria-hidden="true"></div>
-        <button id="inspect-prompt" class="inspect-prompt" hidden><kbd>E</kbd><span id="inspect-label">Inspect the cargo manifest</span></button>
+        <button id="inspect-prompt" class="inspect-prompt" hidden><kbd>E</kbd><span id="inspect-label">Inspect</span></button>
         <button id="journey-skip" class="journey-skip" hidden><span>Skip opening</span><i data-lucide="skip-forward"></i></button>
         <section id="narrator-panel" class="narrator-panel" aria-label="Narrator dialogue">
           <div class="narrator-top"><span class="narrator-seal">◇</span><span class="narrator-name">NARRATOR</span><span class="narrator-heading" id="narrator-heading"></span><span class="narrator-page" id="narrator-page">1 / 4</span></div>

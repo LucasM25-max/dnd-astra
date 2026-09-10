@@ -1,21 +1,30 @@
 import { CONTAINERS, ITEM_IDS, TOTAL_CARGO, emptyStock, initialCargo, valueOf, type ContainerId, type ItemId, type Stock } from './items';
 export const SAVE_KEY = 'astra-journey-v1';
 export interface PositionSave { x: number; z: number; yaw: number }
+export interface TimeSave { month: number; day: number; minuteOfDay: number }
 export interface JourneySave {
   version: 1; revision: number; gold: number; inventory: Stock; cargo: Record<ContainerId, Stock>;
   opened: ContainerId[]; arrived: boolean; mounted: boolean; wagon: PositionSave | null; player: PositionSave | null;
+  time?: TimeSave | null;
 }
 export function newJourney(): JourneySave {
-  return { version: 1, revision: 0, gold: 0, inventory: emptyStock(), cargo: initialCargo(), opened: [], arrived: false, mounted: true, wagon: null, player: null };
+  return { version: 1, revision: 0, gold: 0, inventory: emptyStock(), cargo: initialCargo(), opened: [], arrived: false, mounted: true, wagon: null, player: null, time: null };
 }
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const integer = (v: unknown) => Number.isSafeInteger(v) && Number(v) >= 0;
 function validPosition(v: unknown): v is PositionSave | null {
   return v === null || (isObject(v) && ['x', 'z', 'yaw'].every(k => typeof v[k] === 'number' && Number.isFinite(v[k])) && Math.abs(Number(v.x)) <= 80 && Math.abs(Number(v.z)) <= 80 && Math.abs(Number(v.yaw)) < 1e6);
 }
+function validTime(v: unknown): v is TimeSave | null {
+  if (v === null) return true;
+  if (!isObject(v)) return false;
+  const month = Number(v.month), day = Number(v.day), minuteOfDay = Number(v.minuteOfDay);
+  return Number.isInteger(month) && month >= 0 && month < 12 && Number.isInteger(day) && day >= 1 && day <= 30 && Number.isInteger(minuteOfDay) && minuteOfDay >= 0 && minuteOfDay < 1440;
+}
 export function validateSave(v: unknown): v is JourneySave {
   if (!isObject(v) || v.version !== 1 || !integer(v.revision) || !integer(v.gold) || Number(v.gold) > 1e9 || typeof v.arrived !== 'boolean' || typeof v.mounted !== 'boolean') return false;
   if (!isObject(v.inventory) || !isObject(v.cargo) || !Array.isArray(v.opened) || !validPosition(v.wagon) || !validPosition(v.player)) return false;
+  if ('time' in v && !validTime(v.time)) return false;
   if (!v.opened.every(id => CONTAINERS.some(c => c.id === id)) || new Set(v.opened).size !== v.opened.length) return false;
   for (const id of ITEM_IDS) {
     if (!integer(v.inventory[id])) return false;
@@ -63,6 +72,11 @@ export class InventoryStore {
     if (!this.isOpen(container)) { this.data.opened.push(container); this.persist(); }
     return true;
   }
+  close(container: ContainerId) {
+    if (!CONTAINERS.some(c => c.id === container) || !this.isOpen(container)) return false;
+    this.data.opened = this.data.opened.filter(id => id !== container); this.persist();
+    return true;
+  }
   take(container: ContainerId, item: ItemId, amount: number) {
     if (!this.data.arrived || !this.isOpen(container) || !ITEM_IDS.includes(item) || !Number.isSafeInteger(amount) || amount <= 0) return false;
     const source = this.data.cargo[container];
@@ -81,6 +95,10 @@ export class InventoryStore {
   savePosition(wagon: PositionSave, player: PositionSave, mounted: boolean) {
     if (!this.data.arrived || !validPosition(wagon) || !validPosition(player)) return;
     this.data.wagon = { ...wagon }; this.data.player = { ...player }; this.data.mounted = mounted; this.persist(false);
+  }
+  saveTime(t: TimeSave) {
+    if (!this.data.arrived || !validTime(t)) return;
+    this.data.time = { ...t }; this.persist(false);
   }
   private persist(notify = true) {
     this.data.revision++;

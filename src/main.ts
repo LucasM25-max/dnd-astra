@@ -37,7 +37,15 @@ async function boot() {
     setTimeout(() => loading.remove(), 900);
     if (import.meta.env.DEV) {
       // Read-only diagnostics for local browser smoke tests; omitted from production.
-      Object.defineProperty(window, '__astra', { configurable: true, value: { getState: () => world!.getState(), getDiagnostics: () => world!.diagnostics, getInventory: () => world!.adventure.inventory.snapshot() } });
+      Object.defineProperty(window, '__astra', {
+        configurable: true,
+        value: {
+          getState: () => world!.getState(), getDiagnostics: () => world!.diagnostics, getInventory: () => world!.adventure.inventory.snapshot(), getWorld: () => world!,
+          setTime: (minuteOfDay: number) => world!.setTimeOfDay(minuteOfDay),
+          setWeather: (override: 'auto' | 'sun' | 'overcast' | 'rain' | 'storm' | 'snow' | 'wind') => world!.setWeatherOverride(override),
+          longRest: () => world!.longRest(),
+        },
+      });
     }
   } catch (error) {
     console.error('The woodland could not initialize:', error);

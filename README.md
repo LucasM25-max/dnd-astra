@@ -4,7 +4,7 @@ A playable **Three.js + TypeScript + Vite** fantasy RPG prototype, beginning wit
 
 ## Play the chapter
 
-Click **Begin your journey**. Your bean character begins on the wagon’s driving bench, holding the reins of two yoked oxen. A roughly one-minute opening follows the wagon down the road while the Narrator reads the supplied Neverwinter/Gundren introduction verbatim, in four readable pages.
+Click **Begin your journey**. You begin on the wagon’s driving bench as a chain-mail fighter, holding the reins of two yoked oxen. A roughly one-minute opening follows the wagon down the road while the Narrator reads the supplied Neverwinter/Gundren introduction verbatim, in four readable pages.
 
 At the clearing, the wagon stops and **control is handed back before the arrival narration begins**. That second passage describes the recent battle and the **two living horses** wandering and sniffing around ransacked belongings. The chapter stops there narratively; you can still drive, dismount, inspect the scene, and explore.
 
@@ -21,13 +21,13 @@ The Narrator currently delivers this **authored chapter**. It is not yet a free-
 
 The wagon includes individual weathered timber boards, iron fittings, twelve-spoke rotating wheels, a driving bench, a drawbar, a double yoke, flexible traces/reins, and six separately inspectable cargo containers. Crate/case lids open on hinges; looted supplies disappear from their physical stacks. The small oil barrel contains approximately fifty flask measures, not fifty separate bottles.
 
-The oxen and horses have skinned bodies with articulated legs, neck/head motion, breathing, and tail movement. The horses alternate between short walks and investigating the belongings. Moving actors and the wagon have collision volumes. Driving is constrained by terrain, obstacles, and space: the full wagon cannot simply cross steep banks or squeeze along the narrow Cragmaw trail.
+The Wanderer, the two yoked oxen, and the two horses are stylized 2.5D actors: each is procedurally painted on a canvas atlas as sixteen direction variants (plus idle, walk, sprint, seated, or head-down poses) and shown on a camera-facing billboard, so they read as turning, breathing, tail-wagging creatures from any angle. The horses alternate between short walks and investigating the belongings. Moving actors and the wagon have collision volumes. Driving is constrained by terrain, obstacles, and space: the full wagon cannot simply cross steep banks or squeeze along the narrow Cragmaw trail.
 
-**Art scope:** this remains a realism-focused browser prototype. The detailed wagon/cargo geometry is procedural; the animal surfaces are reshaped, subdivided derivatives of the credited reference mesh, with new skeletal rigs. Textures are image-based with derived normal maps, not a production photogrammetry set. A finished AAA-photorealistic art pass and broader hardware profiling remain future work.
+**Art scope:** this remains a realism-focused browser prototype. The wagon/cargo geometry is procedural; the characters and animals are procedurally painted canvas sprites (no image-generated sprite sheets, no external meshes or rigs). Terrain/plant textures are image-based with derived normal maps, not a production photogrammetry set. A finished AAA-photorealistic art pass and broader hardware profiling remain future work.
 
 ## Inventory and gold pieces
 
-Press **R** to dismount, walk beside a container, and press **E** to open it. Take a chosen quantity or everything in that container. **I** opens the inventory; it includes currency at the top, categories, search, quantities, per-item values, stack values, and item descriptions. The cargo manifest shows what is still on the wagon and which containers are open, sealed, or empty.
+Press **R** to dismount, walk beside a container, and press **E** to open it (press **E** again, or use the dialog's close control, to close it). Take a chosen quantity or everything in that container. **I** opens the inventory; it includes currency at the top, categories, search, quantities, per-item values, stack values, and item descriptions.
 
 The consignment’s fixed sale appraisals total **exactly 100 gp**:
 
@@ -56,6 +56,17 @@ Your purse begins at **0 gp**. Carrying 100 gp worth of supplies is not the same
 - Invalid saves are backed up under a recovery key instead of silently discarding the original string. If storage is unavailable, the inventory works in memory and the UI reports that it is session-only.
 - This is a single-player, device-local save, not an authoritative multiplayer economy. When adding shops, extend the save schema and conservation rules to record sold goods and earned currency; the current validator deliberately assumes no goods have been sold and no coins have been earned.
 
+## Time, weather, and music
+
+The chapter opens on the **afternoon of 15 Ches** in the Calendar of Harptos — twelve 30-day months with the four Sword Coast seasons (winter: Hammer, Alturiak, Ches; spring: Tarsakh, Mirtul, Kythorn; summer: Flamerule, Eleasias, Eleint; autumn: Marpenoth, Uktar, Nightal). The named days (Midwinter, Day of New Leaves, Highharvestide, Feast of the Long Night) are part of the calendar data and surface in the world map's calendar strip.
+
+- **The day turns in real time**: one in-game minute passes every five real seconds, so two real hours cover one full game day. Day length follows the season (eight winter hours, fourteen under highsun), with smooth dawn/dusk and a moonlit, star-filled night.
+- **Long rests are optional**: the pause screen offers *Long rest — sleep until morning*, which simply advances the clock to 6:00 am. Rests are never forced, and recovery effects are a later chapter.
+- **Weather follows the season**: clear, overcast, rain, storm, snow (winter only), and wind, each with its own lighting, fog, sky, and particle treatment. Conditions crossfade over about a minute of real time; storms bring lightning, distant thunder, and rain.
+- **Music and ambience follow the scene**: a low D-Dorian score with a drone, pads, and sparse bells that respond to weather (a pulse in storms, a wind bed that swells with the gusts), plus rain, gusts, and thunder layered into the forest ambience. Both have separate toggles and volume sliders in **World settings**, alongside a time-of-day slider and a weather override (seasonal by default).
+
+The small chip above the minimap shows the current date, time, and weather; clicking it opens World settings. The world map includes the Calendar of Harptos for the current month.
+
 ## Controls
 
 | Input | On foot / general | At the reins / opening |
@@ -67,7 +78,7 @@ Your purse begins at **0 gp**. Carrying 100 gp worth of supplies is not the same
 | Mouse wheel | Third-person camera distance | Third-person camera distance |
 | V | First / third person | First / third person after handoff |
 | R | Board when near the bench | Dismount |
-| E | Open nearby cargo / inspect belongings | Read the cargo manifest |
+| E | Open/close nearby cargo, inspect belongings | Open/close nearby cargo |
 | I | Inventory | Inventory |
 | N | Complete story journal | Complete story journal |
 | M | Area map | Area map |
@@ -119,7 +130,7 @@ npm run narration:gemini
 ## Validation and asset preparation
 
 ```bash
-npm test                  # 31 deterministic map, economy, story, transport, and rig checks
+npm test                  # 47 deterministic map, economy, story, transport, and sprite checks
 npm run build             # type-check and production bundle
 npm run test:browser      # real-browser integration suite; dev server must already be running
 npm run assets:prepare    # original forest textures from included sources
@@ -137,14 +148,18 @@ src/game/items.ts                 Item registry, fixed appraisals, initial consi
 src/game/save.ts                  Atomic local save, validation, conservative transfers
 src/game/narration-script.json    Exact visible/spoken passages and optional Gemini directions
 src/game/narrator.ts              Audio-clock timeline, pause ownership, fallback, handoff
+src/game/time.ts                  Calendar of Harptos, game clock, sun geometry, seasonal weather tables
+src/game/music.ts                 Dramatic score: drone, Dorian pads/bells, storm pulse, wind bed
 src/game/road.ts                  Continuous wagon route and heading
 src/engine/adventure.ts           Chapter orchestration, driving, boarding, interactions, saves
-src/engine/actors/                Wagon/cargo construction, materials, and animal rigs
+src/engine/actors/                Wagon/cargo construction, materials, and painted sprite actors
 src/engine/landscape.ts           Original map curves, height field, static/dynamic collisions
 src/engine/nature.ts              Spatially instanced trees, grass, ferns, rocks, and deadwood
-src/engine/controller.ts          Foot movement, seated bean/hands, camera and input handling
-src/engine/world.ts               Renderer, atmosphere, quality, world update, capture
-src/ui/                          HUD, Narrator panel, inventory/cargo, dialogs, cartography
+src/engine/controller.ts          Foot movement, seated fighter/hands, camera and input handling
+src/engine/weather.ts             Weather engine: seasonal palettes, rain/snow/wind particles, lightning
+src/engine/audio.ts               Forest ambience plus rain, gusts, and thunder weather beds
+src/engine/world.ts               Renderer, clock-driven atmosphere, quality, world update, capture
+src/ui/                           HUD, Narrator panel, inventory/cargo, dialogs, cartography, calendar
 assets-source/                   Original generated texture sources (not served in production)
 public/audio/narration/           Bundled voice clips and duration/source manifest
 public/credits.txt               Asset/library provenance and license references

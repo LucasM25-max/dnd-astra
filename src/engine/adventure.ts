@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { InventoryStore } from '../game/save';
 import { Narrator, type NarratorState } from '../game/narrator';
+import { GameClock } from '../game/time';
 import { journeyPose } from '../game/road';
 import { CONTAINERS, emptyStock, type ContainerId, type ItemId } from '../game/items';
 import { CollisionField, WORLD_LIMIT, pathDistance, terrainHeight } from './landscape';
@@ -9,7 +10,8 @@ import { loadAdventureMaterials, type AdventureMaterials } from './actors/materi
 import { AnimalFactory, type LivingAnimal } from './actors/animals';
 import { SupplyWagon } from './actors/wagon';
 
-export interface Interaction { kind: 'cargo' | 'manifest' | 'horses'; id: string; label: string }
+export interface Interaction { kind: 'cargo' | 'horses'; id: string; label: string }
+const HANDS_LEFT = new THREE.Vector3(), HANDS_RIGHT = new THREE.Vector3();
 export interface AdventureState {
   story: NarratorState; mounted: boolean; interaction: Interaction | null; canMount: boolean;
   wagon: { x: number; z: number; yaw: number; speed: number }; inventoryRevision: number;
@@ -19,9 +21,11 @@ function browserStorage() { try { return window.localStorage; } catch { return u
 export class Adventure {
   readonly inventory = new InventoryStore(browserStorage());
   readonly narrator = new Narrator();
+  /** The Calendar of Harptos clock: starts 15 Ches, 14:30 — a quiet afternoon. */
+  readonly clock = new GameClock();
   readonly wagon: SupplyWagon;
   readonly horses: LivingAnimal[];
-  private clock = 0;
+  private runClock = 0;
   private lastSave = 0;
   private lastBlockedToast = -10;
   private cameraLook = new THREE.Vector3();
@@ -38,6 +42,7 @@ export class Adventure {
     this.horses = [factory.create('horse', '#765339', 2), factory.create('horse', '#b0aca0', 7)];
     this.horses.forEach(h => scene.add(h.root));
     const saved = this.inventory.snapshot(), pose = saved.arrived && saved.wagon ? saved.wagon : journeyPose(saved.arrived ? 1 : 0);
+    if (saved.time) this.clock.restore(saved.time.month, saved.time.day, saved.time.minuteOfDay);
     this.wagon.setPose(pose.x, pose.z, pose.yaw); this.lastWagonPosition.copy(this.wagon.root.position);
     this.controller.setControlMode('cinematic'); this.controller.attachToSeat(this.wagon.seatPosition(), pose.yaw);
     this.narrator.onHandoff = () => this.handoff();
@@ -47,7 +52,7 @@ export class Adventure {
     this.updateCamera(true); this.updateCollision();
   }
   static async create(scene: THREE.Scene, camera: THREE.PerspectiveCamera, controller: PlayerController, collision: CollisionField, renderer: THREE.WebGLRenderer) {
-    const materials = await loadAdventureMaterials(renderer), factory = await AnimalFactory.load(materials);
+    const materials = await loadAdventureMaterials(renderer), factory = await AnimalFactory.load(materials, camera);
     const adventure = new Adventure(scene, camera, controller, collision, factory, materials);
     await adventure.narrator.initialize(); return adventure;
   }
@@ -79,7 +84,12 @@ export class Adventure {
   update(dt: number, realDelta: number) {
     this.narrator.update(realDelta);
     const paused = this.controller.paused, phase = this.narrator.state.phase;
-    if (!paused) this.clock += dt;
+    if (!paused) {
+      this.runClock += dt;
+      // The world clock runs once the opening cutscene is over. Real-time based
+      // (2 real hours = 1 game day), capped so a backgrounded tab can't leap ahead.
+      if (this.inventory.arrived && phase !== 'journey' && this.controller.started) this.clock.advance(Math.min(realDelta, 2));
+    }
     let distance = 0;
     if (phase === 'journey') {
       this.cinematicProgress = Math.max(this.cinematicProgress, this.narrator.state.journeyProgress);
@@ -92,14 +102,17 @@ export class Adventure {
     } else if (phase !== 'title' && this.mounted && !paused) distance = this.drive(dt);
     if (this.mounted) { this.controller.attachToSeat(this.wagon.seatPosition(), this.wagon.root.rotation.y); this.wagon.mounted = true; }
     else this.wagon.mounted = false;
-    this.wagon.update(dt, paused ? 0 : distance, paused);
+    const hands: { left: THREE.Vector3; right: THREE.Vector3 } | null = this.mounted
+      ? { left: this.controller.handPosition('left', HANDS_LEFT), right: this.controller.handPosition('right', HANDS_RIGHT) }
+      : null;
+    this.wagon.update(dt, paused ? 0 : distance, paused, hands);
     if (!paused) this.updateHorses(dt);
     this.updateCollision();
     if (phase === 'title' || phase === 'journey') this.updateCamera(phase === 'title');
     else if (Math.abs(this.camera.fov - (this.controller.mode === 'first' ? 72 : 59)) > .1) {
       this.camera.fov = THREE.MathUtils.damp(this.camera.fov, this.controller.mode === 'first' ? 72 : 59, 5, dt); this.camera.updateProjectionMatrix();
     }
-    if (phase !== 'title' && phase !== 'journey' && this.clock - this.lastSave > 2.5) { this.lastSave = this.clock; this.save(); }
+    if (phase !== 'title' && phase !== 'journey' && this.runClock - this.lastSave > 2.5) { this.lastSave = this.runClock; this.save(); }
     this.previouslyPaused = paused;
   }
   private drive(dt: number) {
@@ -115,7 +128,7 @@ export class Adventure {
     const x = old.x - Math.sin(yaw) * this.wagon.speed * dt, z = old.z - Math.cos(yaw) * this.wagon.speed * dt;
     if (!this.canDriveAt(x, z, yaw)) {
       this.wagon.speed = 0;
-      if (this.clock - this.lastBlockedToast > 7) { this.lastBlockedToast = this.clock; this.onNotice('The wagon needs room. Steer back to the road, or press R to go on foot.'); }
+      if (this.runClock - this.lastBlockedToast > 7) { this.lastBlockedToast = this.runClock; this.onNotice('The wagon needs room. Steer back to the road, or press R to go on foot.'); }
       return 0;
     }
     this.wagon.setPose(x, z, yaw); this.lastWagonPosition.copy(this.wagon.root.position);
@@ -161,27 +174,37 @@ export class Adventure {
   }
   canMount() { return this.inventory.arrived && this.controller.position.distanceTo(this.wagon.seatPosition()) < 3.4; }
   returnToWagon() { if (this.inventory.arrived) { this.mount(); this.save(); } }
+  /**
+   * An optional long rest: skip ahead to 06:00. Rests are never forced.
+   * Recovery effects arrive in a later chapter; for now the day simply turns.
+   */
+  longRest(): string | null {
+    if (!this.inventory.arrived || this.narrator.state.phase === 'journey' || !this.controller.started) return null;
+    this.clock.restUntilMorning();
+    this.save();
+    return `You rest until the morning. ${this.clock.dateLabel()} · 6:00 am`;
+  }
   canReach(id: ContainerId) {
     if (!CONTAINERS.some(c => c.id === id) || !this.inventory.arrived || this.mounted || this.narrator.state.phase === 'journey') return false;
     const p = this.wagon.cargoPosition(id), player = this.controller.position;
     return Math.hypot(p.x - player.x, p.z - player.z) < 2.6 && Math.abs(p.y - player.y) < 2.3;
   }
   openCargo(id: ContainerId) { return this.canReach(id) && this.inventory.open(id); }
+  closeCargo(id: ContainerId) { return this.canReach(id) && this.inventory.close(id); }
   take(id: ContainerId, item: ItemId, quantity: number) { return this.canReach(id) && this.inventory.take(id, item, quantity); }
   takeAll(id: ContainerId) { return this.canReach(id) ? this.inventory.takeAll(id) : emptyStock(); }
   interaction(): Interaction | null {
     if (!this.inventory.arrived || this.narrator.state.phase === 'journey' || !this.controller.started) return null;
-    if (this.mounted) return { kind: 'manifest', id: 'wagon', label: 'Inspect the cargo manifest' };
     const player = this.controller.position;
     const nearby = CONTAINERS.filter(c => this.canReach(c.id)).map(c => ({ c, d: this.wagon.cargoPosition(c.id).distanceTo(player) })).sort((a, b) => a.d - b.d)[0];
-    if (nearby) return { kind: 'cargo', id: nearby.c.id, label: `${this.inventory.isOpen(nearby.c.id) ? 'Inspect' : 'Open'} ${nearby.c.name.toLowerCase()}` };
+    if (nearby) return { kind: 'cargo', id: nearby.c.id, label: `${this.inventory.isOpen(nearby.c.id) ? 'Close' : 'Open'} ${nearby.c.name.toLowerCase()}` };
     if (Math.hypot(player.x - 9.7, player.z - 2) < 4) return { kind: 'horses', id: 'clearing', label: 'Examine the ransacked belongings' };
     return null;
   }
   private updateHorses(dt: number) {
     for (let i = 0; i < this.horses.length; i++) {
       const horse = this.horses[i], old = horse.root.position.clone();
-      const cycle = (this.clock + i * 12) % 34;
+      const cycle = (this.runClock + i * 12) % 34;
       const from = new THREE.Vector3(i === 0 ? 9.3 : 12.6, 0, i === 0 ? 2.9 : 1.2);
       const to = new THREE.Vector3(i === 0 ? 8.35 : 11.1, 0, i === 0 ? 2.10 : 1.8);
       let t: number;
@@ -236,11 +259,12 @@ export class Adventure {
     if (!this.inventory.arrived) return;
     const p = this.controller.position, w = this.wagon.root.position;
     this.inventory.savePosition({ x: w.x, z: w.z, yaw: this.wagon.root.rotation.y }, { x: p.x, z: p.z, yaw: this.controller.yaw }, this.mounted);
+    this.inventory.saveTime({ month: this.clock.month, day: this.clock.day, minuteOfDay: Math.floor(this.clock.minuteOfDay) });
   }
   dispose() {
     if (this.disposed) return; this.disposed = true; this.save(); this.narrator.dispose(); this.factory.dispose();
     this.collision.removeDynamic('wagon'); this.collision.removeDynamic('horses');
     this.materials.textures.forEach(t => t.dispose());
-    this.horses.forEach(h => h.mesh.skeleton.dispose()); this.wagon.oxen.forEach(h => h.mesh.skeleton.dispose());
+    this.horses.forEach(h => h.dispose()); this.wagon.oxen.forEach(h => h.dispose());
   }
 }

@@ -73,7 +73,7 @@ export class SupplyWagon {
       if (visual.oilSurface) { visual.oilSurface.visible = stock.oil > 0; visual.oilSurface.position.y = .075 + stock.oil / 50 * .255; }
     }
   }
-  update(dt: number, distance: number, paused: boolean) {
+  update(dt: number, distance: number, paused: boolean, hands?: { left: THREE.Vector3; right: THREE.Vector3 } | null) {
     dt = Math.max(0, Math.min(.1, dt));
     this.refreshCargo();
     this.visualAnimating = this.cargoDirty; this.cargoDirty = false;
@@ -92,7 +92,9 @@ export class SupplyWagon {
         ox.root.position.y = this.heightAt(world.x, world.z) - world.y + .015;
         ox.update(dt, distance, false);
       }
-      const start = this.root.localToWorld(new THREE.Vector3(i === 0 ? -.24 : .24, this.mounted ? 1.80 : 1.25, this.mounted ? -1.84 : -1.75));
+      // When the Wanderer is in the seat the reins run from their hands to the bits.
+      const start = hands ? (i === 0 ? hands.left : hands.right)
+        : this.root.localToWorld(new THREE.Vector3(i === 0 ? -.24 : .24, this.mounted ? 1.80 : 1.25, this.mounted ? -1.84 : -1.75));
       const bit = ox.bitPosition(); this.reins[i]?.update(start, bit, this.mounted ? .19 : .42, this.clock);
       const traceA = this.root.localToWorld(new THREE.Vector3(i === 0 ? -.83 : .83, .81, -1.39));
       const traceB = this.root.localToWorld(new THREE.Vector3(i === 0 ? -.96 : .96, 1.24, -5.37));
