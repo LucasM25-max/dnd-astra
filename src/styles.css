@@ -18,3 +18,19 @@ body[data-playing=true] .welcome{opacity:0;transform:translateY(14px);pointer-ev
 @media(max-height:650px) and (min-width:761px){.welcome{bottom:111px}.welcome h1{font-size:67px}.welcome-copy{margin-top:15px;font-size:10px}.scene-tag{margin-top:10px}.enter-button{margin-top:18px;height:42px}.welcome-note{margin-top:12px}.map-cluster{bottom:91px;width:167px}.minimap-frame{height:118px}.time-of-day{margin-bottom:10px}.topbar{padding-top:21px}.chapter{font-size:7px}.dialog-backdrop{padding:20px}.dialog{max-height:calc(100dvh - 40px)}.pointer-hint{bottom:78px}}
 @media(max-height:480px){.welcome{bottom:90px;max-width:80vw}.welcome h1{font-size:53px;margin-top:10px}.welcome-copy,.welcome-note,.scene-tag{display:none}.enter-button{margin-top:18px;height:39px}.chapter{font-size:6px}.map-cluster{width:129px;bottom:86px}.time-of-day,.scene-build{display:none}.minimap-frame{height:93px}.topbar{padding-top:16px}.compass{top:13px}.journey-status{bottom:91px}.region-label{top:86px}.discovery{top:92px}.touch-controls{bottom:93px}.photo-mode-label{top:22px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}.loading-screen{transition:opacity .1s!important}}
+/* Weather + calendar (time & weather feature) */
+.weather-options{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}
+.weather-options>button{height:56px;font-size:7.5px}
+.weather-options>button svg{width:16px;height:16px}
+.calendar-strip{display:flex;align-items:center;gap:13px;margin-top:16px;padding:11px 13px;border:1px solid #e0dfb721;border-radius:4px;background:#293b2b66}
+.cal-month{display:flex;flex-direction:column;gap:3px;min-width:86px}
+.cal-month b{font:400 15px/1 var(--serif);letter-spacing:.3px;color:#e3dfc2}
+.cal-month span{font-size:5.8px;letter-spacing:1.05px;color:#a9b3989c}
+.cal-days{display:flex;flex-wrap:wrap;gap:2.5px;flex:1}
+.cal-day{width:15px;height:15px;display:inline-flex;align-items:center;justify-content:center;font-size:6.8px;color:#8fa084;border-radius:2px}
+.cal-day.today{background:var(--gold);color:#22301d;font-weight:700}
+.cal-day.winter{background:#9db4d62e;color:#bcd0ea}
+.cal-day.spring{background:#c9d98a2e;color:#dce9a8}
+.cal-day.summer{background:#e2b47a2e;color:#f0cba0}
+.cal-day.autumn{background:#d68f9d2e;color:#eab8c2}
+.cal-note{font-size:7px;line-height:1.6;color:#a3b194;margin:0;max-width:118px}

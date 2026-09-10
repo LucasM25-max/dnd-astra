@@ -12,12 +12,15 @@ import { createTerrain, createForest, type Nature } from './nature';
 import { createAmbush } from './props';
 import { PlayerController, type CameraMode } from './controller';
 import { Adventure, type AdventureState } from './adventure';
+import { WeatherEngine, type WeatherFrame } from './weather';
+import { MONTHS, WEATHER_NAMES, type Season, type WeatherId } from '../game/time';
 
 export type Quality = 'performance' | 'balanced' | 'high';
-export type Atmosphere = 'golden' | 'overcast' | 'blue';
 export interface WorldState extends AdventureState {
   x: number; y: number; z: number; yaw: number; mode: CameraMode; moving: boolean; grounded: boolean;
   started: boolean; paused: boolean; fps: number; landmark: string | null; distanceWalked: number;
+  time: { month: number; day: number; minuteOfDay: number; date: string; time: string; season: Season };
+  weather: WeatherFrame & { name: string; monthName: string };
 }
 export class WoodlandWorld {
   readonly renderer: THREE.WebGLRenderer;
@@ -37,8 +40,12 @@ export class WoodlandWorld {
   private sky = new Sky();
   private sun = new THREE.DirectionalLight('#ffe0a6', 3.8);
   private hemisphere = new THREE.HemisphereLight('#d1ded9', '#746b48', 1.95);
+  private fill = new THREE.DirectionalLight('#e1e4ca', .75);
   private particles!: THREE.Points;
   private shaftMaterial!: THREE.ShaderMaterial;
+  private weather!: WeatherEngine;
+  private weatherFrame: WeatherFrame = { current: 'sun', next: 'sun', rain: 0, snow: 0, wind: 0, storm: 0, daylight: .9 };
+  onThunder: (strength: number, pan: number) => void = () => {};
   private shafts: { mesh: THREE.Mesh; start: THREE.Vector3; end: THREE.Vector3; width: number }[] = [];
   private observer: ResizeObserver;
   private lastFrame = 0;
@@ -77,7 +84,7 @@ export class WoodlandWorld {
     this.scene.background = new THREE.Color('#bac7b0');
     this.scene.fog = new THREE.FogExp2('#c3c6a9', .0125);
     this.scene.add(this.hemisphere, this.sun, this.sun.target);
-    const fill = new THREE.DirectionalLight('#e1e4ca', .75); fill.position.set(-25, 15, 20); this.scene.add(fill);
+    this.fill.position.set(-25, 15, 20); this.scene.add(this.fill);
     this.sun.position.set(-22, 32, -20); this.sun.target.position.set(0, 0, -2);
     this.sun.castShadow = true;
     Object.assign(this.sun.shadow.camera, { near: 5, far: 125, left: -31, right: 31, top: 31, bottom: -31 });
@@ -119,7 +126,13 @@ export class WoodlandWorld {
     this.adventure = await Adventure.create(this.scene, this.camera, this.controller, this.collision, this.renderer);
     this.adventure.onNotice = message => this.onNotice(message);
     this.adventure.onHandoff = () => { this.renderer.shadowMap.needsUpdate = true; this.renderDirty = true; this.onControlHandoff(); };
-    this.addAtmosphere(); this.setupPostprocessing(); this.setQuality(this.quality); this.resize();
+    this.addAtmosphere();
+    this.weather = new WeatherEngine({
+      scene: this.scene, renderer: this.renderer, sun: this.sun, fill: this.fill, hemisphere: this.hemisphere,
+      sky: this.sky, shaftMaterial: this.shaftMaterial, dustMaterial: this.particles.material as THREE.ShaderMaterial,
+      onThunder: (s, p) => this.onThunder(s, p),
+    }, this.quality);
+    this.setupPostprocessing(); this.setQuality(this.quality); this.resize();
     progress(92, 'Opening your window to the wild');
     await yieldToBrowser();
     await this.renderer.compileAsync(this.scene, this.camera);
@@ -197,6 +210,7 @@ export class WoodlandWorld {
     this.sun.shadow.map?.dispose(); this.sun.shadow.map = null;
     this.renderer.shadowMap.needsUpdate = true;
     if (this.bloom) this.bloom.enabled = quality !== 'performance';
+    if (this.weather) this.weather.setQuality(quality);
     if (this.nature) {
       const factor = quality === 'performance' ? .18 : quality === 'balanced' ? .72 : 1;
       this.nature.grass.count = Math.floor(this.nature.detailCounts[0] * factor);
@@ -205,38 +219,15 @@ export class WoodlandWorld {
     if (this.particles) (this.particles.material as THREE.ShaderMaterial).uniforms.pixelRatio.value = this.renderer.getPixelRatio();
     this.resize();
   }
-  setAtmosphere(atmosphere: Atmosphere) {
-    this.renderDirty = true;
-    const fog = this.scene.fog as THREE.FogExp2;
-    const particleMat = this.particles.material as THREE.ShaderMaterial;
-    if (atmosphere === 'golden') {
-      this.sun.color.set('#ffe0a6'); this.sun.intensity = 3.8;
-      this.hemisphere.color.set('#d1ded9'); this.hemisphere.groundColor.set('#746b48'); this.hemisphere.intensity = 1.95;
-      this.scene.environmentIntensity = .70; this.renderer.toneMappingExposure = 1.06;
-      fog.color.set('#c3c6a9'); fog.density = .0125;
-      this.sky.material.uniforms.turbidity.value = 6; this.sky.material.uniforms.rayleigh.value = 1.65;
-      this.shaftMaterial.uniforms.opacity.value = .075;
-      particleMat.uniforms.tint.value.set('#e4d9a9'); particleMat.uniforms.opacity.value = .48;
-    } else if (atmosphere === 'overcast') {
-      this.sun.color.set('#c9d9e5'); this.sun.intensity = .85;
-      this.hemisphere.color.set('#c1d0d6'); this.hemisphere.groundColor.set('#56625c'); this.hemisphere.intensity = 2.1;
-      this.scene.environmentIntensity = .66; this.renderer.toneMappingExposure = 1.02;
-      fog.color.set('#aebbb8'); fog.density = .025;
-      this.sky.material.uniforms.turbidity.value = 20; this.sky.material.uniforms.rayleigh.value = .35;
-      this.shaftMaterial.uniforms.opacity.value = 0;
-      particleMat.uniforms.tint.value.set('#c5d4d1'); particleMat.uniforms.opacity.value = .22;
-    } else {
-      this.sun.color.set('#aac6ed'); this.sun.intensity = .55;
-      this.hemisphere.color.set('#7189ac'); this.hemisphere.groundColor.set('#263e3f'); this.hemisphere.intensity = 1.2;
-      this.scene.environmentIntensity = .17; this.renderer.toneMappingExposure = .86;
-      fog.color.set('#526e79'); fog.density = .022;
-      this.sky.material.uniforms.turbidity.value = 9; this.sky.material.uniforms.rayleigh.value = .55;
-      this.shaftMaterial.uniforms.opacity.value = .023; this.shaftMaterial.uniforms.tint.value.set('#94bedb');
-      particleMat.uniforms.tint.value.set('#d3e896'); particleMat.uniforms.opacity.value = .8;
-    }
-    if (atmosphere !== 'blue') this.shaftMaterial.uniforms.tint.value.set('#f9e9b5');
-    this.sky.visible = atmosphere === 'golden';
-    (this.scene.background as THREE.Color).copy(fog.color);
+  /** Force a condition, or hand the skies back to the seasons ('auto'). */
+  setWeatherOverride(override: WeatherId | 'auto') { this.weather.setOverride(override); this.renderDirty = true; }
+  /** Set the in-game clock directly (minutes since midnight). */
+  setTimeOfDay(minuteOfDay: number) { this.adventure.clock.setMinuteOfDay(minuteOfDay); this.renderDirty = true; }
+  /** Optional long rest: sleep until 06:00. Returns a toast line, or null if unavailable. */
+  longRest(): string | null {
+    const line = this.adventure.longRest();
+    if (line) this.renderDirty = true;
+    return line;
   }
   setMode(mode: CameraMode) {
     if (this.adventure?.narrator.state.phase === 'journey') return;
@@ -246,7 +237,14 @@ export class WoodlandWorld {
   getState(): WorldState {
     const c = this.controller, p = c.position;
     const place = LANDMARKS.find(l => Math.hypot(p.x - l.x, p.z - l.z) < l.radius);
-    return { ...this.adventure.state, x: p.x, y: p.y, z: p.z, yaw: c.yaw, mode: c.mode, moving: this.adventure.mounted ? Math.abs(this.adventure.wagon.speed) > .02 : c.velocity.length() > .3, grounded: c.grounded, started: c.started, paused: c.paused, fps: this.fps, landmark: place?.id ?? null, distanceWalked: c.walkDistance };
+    const clock = this.adventure.clock, month = MONTHS[clock.month];
+    return {
+      ...this.adventure.state, x: p.x, y: p.y, z: p.z, yaw: c.yaw, mode: c.mode,
+      moving: this.adventure.mounted ? Math.abs(this.adventure.wagon.speed) > .02 : c.velocity.length() > .3,
+      grounded: c.grounded, started: c.started, paused: c.paused, fps: this.fps, landmark: place?.id ?? null, distanceWalked: c.walkDistance,
+      time: { month: clock.month, day: clock.day, minuteOfDay: clock.minuteOfDay, date: clock.dateLabel(), time: clock.timeLabel(), season: clock.season },
+      weather: { ...this.weatherFrame, name: WEATHER_NAMES[this.weatherFrame.current], monthName: month.name },
+    };
   }
   beginAdventure() { this.adventure.begin(); this.renderDirty = true; }
   setPaused(paused: boolean) { this.adventure.setPaused(paused); if (!paused) this.renderDirty = true; }
@@ -260,6 +258,10 @@ export class WoodlandWorld {
     const particleMat = this.particles.material as THREE.ShaderMaterial;
     particleMat.uniforms.time.value = this.elapsed; this.shaftMaterial.uniforms.time.value = this.elapsed;
     this.film.uniforms.time.value = this.elapsed;
+    if (!this.controller.paused && this.weather && this.adventure.clock) {
+      this.weather.tick(realDelta, this.adventure.clock);
+      this.weatherFrame = this.weather.apply(Math.min(realDelta, .25), this.adventure.clock, this.camera);
+    }
     for (const shaft of this.shafts) {
       const axis = shaft.end.clone().sub(shaft.start), view = this.camera.position.clone().sub(shaft.start), side = axis.cross(view).normalize();
       const a = shaft.mesh.geometry.getAttribute('position');
@@ -273,7 +275,6 @@ export class WoodlandWorld {
     const targetX = Math.round(this.controller.position.x / 4) * 4, targetZ = Math.round(this.controller.position.z / 4) * 4;
     if (this.controller.velocity.lengthSq() > .0004 || !this.controller.grounded || this.sun.target.position.x !== targetX || this.sun.target.position.z !== targetZ) this.renderer.shadowMap.needsUpdate = true;
     this.sun.target.position.set(targetX, terrainHeight(targetX, targetZ), targetZ);
-    this.sun.position.copy(this.sun.target.position).add(new THREE.Vector3(-22, 32, -20));
     this.renderer.info.reset();
     if (!this.controller.paused || this.renderDirty || this.adventure.needsRender) { this.composer.render(); this.renderDirty = false; }
     this.frameCount++; this.fpsTimer += realDelta;
@@ -303,7 +304,7 @@ export class WoodlandWorld {
   get diagnostics() { return { ...this.renderer.info.render, quality: this.quality, trees: this.nature?.trees ?? 0 }; }
   stop() { this.running = false; cancelAnimationFrame(this.raf); this.controller?.setPaused(true); this.adventure?.narrator.setPaused(true); }
   dispose() {
-    this.stop(); this.observer.disconnect(); this.adventure?.dispose(); this.controller?.dispose(); this.cleanups.forEach(fn => fn());
+    this.stop(); this.observer.disconnect(); this.weather?.dispose(); this.adventure?.dispose(); this.controller?.dispose(); this.cleanups.forEach(fn => fn());
     const geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>(), textures = new Set<THREE.Texture>();
     this.scene.traverse(o => {
       if (o instanceof THREE.Mesh || o instanceof THREE.Points) {

@@ -1,25 +1,35 @@
-import { createIcons, ArrowRight, ArrowUp, ArrowUpRight, Camera, Check, ChevronRight, CircleHelp, Cloud, Compass, Download, Expand, Eye, Footprints, Headphones, Leaf, Maximize, Moon, Mouse, PersonStanding, Play, RotateCcw, SlidersHorizontal, Sun, Volume2, VolumeX, X, Backpack, Coins, Package, PackageOpen, Wheat, Cylinder, Beer, Shovel, Pickaxe, Wrench, Lamp, Droplet, BookOpen, Search, Pause, SkipForward, LogOut, LogIn } from 'lucide';
+import { createIcons, ArrowRight, ArrowUp, ArrowUpRight, Camera, Check, ChevronRight, CircleHelp, Cloud, CloudLightning, CloudRain, Compass, Download, Expand, Eye, Footprints, Headphones, Leaf, Maximize, Moon, Mouse, PersonStanding, Play, RotateCcw, SlidersHorizontal, Snowflake, Sun, Volume2, VolumeX, Wind, X, Backpack, Coins, Package, PackageOpen, Wheat, Cylinder, Beer, Shovel, Pickaxe, Wrench, Lamp, Droplet, BookOpen, Search, Pause, SkipForward, LogOut, LogIn } from 'lucide';
 import { ForestAudio } from '../engine/audio';
 import { isFormControl, type CameraMode } from '../engine/controller';
-import { WoodlandWorld, type Atmosphere, type Quality, type WorldState } from '../engine/world';
+import { WoodlandWorld, type Quality, type WorldState } from '../engine/world';
 import { Cartography, paintCompass } from './cartography';
 import { AdventureInterface, type AdventureDialog } from './adventure-interface';
+import { DramaticScore } from '../game/music';
+import { MONTH_LENGTH, MONTHS, SEASONS, WEATHER_IDS, WEATHER_LINES, holidayOf, nextHoliday, type WeatherId } from '../game/time';
 
 type DialogKind = 'settings' | 'map' | 'help' | 'pause' | 'inspect' | AdventureDialog;
-interface Preferences { quality: Quality; atmosphere: Atmosphere; volume: number; sensitivity: number; invertY: boolean }
-const iconSet = { Barrel: Cylinder, ArrowRight, ArrowUp, ArrowUpRight, Camera, Check, ChevronRight, CircleHelp, Cloud, Compass, Download, Expand, Eye, Footprints, Headphones, Leaf, Maximize, Moon, Mouse, PersonStanding, Play, RotateCcw, SlidersHorizontal, Sun, Volume2, VolumeX, X, Backpack, Coins, Package, PackageOpen, Wheat, Cylinder, Beer, Shovel, Pickaxe, Wrench, Lamp, Droplet, BookOpen, Search, Pause, SkipForward, LogOut, LogIn };
+interface Preferences {
+  quality: Quality; volume: number; sensitivity: number; invertY: boolean;
+  musicVolume: number; musicEnabled: boolean; weatherOverride: WeatherId | 'auto';
+}
+const iconSet = { Barrel: Cylinder, ArrowRight, ArrowUp, ArrowUpRight, Camera, Check, ChevronRight, CircleHelp, Cloud, CloudLightning, CloudRain, Compass, Download, Expand, Eye, Footprints, Headphones, Leaf, Maximize, Moon, Mouse, PersonStanding, Play, RotateCcw, SlidersHorizontal, Snowflake, Sun, Volume2, VolumeX, Wind, X, Backpack, Coins, Package, PackageOpen, Wheat, Cylinder, Beer, Shovel, Pickaxe, Wrench, Lamp, Droplet, BookOpen, Search, Pause, SkipForward, LogOut, LogIn };
 export const refreshIcons = () => createIcons({ icons: iconSet, attrs: { 'stroke-width': 1.5 } });
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 const icon = (name: string) => `<i data-lucide="${name}"></i>`;
-const atmosphereNames = { golden: ['GOLDEN HOUR', 'A quiet afternoon', 'sun'], overcast: ['OVERCAST', 'Mist among the trees', 'cloud'], blue: ['BLUE HOUR', 'The woodland at dusk', 'moon'] };
+const weatherIcons: Record<WeatherId, string> = { sun: 'sun', overcast: 'cloud', rain: 'cloud-rain', storm: 'cloud-lightning', snow: 'snowflake', wind: 'wind' };
+const weatherLabels: Record<WeatherId | 'auto', string> = { auto: 'Seasonal', sun: 'Sun', overcast: 'Overcast', rain: 'Rain', storm: 'Storm', snow: 'Snow', wind: 'Wind' };
 
 export class WorldInterface {
   private audio = new ForestAudio();
+  private music = new DramaticScore();
   private map = new Cartography();
   private dialog: DialogKind | null = null;
   private photo = false;
   private state: WorldState;
-  private config: Preferences = { quality: 'high', atmosphere: 'golden', volume: .4, sensitivity: 1, invertY: false };
+  private config: Preferences = { quality: 'high', volume: .4, sensitivity: 1, invertY: false, musicVolume: .5, musicEnabled: true, weatherOverride: 'auto' };
+  private lastChip = '';
+  private lastWeatherAudio = 0;
+  private lastCalendar = '';
   private toastTimer = 0;
   private discoveryTimer = 0;
   private lastMapFrame = 0;
@@ -71,10 +81,12 @@ export class WorldInterface {
         this.config.quality = button.dataset.quality as Quality; this.world.setQuality(this.config.quality);
         this.updateSelected('[data-quality]', 'quality', this.config.quality); this.savePreferences();
       }
-      if (button.dataset.atmosphere) {
-        this.config.atmosphere = button.dataset.atmosphere as Atmosphere; this.world.setAtmosphere(this.config.atmosphere);
-        this.updateSelected('[data-atmosphere]', 'atmosphere', this.config.atmosphere); this.updateTime(); this.savePreferences();
+      if (button.dataset.weather) {
+        this.config.weatherOverride = button.dataset.weather as WeatherId | 'auto'; this.world.setWeatherOverride(this.config.weatherOverride);
+        this.updateSelected('[data-weather]', 'weather', this.config.weatherOverride); this.savePreferences();
       }
+      if (action === 'music') this.toggleMusic();
+      if (action === 'long-rest') { const line = this.world.longRest(); if (line) { this.closeDialog(); this.toast(line); } }
     }, opts);
     $('#dialog').addEventListener('input', e => {
       const input = e.target as HTMLInputElement;
@@ -82,6 +94,8 @@ export class WorldInterface {
       if (input.dataset.setting === 'volume') { this.config.volume = Number(input.value) / 100; this.audio.setVolume(this.config.volume); $('#volume-value').textContent = `${input.value}%`; }
       if (input.dataset.setting === 'sensitivity') { this.config.sensitivity = Number(input.value); this.world.controller.sensitivity = this.config.sensitivity; $('#sensitivity-value').textContent = `${this.config.sensitivity.toFixed(1)}×`; }
       if (input.dataset.setting === 'invert') { this.config.invertY = input.checked; this.world.controller.invertY = input.checked; }
+      if (input.dataset.setting === 'timeOfDay') { this.world.setTimeOfDay(Number(input.value)); $('#time-value').textContent = this.world.getState().time.time; }
+      if (input.dataset.setting === 'musicVolume') { this.config.musicVolume = Number(input.value) / 100; this.music.setVolume(this.config.musicVolume); $('#music-value').textContent = `${input.value}%`; }
       this.savePreferences();
     }, opts);
     document.addEventListener('keydown', e => {
@@ -131,10 +145,18 @@ export class WorldInterface {
   start() {
     if (!this.world.controller.started) {
       this.world.beginAdventure(); document.body.dataset.playing = 'true';
+      this.music.begin();
       this.adventureUI.update(this.world.getState());
       if (this.config.quality === 'high' && this.state.fps < 20) this.toast('For a smoother journey, try Balanced in world settings.');
     }
     this.world.renderer.domElement.focus({ preventScroll: true });
+  }
+  private toggleMusic() {
+    this.config.musicEnabled = !this.config.musicEnabled;
+    this.music.begin();
+    this.music.setEnabled(this.config.musicEnabled);
+    document.querySelectorAll<HTMLElement>('[data-action="music"]').forEach(b => { b.classList.toggle('on', this.config.musicEnabled); b.setAttribute('aria-checked', String(this.config.musicEnabled)); });
+    this.savePreferences();
   }
   setMode(mode: CameraMode) {
     if (this.world.adventure.narrator.state.phase === 'journey') return;
@@ -160,41 +182,82 @@ export class WorldInterface {
     document.body.dataset.locked = String(!!document.pointerLockElement);
     $('#region-name').textContent = state.landmark === 'cragmaw' ? 'Cragmaw Trail' : state.landmark === 'ambush' ? 'The Ambush Clearing' : 'Triboar Trail';
     this.audio.update(state.distanceWalked, state.moving, state.grounded);
+    this.updateChip(state);
+    if (performance.now() - this.lastWeatherAudio > 250) {
+      this.lastWeatherAudio = performance.now();
+      this.audio.setWeatherLevels(state.weather.rain, state.weather.storm, state.weather.wind);
+      this.music.setWeather(state.weather.storm > .3, state.weather.wind);
+      if (this.dialog === 'map') this.updateCalendar(state);
+    }
   }
-  private updateTime() {
-    const [name, detail, glyph] = atmosphereNames[this.config.atmosphere];
-    $('#time-label').textContent = name; $('#time-detail').textContent = detail;
-    const button = $('#time-toggle'); button.querySelector('svg')?.remove(); button.insertAdjacentHTML('afterbegin', icon(glyph)); refreshIcons();
+  /** The little corner chip: real date, real weather, real icon. */
+  private updateChip(state: WorldState) {
+    const t = state.time, w = state.weather;
+    const label = `${t.date} · ${t.time}`;
+    if (label !== this.lastChip) {
+      this.lastChip = label;
+      $('#time-label').textContent = label;
+    }
+    const detail = `${WEATHER_LINES[w.current]} — ${SEASONS[t.season]}`;
+    const button = $('#time-toggle');
+    if (detail !== button.title) {
+      button.title = detail;
+      $('#time-detail').textContent = detail;
+    }
+    // The icon follows both the weather and the light — clear nights show the moon.
+    const iconName = w.daylight < .2 && w.current === 'sun' ? 'moon' : weatherIcons[w.current];
+    const current = button.querySelector('svg');
+    if (!current || !current.classList.contains(`lucide-${iconName}`)) {
+      current?.remove(); button.insertAdjacentHTML('afterbegin', icon(iconName)); refreshIcons();
+    }
+  }
+  /** The Calendar of Harptos strip in the map dialog — refreshed while it is open. */
+  private updateCalendar(state: WorldState) {
+    const t = state.time, month = MONTHS[t.month], key = `${t.month}-${t.day}`;
+    if (key === this.lastCalendar) return;
+    this.lastCalendar = key;
+    const strip = document.querySelector<HTMLElement>('#calendar-strip');
+    if (!strip) return;
+    const today = holidayOf(t.month, t.day), next = nextHoliday(t.month, t.day);
+    const cells: string[] = [];
+    for (let d = 1; d <= MONTH_LENGTH; d++) {
+      const h = holidayOf(t.month, d);
+      cells.push(`<span class="cal-day${d === t.day ? ' today' : ''}${h ? ' ' + h.tone : ''}"${h ? ` title="${h.name}"` : ''}>${d}</span>`);
+    }
+    strip.innerHTML = `<div class="cal-month"><b>${month.name}</b><span>${month.epithet}</span></div><div class="cal-days">${cells.join('')}</div><small class="cal-note">${today ? `<b>${today.name}</b> falls today.` : next ? `Next: ${next.holiday.name}, in ${next.inDays} day${next.inDays === 1 ? '' : 's'}.` : `The ${t.day}${t.day === 1 ? 'st' : t.day === 2 ? 'nd' : t.day === 3 ? 'rd' : 'th'} day of ${month.name}.`}</small>`;
   }
   openDialog(kind: DialogKind) {
-    this.dialog = kind; $('.hud').inert = true; this.world.setPaused(true); this.audio.setPaused(true);
+    this.dialog = kind; $('.hud').inert = true; this.world.setPaused(true); this.audio.setPaused(true); this.music.setPaused(true);
     const backdrop = $('#dialog-backdrop'), dialog = $('#dialog');
     dialog.dataset.kind = kind; backdrop.dataset.mode = kind === 'cargo' ? 'side' : 'center'; dialog.innerHTML = this.dialogHTML(kind); backdrop.hidden = false; document.body.dataset.modal = 'true';
     refreshIcons();
     if (kind === 'map') {
       const mapCanvas = dialog.querySelector<HTMLCanvasElement>('#world-map-canvas');
+      this.updateCalendar(this.world.getState());
       requestAnimationFrame(() => { if (this.dialog === 'map' && mapCanvas?.isConnected) this.map.render(mapCanvas, this.world.getState(), true); });
     }
     requestAnimationFrame(() => { if (this.dialog === kind) (dialog.querySelector<HTMLElement>('[data-action="close"]') ?? dialog).focus(); });
   }
   closeDialog() {
     this.dialog = null; $('.hud').inert = false; $('#dialog-backdrop').hidden = true; document.body.dataset.modal = 'false';
-    this.world.setPaused(false); this.audio.setPaused(false);
+    this.world.setPaused(false); this.audio.setPaused(false); this.music.setPaused(false);
     this.world.renderer.domElement.focus({ preventScroll: true });
   }
   private dialogHTML(kind: DialogKind) {
-    if (['inventory', 'cargo', 'manifest', 'journal'].includes(kind)) return this.adventureUI.dialogHTML(kind as AdventureDialog);
+    if (['inventory', 'cargo', 'journal'].includes(kind)) return this.adventureUI.dialogHTML(kind as AdventureDialog);
     const close = `<button class="icon-button dialog-close" data-action="close" aria-label="Close dialog">${icon('x')}</button>`;
     if (kind === 'settings') return `${close}<div class="dialog-eyebrow">THE FINER DETAILS</div><h2 id="dialog-title">Your world, your way.</h2><p class="dialog-description">Settle into the atmosphere that feels like you.</p>
       <div class="setting-section"><div class="setting-heading"><label>Visual quality</label><span>REAL-TIME RENDERING</span></div><div class="setting-segment">${(['performance', 'balanced', 'high'] as Quality[]).map(q => `<button data-quality="${q}" class="${this.config.quality === q ? 'selected' : ''}" aria-pressed="${this.config.quality === q}">${q === 'performance' ? 'Performance' : q === 'balanced' ? 'Balanced' : 'High fidelity'}</button>`).join('')}</div><small class="setting-note">High fidelity adds denser foliage, environment lighting, finer shadows, and cinematic bloom.</small></div>
-      <div class="setting-section"><div class="setting-heading"><label>Time & atmosphere</label></div><div class="atmosphere-options">${(['golden', 'overcast', 'blue'] as Atmosphere[]).map(a => `<button data-atmosphere="${a}" class="${this.config.atmosphere === a ? 'selected' : ''}" aria-pressed="${this.config.atmosphere === a}">${icon(atmosphereNames[a][2])}<span>${a === 'golden' ? 'Golden hour' : a === 'overcast' ? 'Overcast' : 'Blue hour'}</span></button>`).join('')}</div></div>
+      <div class="setting-section"><div class="setting-heading"><label for="time-slider">Time of day</label><output id="time-value">${this.state.time.time}</output></div><input id="time-slider" data-setting="timeOfDay" type="range" min="0" max="1439" step="15" value="${this.state.time.minuteOfDay}" aria-label="Time of day"><small class="setting-note">${this.state.time.date} · The day turns on its own — about two real hours per game day.</small></div>
+      <div class="setting-section"><div class="setting-heading"><label>Weather</label></div><div class="atmosphere-options weather-options">${(['auto', ...WEATHER_IDS] as (WeatherId | 'auto')[]).map(w => `<button data-weather="${w}" class="${this.config.weatherOverride === w ? 'selected' : ''}" aria-pressed="${this.config.weatherOverride === w}">${icon(w === 'auto' ? 'sliders-horizontal' : weatherIcons[w])}<span>${weatherLabels[w]}</span></button>`).join('')}</div><small class="setting-note">Seasonal by default — the Calendar of Harptos decides what the sky brings.</small></div>
       <div class="setting-section"><div class="setting-heading"><label>Forest ambience</label><button class="switch ${this.audio.enabled ? 'on' : ''}" role="switch" aria-checked="${this.audio.enabled}" aria-label="Forest ambience" data-action="audio"><span></span></button></div><div class="range-row"><label for="volume">Volume</label><input id="volume" aria-label="Ambience volume" data-setting="volume" type="range" min="0" max="100" value="${Math.round(this.config.volume * 100)}"><output id="volume-value">${Math.round(this.config.volume * 100)}%</output></div></div>
+      <div class="setting-section"><div class="setting-heading"><label>Journey music</label><button class="switch ${this.config.musicEnabled ? 'on' : ''}" role="switch" aria-checked="${this.config.musicEnabled}" aria-label="Journey music" data-action="music"><span></span></button></div><div class="range-row"><label for="music-volume">Music volume</label><input id="music-volume" aria-label="Music volume" data-setting="musicVolume" type="range" min="0" max="100" value="${Math.round(this.config.musicVolume * 100)}"><output id="music-value">${Math.round(this.config.musicVolume * 100)}%</output></div><small class="setting-note">A low score that follows the skies — storms gather, and so do the strings.</small></div>
       <div class="setting-section narrator-setting"><div class="setting-heading"><label>Narrator voice</label><button class="switch ${this.world.adventure.narrator.state.voiceEnabled ? 'on' : ''}" role="switch" aria-checked="${this.world.adventure.narrator.state.voiceEnabled}" aria-label="Narrator voice" data-action="narrator-voice"><span></span></button></div><small class="setting-note">The narrated opening is included locally. No API key is needed to play.</small></div><div class="setting-section last"><div class="setting-heading"><label for="sensitivity">Look sensitivity</label><output id="sensitivity-value">${this.config.sensitivity.toFixed(1)}×</output></div><input id="sensitivity" data-setting="sensitivity" type="range" min="0.3" max="2.2" step="0.1" value="${this.config.sensitivity}"><label class="checkbox-label"><input data-setting="invert" type="checkbox" ${this.config.invertY ? 'checked' : ''}>Invert vertical look</label></div><div class="dialog-footnote">${icon('check')} Preferences are saved on this device.</div>`;
-    if (kind === 'map') return `${close}<div class="dialog-eyebrow">A SMALL CORNER OF THE FORGOTTEN REALMS</div><h2 id="dialog-title">The Triboar Trail</h2><p class="dialog-description">Every path begins with a little curiosity.</p><div class="world-map-frame"><canvas id="world-map-canvas" aria-label="Map of the east-west Triboar Trail and the northern Cragmaw trail, showing your position"></canvas></div><div class="map-legend"><span><b class="player-legend">▲</b> You are here</span><span><b>◇</b> Ambush clearing</span><span class="map-footnote">NORTH IS UP · NO GRID</span></div><div class="dialog-footnote map-instruction">${icon('compass')} Follow the narrow northern trail toward Cragmaw Hideout.</div>`;
+    if (kind === 'map') return `${close}<div class="dialog-eyebrow">A SMALL CORNER OF THE FORGOTTEN REALMS</div><h2 id="dialog-title">The Triboar Trail</h2><p class="dialog-description">Every path begins with a little curiosity.</p><div class="world-map-frame"><canvas id="world-map-canvas" aria-label="Map of the east-west Triboar Trail and the northern Cragmaw trail, showing your position"></canvas></div><div class="map-legend"><span><b class="player-legend">▲</b> You are here</span><span><b>◇</b> Ambush clearing</span><span class="map-footnote">NORTH IS UP · NO GRID</span></div><div id="calendar-strip" class="calendar-strip"></div><div class="dialog-footnote map-instruction">${icon('compass')} Follow the narrow northern trail toward Cragmaw Hideout.</div>`;
     if (kind === 'help') return `${close}<div class="dialog-eyebrow">A FEW WAYS TO FIND YOUR FEET</div><h2 id="dialog-title">Take the scenic route.</h2><p class="dialog-description">Keep the reins, or step down and take a closer look.</p><div class="help-grid">${[
       ['W A S D', 'Walk / guide the wagon', 'W/S guide, A/D steer at the reins.'], ['SHIFT', 'Sprint on foot', 'Hold while walking.'], ['SPACE', 'Jump / wagon brake', 'Pauses narration during the cutscene.'], ['MOUSE', 'Look around', 'Click to capture, or click and drag.'], ['V', 'Change perspective', 'First person or third person.'], ['SCROLL', 'Camera distance', 'Zoom in or out in third person.'], ['M', 'World map', 'Find your place in the woodland.'], ['P', 'Photo mode', 'Hide the interface. Keep the moment.'], ['E', 'Open / inspect', 'Open nearby cargo or examine the clearing.'], ['R', 'Board / dismount', 'Step down to reach the cargo.'], ['I', 'Inventory', 'Currency, quantities, and gp values.'], ['N', 'Story journal', 'The Narrator’s complete text.'], ['ESC', 'Pause / release mouse', 'Take a breath. The world will wait.'],
     ].map(([key, label, note]) => `<div class="help-row"><kbd>${key}</kbd><div><strong>${label}</strong><span>${note}</span></div></div>`).join('')}</div><div class="dialog-footnote">${icon('leaf')} The bean is a placeholder. The adventure is just beginning.</div>`;
-    if (kind === 'pause') return `${close}<div class="pause-emblem">${icon('leaf')}</div><div class="dialog-eyebrow">THE ROAD CAN WAIT</div><h2 id="dialog-title">A moment of quiet.</h2><p class="dialog-description">Your little corner of the world will be right here.</p><div class="pause-actions"><button class="primary-action" data-action="resume">${icon('play')} Back to the woodland ${icon('arrow-right')}</button><button data-action="settings">${icon('sliders-horizontal')} World settings ${icon('chevron-right')}</button><button data-action="help">${icon('compass')} A guide to exploring ${icon('chevron-right')}</button><button data-action="reset" ${this.world.adventure.inventory.arrived ? '' : 'disabled'}>${icon('rotate-ccw')} Return to the wagon</button></div><div class="dialog-footnote">TRIBOAR TRAIL · THE SWORD COAST</div>`;
+    if (kind === 'pause') return `${close}<div class="pause-emblem">${icon('leaf')}</div><div class="dialog-eyebrow">THE ROAD CAN WAIT</div><h2 id="dialog-title">A moment of quiet.</h2><p class="dialog-description">Your little corner of the world will be right here.</p><div class="pause-actions"><button class="primary-action" data-action="resume">${icon('play')} Back to the woodland ${icon('arrow-right')}</button><button data-action="settings">${icon('sliders-horizontal')} World settings ${icon('chevron-right')}</button><button data-action="help">${icon('compass')} A guide to exploring ${icon('chevron-right')}</button><button data-action="reset" ${this.world.adventure.inventory.arrived ? '' : 'disabled'}>${icon('rotate-ccw')} Return to the wagon</button><button data-action="long-rest" ${this.world.adventure.inventory.arrived && this.world.controller.started ? '' : 'disabled'}>${icon('moon')} Long rest — sleep until morning</button></div><div class="dialog-footnote">TRIBOAR TRAIL · THE SWORD COAST</div>`;
     return `${close}<div class="dialog-eyebrow">A STORY LEFT BEHIND</div><h2 id="dialog-title">An uneasy silence.</h2><div class="inspect-divider">◇</div><p class="inspect-copy">Two living horses wander between the ransacked belongings, lowering their heads to sniff at the emptied saddlebags. Neither appears injured. Black-fletched arrows lie in the dust nearby.</p><p class="inspect-copy">To the north, a narrow trail disappears between the trees. Bent grass and disturbed earth suggest someone passed this way.</p><div class="inspect-note">${icon('leaf')} The horses are alive. There are no enemies or combat in this chapter yet.</div><button class="primary-action" data-action="close">Leave it to the forest ${icon('arrow-right')}</button>`;
   }
   private trapFocus(e: KeyboardEvent) {
@@ -229,13 +292,15 @@ export class WorldInterface {
     try {
       const p = JSON.parse(localStorage.getItem('astra-preferences-v1') ?? '{}');
       if (['performance', 'balanced', 'high'].includes(p.quality)) this.config.quality = p.quality;
-      if (['golden', 'overcast', 'blue'].includes(p.atmosphere)) this.config.atmosphere = p.atmosphere;
       if (typeof p.volume === 'number' && Number.isFinite(p.volume)) this.config.volume = Math.max(0, Math.min(1, p.volume));
       if (typeof p.sensitivity === 'number' && Number.isFinite(p.sensitivity)) this.config.sensitivity = Math.max(.3, Math.min(2.2, p.sensitivity));
       if (typeof p.invertY === 'boolean') this.config.invertY = p.invertY;
+      if (typeof p.musicVolume === 'number' && Number.isFinite(p.musicVolume)) this.config.musicVolume = Math.max(0, Math.min(1, p.musicVolume));
+      if (typeof p.musicEnabled === 'boolean') this.config.musicEnabled = p.musicEnabled;
+      if (p.weatherOverride === 'auto' || (typeof p.weatherOverride === 'string' && (WEATHER_IDS as readonly string[]).includes(p.weatherOverride))) this.config.weatherOverride = p.weatherOverride;
     } catch { /* Storage may be blocked in private/embedded browsing. */ }
   }
   private savePreferences() { try { localStorage.setItem('astra-preferences-v1', JSON.stringify(this.config)); } catch { /* Settings still work for this session. */ } }
-  private applyPreferences() { this.world.setQuality(this.config.quality); this.world.setAtmosphere(this.config.atmosphere); this.world.controller.sensitivity = this.config.sensitivity; this.world.controller.invertY = this.config.invertY; this.audio.setVolume(this.config.volume); this.updateTime(); }
-  dispose() { this.abort.abort(); this.adventureUI.dispose(); this.audio.dispose(); clearTimeout(this.toastTimer); clearTimeout(this.discoveryTimer); }
+  private applyPreferences() { this.world.setQuality(this.config.quality); this.world.setWeatherOverride(this.config.weatherOverride); this.world.controller.sensitivity = this.config.sensitivity; this.world.controller.invertY = this.config.invertY; this.audio.setVolume(this.config.volume); this.music.setVolume(this.config.musicVolume); this.music.setEnabled(this.config.musicEnabled); this.updateChip(this.state); }
+  dispose() { this.abort.abort(); this.adventureUI.dispose(); this.music.dispose(); this.audio.dispose(); clearTimeout(this.toastTimer); clearTimeout(this.discoveryTimer); }
 }
