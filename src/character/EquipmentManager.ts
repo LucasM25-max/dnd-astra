@@ -1,43 +1,42 @@
-import { DEFAULT_LOOK, lookKey, type FighterLook } from '../engine/actors/fighter';
 import { portraitDef, type CharacterDraft, type PlayerCharacter } from '../game/character';
+import type { WeaponId } from './skeletal/HeroWeapons';
 import type { WeaponSet } from './CharacterModel';
 
-/** Darken a #rrggbb hex colour by `amount` (0..1). */
-function darken(hex: string, amount: number): string {
-  const n = parseInt(hex.slice(1), 16);
-  const f = (c: number): number => Math.max(0, Math.min(255, Math.round(c * (1 - amount))));
-  const r = f((n >> 16) & 255), g = f((n >> 8) & 255), b = f(n & 255);
-  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
+/** Everything the skeletal hero needs to dress: preset + socketed weapons. */
+export interface HeroLoadout {
+  preset: string;
+  mainHand: WeaponId;
+  offHand: WeaponId | null;
 }
 
-export function lookFromPortraitAndGear(
-  presetId: string, mainHand: string, offHand: string | null, ranged: string,
-): FighterLook {
-  const p = portraitDef(presetId);
-  const main: FighterLook['mainHand'] =
-    mainHand === 'longsword' ? 'longsword'
-    : mainHand === 'battleaxe' ? 'battleaxe'
-    : mainHand === 'warhammer' ? 'warhammer'
-    : 'greatsword';
-  const off: FighterLook['offHand'] =
-    offHand === 'shield' ? 'shield' : offHand === 'shortsword' ? 'shortsword' : null;
+const WEAPON_IDS: ReadonlySet<string> = new Set([
+  'longsword', 'battleaxe', 'warhammer', 'shortsword', 'longbow', 'quiver', 'shield',
+]);
+
+function asWeaponId(id: string, fallback: WeaponId): WeaponId {
+  return (WEAPON_IDS.has(id) ? id : fallback) as WeaponId;
+}
+
+function asOffHand(id: string | null): WeaponId | null {
+  if (id === 'shield' || id === 'shortsword') return id;
+  return null;
+}
+
+export function loadoutFromCharacter(c: PlayerCharacter): HeroLoadout {
   return {
-    skin: p.skin,
-    skinShade: darken(p.skin, 0.18),
-    hairColor: p.hairColor,
-    hairStyle: p.hairStyle,
-    helm: p.helm,
-    mainHand: main,
-    offHand: off,
-    bow: ranged === 'longbow',
+    preset: portraitDef(c.portrait.preset).id,
+    mainHand: asWeaponId(c.equipment.mainHand, 'longsword'),
+    offHand: asOffHand(c.equipment.offHand),
   };
 }
 
-export const lookFromCharacter = (c: PlayerCharacter): FighterLook =>
-  lookFromPortraitAndGear(c.portrait.preset, c.equipment.mainHand, c.equipment.offHand, c.equipment.ranged);
-
-export const lookFromDraft = (d: CharacterDraft): FighterLook =>
-  lookFromPortraitAndGear(d.portrait, d.mainHand, d.offHand, 'longbow');
+export function loadoutFromDraft(d: CharacterDraft): HeroLoadout {
+  return {
+    preset: portraitDef(d.portrait).id,
+    mainHand: asWeaponId(d.mainHand, 'longsword'),
+    offHand: asOffHand(d.offHand),
+  };
+}
 
 export function weaponSetFor(mainHand: string, offHand: string | null): WeaponSet {
   if (offHand === 'shortsword') return 'dual';
@@ -46,27 +45,29 @@ export function weaponSetFor(mainHand: string, offHand: string | null): WeaponSe
   return 'sword_shield';
 }
 
-/** Owns look synchronisation: character/draft → FighterLook → actor repaint. */
+/** Owns loadout synchronisation: character/draft → socketed hero + anim-set switch. */
 export class EquipmentManager {
-  private look: FighterLook = DEFAULT_LOOK;
-  private key = lookKey(DEFAULT_LOOK);
-  onChange: (look: FighterLook, weaponSet: WeaponSet) => void = () => {};
+  private key = '';
+  private loadout: HeroLoadout | null = null;
+  onChange: (loadout: HeroLoadout, weaponSet: WeaponSet) => void = () => {};
 
   syncFromCharacter(c: PlayerCharacter): void {
-    this.apply(lookFromCharacter(c), weaponSetFor(c.equipment.mainHand, c.equipment.offHand));
+    this.apply(loadoutFromCharacter(c));
   }
 
   syncFromDraft(d: CharacterDraft): void {
-    this.apply(lookFromDraft(d), weaponSetFor(d.mainHand, d.offHand));
+    this.apply(loadoutFromDraft(d));
   }
 
-  private apply(look: FighterLook, weaponSet: WeaponSet): void {
-    const key = lookKey(look);
+  private apply(loadout: HeroLoadout): void {
+    const key = `${loadout.preset}|${loadout.mainHand}|${loadout.offHand ?? '-'}`;
     if (key === this.key) return;
     this.key = key;
-    this.look = look;
-    this.onChange(look, weaponSet);
+    this.loadout = loadout;
+    this.onChange(loadout, weaponSetFor(loadout.mainHand, loadout.offHand));
   }
 
-  get current(): FighterLook { return this.look; }
+  get current(): HeroLoadout | null {
+    return this.loadout;
+  }
 }

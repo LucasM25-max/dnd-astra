@@ -210,6 +210,7 @@ export class SkeletalHero {
 
     const eq = opts.equipment ?? { mainHand: 'longsword' as WeaponId, offHand: 'shield' as WeaponId };
     this.setEquipment(eq.mainHand, eq.offHand);
+    this.applyBaseScale();
     this.playLocomotion(this.loco, 0);
   }
 
@@ -219,6 +220,18 @@ export class SkeletalHero {
 
   get currentClip(): ClipName {
     return this.oneShot ?? this.loco;
+  }
+
+  get isHeld(): boolean {
+    return this.oneShot !== null && this.shotHold && this.oneShotTimer <= 0;
+  }
+
+  /** Release a held one-shot pose back to the locomotion layer. */
+  releaseHold(fade = 0.3): void {
+    if (!this.oneShot) return;
+    this.shotHold = false;
+    this.oneShotTimer = 0;
+    this.stopShot(fade);
   }
 
   // --- Appearance ---
@@ -235,6 +248,12 @@ export class SkeletalHero {
     repaintCanvasTexture(headMat.map as THREE.CanvasTexture, (ctx, w, h) => paintFaceSphere(ctx, w, h, preset));
     repaintCanvasTexture(hairMat.map as THREE.CanvasTexture, (ctx, w, h) => paintHair(ctx, w, h, preset.hairColor));
     this.applyPortraitPieces();
+    this.applyBaseScale();
+  }
+
+  /** Female base reads a touch shorter; uniform scale keeps every socket/anim valid. */
+  private applyBaseScale(): void {
+    this.root.scale.setScalar(this.preset.sex === 'female' ? 0.98 : 1);
   }
 
   private applyPortraitPieces(): void {
@@ -296,13 +315,14 @@ export class SkeletalHero {
   // --- Animation ---
 
   /** Blend the locomotion layer (idle/walk/run weights sum to 1). */
-  playLocomotion(name: ClipName, fade = 0.25): void {
+  playLocomotion(name: ClipName, fade = 0.25, rate = 1): void {
     if (!CLIP_DEFS[name].loop) throw new Error(`locomotion clip must loop: ${name}`);
     this.loco = name;
     for (const [n, action] of this.actions) {
       if (!CLIP_DEFS[n].loop) continue;
       if (n === name) {
         action.enabled = true;
+        action.timeScale = rate;
         action.setEffectiveWeight(1);
         if (!action.isRunning()) action.play();
         if (fade > 0) action.fadeIn(fade);

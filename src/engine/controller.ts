@@ -16,11 +16,13 @@ export class PlayerController {
   cameraOverride = false;
   private vehicleYaw = 0;
   readonly actor: FighterActor;
+  /** Skeletal hero root riding the avatar (player path); hides the sprite. */
+  skeletalRoot: THREE.Object3D | null = null;
+  /** Hand anchors resolve from the skeletal sockets when present. */
+  handAnchor: ((side: 'left' | 'right', target: THREE.Vector3) => THREE.Vector3) | null = null;
   started = false;
   paused = false;
   grounded = true;
-  /** Forced seated pose (campfire rest) regardless of control mode. */
-  forceSeated = false;
   sprinting = false;
   sensitivity = 1;
   invertY = false;
@@ -109,6 +111,20 @@ export class PlayerController {
       Promise.resolve(result).catch(() => { this.lockAvailable = false; this.onPointerFallback(); });
     } catch { this.lockAvailable = false; this.onPointerFallback(); }
   }
+  /** Mount the skeletal hero on the avatar (hides + idles the painted sprite). */
+  setSkeletalRoot(root: THREE.Object3D): void {
+    this.clearSkeletalRoot();
+    this.skeletalRoot = root;
+    this.avatar.add(root);
+    this.actor.root.visible = false;
+  }
+  clearSkeletalRoot(): void {
+    if (this.skeletalRoot) {
+      this.avatar.remove(this.skeletalRoot);
+      this.skeletalRoot = null;
+    }
+    this.actor.root.visible = true;
+  }
   start() { this.started = true; this.paused = false; }
   setPaused(paused: boolean) {
     this.paused = paused; this.clearInput();
@@ -160,9 +176,9 @@ export class PlayerController {
         const diff = Math.atan2(Math.sin(direction - this.avatar.rotation.y), Math.cos(direction - this.avatar.rotation.y));
         this.avatar.rotation.y += diff * Math.min(1, dt * 12);
       }
-      this.actor.update({ dt, speed: moveSpeed, sprint: this.sprinting, seated: this.controlMode !== 'foot' || this.forceSeated, paused: this.paused });
+      this.updateActor({ dt, speed: moveSpeed, sprint: this.sprinting, seated: this.controlMode !== 'foot', paused: this.paused });
     } else {
-      this.actor.update({ dt, speed: 0, seated: this.controlMode !== 'foot' || this.forceSeated, paused: this.paused });
+      this.updateActor({ dt, speed: 0, seated: this.controlMode !== 'foot', paused: this.paused });
     }
     this.avatar.position.copy(this.position);
     const floor = terrainHeight(this.position.x, this.position.z);
@@ -225,7 +241,13 @@ export class PlayerController {
       this.avatar.visible = this.camera.position.distanceTo(this.look) > .75;
     }
   }
+  /** Sprite gait only runs when no skeletal hero is mounted. */
+  private updateActor(state: { dt: number; speed: number; sprint?: boolean; seated: boolean; paused: boolean }): void {
+    if (this.skeletalRoot) return;
+    this.actor.update(state);
+  }
   handPosition(side: 'left' | 'right', target: THREE.Vector3): THREE.Vector3 {
+    if (this.handAnchor) return this.handAnchor(side, target);
     return this.actor.anchorPosition(side === 'left' ? 'handL' : 'handR', target);
   }
   dispose() { this.disposed.abort(); this.actor.dispose(); if (document.pointerLockElement === this.canvas) document.exitPointerLock(); }

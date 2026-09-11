@@ -366,7 +366,7 @@ export class WoodlandWorld {
     const dt = Math.min(realDelta, .1); this.lastFrame = now; this.elapsed += dt;
     this.adventure.update(dt, realDelta);
     this.controller.update(dt);
-    this.hero?.update();
+    this.hero?.update(dt);
     this.fx?.update(dt, this.elapsed);
     this.campfireLight.intensity = 26 + Math.sin(this.elapsed * 9.3) * 4 + Math.sin(this.elapsed * 23.7) * 2.5;
     this.material.wind.value = this.elapsed;

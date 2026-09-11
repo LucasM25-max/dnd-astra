@@ -70,6 +70,8 @@ export interface WeaponDef {
 export interface PortraitPreset {
   id: string; label: string; skin: string; hairColor: string;
   hairStyle: 'short' | 'long' | 'braid'; helm: boolean;
+  /** Base body the preset is built on (female reads ~3cm shorter). */
+  sex: 'male' | 'female';
   /** Front-facing face texture under /textures/character/. */
   faceTexture: string;
 }
@@ -114,12 +116,12 @@ export const weaponDef = (id: string): WeaponDef | undefined => weapons.find(w =
 export const featDef = (id: string): FeatDef | undefined => feats.find(f => f.id === id);
 
 export const PORTRAITS: PortraitPreset[] = [
-  { id: 'male_01', label: 'Aldric — weathered', skin: '#d9b38c', hairColor: '#4a3524', hairStyle: 'short', helm: true, faceTexture: '/textures/character/face_m01.png' },
-  { id: 'male_02', label: 'Bram — scarred', skin: '#c99a72', hairColor: '#1f1a14', hairStyle: 'short', helm: false, faceTexture: '/textures/character/face_m02.png' },
-  { id: 'male_03', label: 'Cedric — fair', skin: '#e8c39a', hairColor: '#8a6a3a', hairStyle: 'short', helm: true, faceTexture: '/textures/character/face_m03.png' },
-  { id: 'female_01', label: 'Maren — keen', skin: '#d9b38c', hairColor: '#5c3a22', hairStyle: 'braid', helm: false, faceTexture: '/textures/character/face_f01.png' },
-  { id: 'female_02', label: 'Sylva — silver', skin: '#e3bfa0', hairColor: '#b9b2a4', hairStyle: 'long', helm: false, faceTexture: '/textures/character/face_f02.png' },
-  { id: 'female_03', label: 'Ysolde — bold', skin: '#a9744f', hairColor: '#14100c', hairStyle: 'braid', helm: true, faceTexture: '/textures/character/face_f03.png' },
+  { id: 'male_01', label: 'Aldric — weathered', skin: '#d9b38c', hairColor: '#4a3524', hairStyle: 'short', helm: true, sex: 'male', faceTexture: '/textures/character/face_m01.png' },
+  { id: 'male_02', label: 'Bram — scarred', skin: '#c99a72', hairColor: '#1f1a14', hairStyle: 'short', helm: false, sex: 'male', faceTexture: '/textures/character/face_m02.png' },
+  { id: 'male_03', label: 'Cedric — fair', skin: '#e8c39a', hairColor: '#8a6a3a', hairStyle: 'short', helm: true, sex: 'male', faceTexture: '/textures/character/face_m03.png' },
+  { id: 'female_01', label: 'Maren — keen', skin: '#d9b38c', hairColor: '#5c3a22', hairStyle: 'braid', helm: false, sex: 'female', faceTexture: '/textures/character/face_f01.png' },
+  { id: 'female_02', label: 'Sylva — silver', skin: '#e3bfa0', hairColor: '#b9b2a4', hairStyle: 'long', helm: false, sex: 'female', faceTexture: '/textures/character/face_f02.png' },
+  { id: 'female_03', label: 'Ysolde — bold', skin: '#a9744f', hairColor: '#14100c', hairStyle: 'braid', helm: true, sex: 'female', faceTexture: '/textures/character/face_f03.png' },
 ];
 export const portraitDef = (id: string): PortraitPreset => PORTRAITS.find(p => p.id === id) ?? PORTRAITS[0];
 
