@@ -11,10 +11,10 @@
     "test:browser": "node scripts/browser-smoke.mjs",
     "assets:prepare": "node scripts/prepare-textures.mjs",
     "assets:adventure": "node scripts/prepare-adventure-assets.mjs",
+    "assets:systems": "node scripts/prepare-system-assets.mjs",
     "narration:gemini": "node --env-file-if-exists=.env.local scripts/generate-narration-gemini.mjs"
   },
   "dependencies": {
-    "@fontsource/cinzel": "^5.3.0",
     "@fontsource/cormorant-garamond": "^5.2.8",
     "@fontsource/manrope": "^5.2.8",
     "lucide": "^0.468.0",

@@ -104,6 +104,8 @@ function ensureWorld(foreground: boolean): Promise<void> {
               setTime: (minuteOfDay: number) => world!.setTimeOfDay(minuteOfDay),
               setWeather: (override: 'auto' | 'sun' | 'overcast' | 'rain' | 'storm' | 'snow' | 'wind') => world!.setWeatherOverride(override),
               openCamp: () => world!.openCamp(),
+              previewRoll: (die: 4 | 6 | 8 | 10 | 12 | 20 = 20, modifier = 0, label = 'Preview Roll', dc?: number) =>
+                import('./systems/dice/DiceRoller').then(({ roll }) => roll({ die, modifier, label, dc })),
             },
           });
         }

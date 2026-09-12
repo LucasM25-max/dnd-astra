@@ -1,26 +1,31 @@
 import type * as THREE from 'three';
 import type { PlayerController } from '../engine/controller';
 import type { PlayerCharacter } from '../game/character';
-import { AnimationStateMachine, type OneShotName } from './AnimationStateMachine';
+import type { AnimationStateMachine } from './AnimationStateMachine';
+import type { OneShotName } from './AnimationStateMachine';
+import type { PlayOneShotOptions } from './CharacterModel';
 import { CharacterModelLoader } from './CharacterModelLoader';
 import { EquipmentManager } from './EquipmentManager';
-import { SpriteCharacterModel } from './SpriteCharacterModel';
+import { SkeletalCharacterModel } from './SkeletalCharacterModel';
+import type { SocketName } from './SocketManager';
 
 /**
- * Owns the visible hero: equipment → look sync, weapon-set sub-graphs, and
- * one-shot overlays. Movement physics stays in PlayerController.
+ * Owns the visible hero: gear → skeletal re-dress, weapon-set sub-graphs,
+ * and gameplay one-shots. Movement physics stays in PlayerController;
+ * locomotion blending runs in the shared animation state machine.
  */
 export class PlayerCharacterController {
   readonly equipment = new EquipmentManager();
-  readonly animation = new AnimationStateMachine();
-  readonly model: SpriteCharacterModel;
+  readonly animation: AnimationStateMachine;
+  readonly model: SkeletalCharacterModel;
   private loader: CharacterModelLoader;
 
   constructor(controller: PlayerController, scene: THREE.Scene) {
-    this.model = new SpriteCharacterModel(controller.actor, controller, scene, this.animation);
-    this.loader = new CharacterModelLoader(controller.actor);
-    this.equipment.onChange = (look, weaponSet) => {
-      this.loader.applyLook(look);
+    this.animation = controller.actor.anim;
+    this.model = new SkeletalCharacterModel(controller.actor.hero, this.animation, controller, scene);
+    this.loader = new CharacterModelLoader(controller.actor.hero);
+    this.equipment.onChange = (gear, weaponSet) => {
+      this.loader.applyGear(gear);
       this.model.setWeaponSet(weaponSet);
     };
   }
@@ -34,11 +39,19 @@ export class PlayerCharacterController {
     this.model.postUpdate();
   }
 
-  playOneShot(name: OneShotName): Promise<void> {
-    return this.model.playOneShot(name);
+  playOneShot(name: OneShotName, opts: PlayOneShotOptions = {}): Promise<void> {
+    return this.model.playOneShot(name, opts);
   }
 
-  anchorPosition(name: 'mainhand' | 'offhand' | 'back' | 'hip' | 'quiver', target: THREE.Vector3): THREE.Vector3 {
+  releaseHold(): void {
+    this.model.releaseHold();
+  }
+
+  faceTowards(worldPos: THREE.Vector3): void {
+    this.model.faceTowards(worldPos);
+  }
+
+  anchorPosition(name: SocketName, target: THREE.Vector3): THREE.Vector3 {
     return this.model.anchorPosition(name, target);
   }
 

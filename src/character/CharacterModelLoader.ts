@@ -1,25 +1,32 @@
-import type { FighterActor, FighterLook } from '../engine/actors/fighter';
+import { portraitDef } from '../game/character';
+import type { HeroGear } from './EquipmentManager';
+import type { SkeletalHero } from './skeletal/SkeletalHero';
 
-/** Applies looks to the actor, debounced so creation scrubs don't rebuild every frame. */
+/** Applies gear to the hero, debounced so creation scrubs don't rebuild every frame. */
 export class CharacterModelLoader {
   private timer = 0;
-  private pending: FighterLook | null = null;
+  private pending: HeroGear | null = null;
 
-  constructor(private actor: FighterActor) {}
+  constructor(private hero: SkeletalHero) {}
 
-  applyLook(look: FighterLook, immediate = false): void {
+  applyGear(gear: HeroGear, immediate = false): void {
     if (immediate) {
       window.clearTimeout(this.timer);
       this.pending = null;
-      this.actor.setLook(look);
+      this.dress(gear);
       return;
     }
-    this.pending = look;
+    this.pending = gear;
     window.clearTimeout(this.timer);
     this.timer = window.setTimeout(() => {
-      if (this.pending) this.actor.setLook(this.pending);
+      if (this.pending) this.dress(this.pending);
       this.pending = null;
     }, 60);
+  }
+
+  private dress(gear: HeroGear): void {
+    this.hero.setPortrait(portraitDef(gear.preset));
+    this.hero.setEquipment(gear.mainHand, gear.offHand);
   }
 
   dispose(): void {

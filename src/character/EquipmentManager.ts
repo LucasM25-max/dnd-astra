@@ -1,72 +1,62 @@
-import { DEFAULT_LOOK, lookKey, type FighterLook } from '../engine/actors/fighter';
-import { portraitDef, type CharacterDraft, type PlayerCharacter } from '../game/character';
+import type { CharacterDraft, PlayerCharacter } from '../game/character';
+import type { WeaponId } from './skeletal/HeroWeapons';
+import { weaponSetForLoadout } from './skeletal/SkeletalHero';
 import type { WeaponSet } from './CharacterModel';
 
-/** Darken a #rrggbb hex colour by `amount` (0..1). */
-function darken(hex: string, amount: number): string {
-  const n = parseInt(hex.slice(1), 16);
-  const f = (c: number): number => Math.max(0, Math.min(255, Math.round(c * (1 - amount))));
-  const r = f((n >> 16) & 255), g = f((n >> 8) & 255), b = f(n & 255);
-  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
+/** Everything the skeletal hero needs to dress: portrait + wielded gear. */
+export interface HeroGear {
+  preset: string;
+  mainHand: WeaponId;
+  offHand: WeaponId | null;
 }
 
-export function lookFromPortraitAndGear(
-  presetId: string, mainHand: string, offHand: string | null, ranged: string,
-): FighterLook {
-  const p = portraitDef(presetId);
-  const main: FighterLook['mainHand'] =
-    mainHand === 'longsword' ? 'longsword'
-    : mainHand === 'battleaxe' ? 'battleaxe'
-    : mainHand === 'warhammer' ? 'warhammer'
-    : 'greatsword';
-  const off: FighterLook['offHand'] =
-    offHand === 'shield' ? 'shield' : offHand === 'shortsword' ? 'shortsword' : null;
+const asMainHand = (id: string): WeaponId =>
+  id === 'battleaxe' || id === 'warhammer' ? id : 'longsword';
+
+const asOffHand = (id: string | null): WeaponId | null =>
+  id === 'shield' ? 'shield' : id === 'shortsword' ? 'shortsword' : null;
+
+export function gearFromCharacter(c: PlayerCharacter): HeroGear {
   return {
-    skin: p.skin,
-    skinShade: darken(p.skin, 0.18),
-    hairColor: p.hairColor,
-    hairStyle: p.hairStyle,
-    helm: p.helm,
-    mainHand: main,
-    offHand: off,
-    bow: ranged === 'longbow',
+    preset: c.portrait.preset,
+    mainHand: asMainHand(c.equipment.mainHand),
+    offHand: asOffHand(c.equipment.offHand),
   };
 }
 
-export const lookFromCharacter = (c: PlayerCharacter): FighterLook =>
-  lookFromPortraitAndGear(c.portrait.preset, c.equipment.mainHand, c.equipment.offHand, c.equipment.ranged);
-
-export const lookFromDraft = (d: CharacterDraft): FighterLook =>
-  lookFromPortraitAndGear(d.portrait, d.mainHand, d.offHand, 'longbow');
-
-export function weaponSetFor(mainHand: string, offHand: string | null): WeaponSet {
-  if (offHand === 'shortsword') return 'dual';
-  if (offHand === 'shield') return 'sword_shield';
-  if (mainHand === 'longbow') return 'bow';
-  return 'sword_shield';
+export function gearFromDraft(d: CharacterDraft): HeroGear {
+  return { preset: d.portrait, mainHand: asMainHand(d.mainHand), offHand: asOffHand(d.offHand) };
 }
 
-/** Owns look synchronisation: character/draft → FighterLook → actor repaint. */
+export function weaponSetFor(mainHand: string, offHand: string | null): WeaponSet {
+  return weaponSetForLoadout(asMainHand(mainHand), asOffHand(offHand));
+}
+
+const gearKey = (gear: HeroGear): string => `${gear.preset}|${gear.mainHand}|${gear.offHand ?? '-'}`;
+
+/** Owns gear synchronisation: character/draft → HeroGear → hero re-dress. */
 export class EquipmentManager {
-  private look: FighterLook = DEFAULT_LOOK;
-  private key = lookKey(DEFAULT_LOOK);
-  onChange: (look: FighterLook, weaponSet: WeaponSet) => void = () => {};
+  private gear: HeroGear = { preset: 'male_01', mainHand: 'longsword', offHand: 'shield' };
+  private key = gearKey(this.gear);
+  onChange: (gear: HeroGear, weaponSet: WeaponSet) => void = () => {};
 
   syncFromCharacter(c: PlayerCharacter): void {
-    this.apply(lookFromCharacter(c), weaponSetFor(c.equipment.mainHand, c.equipment.offHand));
+    this.apply(gearFromCharacter(c));
   }
 
   syncFromDraft(d: CharacterDraft): void {
-    this.apply(lookFromDraft(d), weaponSetFor(d.mainHand, d.offHand));
+    this.apply(gearFromDraft(d));
   }
 
-  private apply(look: FighterLook, weaponSet: WeaponSet): void {
-    const key = lookKey(look);
+  private apply(gear: HeroGear): void {
+    const key = gearKey(gear);
     if (key === this.key) return;
     this.key = key;
-    this.look = look;
-    this.onChange(look, weaponSet);
+    this.gear = gear;
+    this.onChange(gear, weaponSetForLoadout(gear.mainHand, gear.offHand));
   }
 
-  get current(): FighterLook { return this.look; }
+  get current(): HeroGear {
+    return this.gear;
+  }
 }

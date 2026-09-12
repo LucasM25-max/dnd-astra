@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { cryptoRandomFloat, cryptoRandomInt, resolveRoll } from '../src/systems/dice/DiceResultResolver';
+import { faceLabel } from '../src/systems/dice/DieMeshFactory';
 
 describe('crypto randomness', () => {
   it('stays inside inclusive two-arg bounds', () => {
@@ -48,5 +49,22 @@ describe('roll resolution', () => {
   it('clamps out-of-range naturals into the die', () => {
     expect(resolveRoll({ die: 6, label: 'x' }, 99).natural).toBe(6);
     expect(resolveRoll({ die: 6, label: 'x' }, -4).natural).toBe(1);
+  });
+});
+
+describe('face labels', () => {
+  it('shows 0 for 10 on a d10, like physical dice', () => {
+    expect(faceLabel(10, 10)).toBe('0');
+    expect(faceLabel(10, 7)).toBe('7');
+  });
+  it('dots 6 and 9 on a d20 so they cannot be misread', () => {
+    expect(faceLabel(20, 6)).toBe('6.');
+    expect(faceLabel(20, 9)).toBe('9.');
+    expect(faceLabel(20, 16)).toBe('16');
+  });
+  it('labels other dice plainly', () => {
+    expect(faceLabel(6, 3)).toBe('3');
+    expect(faceLabel(12, 12)).toBe('12');
+    expect(faceLabel(4, 1)).toBe('1');
   });
 });

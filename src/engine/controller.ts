@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CollisionField, SPAWN, clamp, terrainHeight } from './landscape';
-import { FighterActor } from './actors/fighter';
+import { SkeletalPlayerActor } from '../character/SkeletalPlayerActor';
 
 export type CameraMode = 'first' | 'third';
 export class PlayerController {
@@ -15,7 +15,7 @@ export class PlayerController {
   controlMode: 'foot' | 'wagon' | 'cinematic' = 'foot';
   cameraOverride = false;
   private vehicleYaw = 0;
-  readonly actor: FighterActor;
+  readonly actor: SkeletalPlayerActor;
   started = false;
   paused = false;
   grounded = true;
@@ -42,8 +42,8 @@ export class PlayerController {
   onPointerFallback = () => {};
 
   constructor(private camera: THREE.PerspectiveCamera, private canvas: HTMLCanvasElement, private collision: CollisionField, scene: THREE.Scene) {
-    // The Wanderer: a 16-position painted fighter (chain mail, greatsword, flail, javelins).
-    this.actor = new FighterActor(this.camera);
+    // The Wanderer: the skeletal hero (chain mail, sword, shield, bow, quiver).
+    this.actor = new SkeletalPlayerActor();
     this.avatar.add(this.actor.root);
     this.avatar.position.copy(this.position); this.avatar.rotation.y = this.yaw; scene.add(this.avatar);
     this.canvas.tabIndex = 0;
@@ -160,9 +160,9 @@ export class PlayerController {
         const diff = Math.atan2(Math.sin(direction - this.avatar.rotation.y), Math.cos(direction - this.avatar.rotation.y));
         this.avatar.rotation.y += diff * Math.min(1, dt * 12);
       }
-      this.actor.update({ dt, speed: moveSpeed, sprint: this.sprinting, seated: this.controlMode !== 'foot' || this.forceSeated, paused: this.paused });
+      this.actor.update({ dt, speed: moveSpeed, sprint: this.sprinting, seated: this.seated, seat: this.seat, paused: this.paused });
     } else {
-      this.actor.update({ dt, speed: 0, seated: this.controlMode !== 'foot' || this.forceSeated, paused: this.paused });
+      this.actor.update({ dt, speed: 0, seated: this.seated, seat: this.seat, paused: this.paused });
     }
     this.avatar.position.copy(this.position);
     const floor = terrainHeight(this.position.x, this.position.z);
@@ -190,12 +190,21 @@ export class PlayerController {
       else this.position.y = floor;
     }
   }
+  get seated(): boolean {
+    return this.controlMode !== 'foot' || this.forceSeated;
+  }
+
+  /** Wagon seat and journey bench ride chairs; campfire sits go to the ground. */
+  get seat(): 'ground' | 'chair' {
+    return this.controlMode === 'foot' ? 'ground' : 'chair';
+  }
+
   private updateCamera(dt: number) {
     if (this.cameraOverride) { this.avatar.visible = true; return; }
     const seated = this.controlMode === 'wagon';
     const breathing = this.paused ? 0 : Math.sin(this.elapsed * 1.4) * .004;
     if (this.mode === 'first') {
-      // The painted fighter is only drawn in third person; first person is a clean over-shoulder view.
+      // First person hides the hero mesh for a clean over-shoulder view.
       this.avatar.visible = false;
       const bob = this.grounded && this.started && !this.paused ? Math.sin(this.walkDistance * 9.6) * .012 * Math.min(1, this.velocity.length()) : 0;
       this.camera.position.copy(this.position).add(new THREE.Vector3(0, (seated ? 1.02 : 1.35) + bob + breathing, 0));
