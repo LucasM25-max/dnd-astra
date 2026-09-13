@@ -46,7 +46,7 @@ export interface PlayerCharacter {
     ammo: { arrows: number }; armour: 'chain_mail'; pack: 'explorer'; gold: number;
   };
   personality: { trait: string; ideal: string; bond: string; flaw: string };
-  portrait: { preset: string; faceTexture: string; hairMesh: string };
+  portrait: { preset: string; hairStyle: string };
   conditions: CharacterCondition[];
   lastLongRestEpochMin: number | null;
   campfireSeen: boolean;
@@ -62,16 +62,12 @@ export interface WeaponDef {
   id: string; name: string; slot: string; damageDie: string | null; properties: string[];
   socket: string; animSet: string; icon: string; pitch: string;
   paint?: { blade?: string; length?: number; guard?: string; grip?: string };
-  /** Albedo texture for the Phase-B skeletal mesh (painted sprite fallback until then). */
-  texture?: string;
   /** Hand-socket local offset for the Phase-B mesh, in metres [x, y, z]. */
   socketOffset?: [number, number, number];
 }
 export interface PortraitPreset {
   id: string; label: string; skin: string; hairColor: string;
   hairStyle: 'short' | 'long' | 'braid'; helm: boolean;
-  /** Front-facing face texture under /textures/character/. */
-  faceTexture: string;
 }
 
 const fighter = fighterJson as unknown as {
@@ -114,12 +110,12 @@ export const weaponDef = (id: string): WeaponDef | undefined => weapons.find(w =
 export const featDef = (id: string): FeatDef | undefined => feats.find(f => f.id === id);
 
 export const PORTRAITS: PortraitPreset[] = [
-  { id: 'male_01', label: 'Aldric — weathered', skin: '#d9b38c', hairColor: '#4a3524', hairStyle: 'short', helm: true, faceTexture: '/textures/character/face_m01.webp' },
-  { id: 'male_02', label: 'Bram — scarred', skin: '#c99a72', hairColor: '#1f1a14', hairStyle: 'short', helm: false, faceTexture: '/textures/character/face_m02.webp' },
-  { id: 'male_03', label: 'Cedric — fair', skin: '#e8c39a', hairColor: '#8a6a3a', hairStyle: 'short', helm: true, faceTexture: '/textures/character/face_m03.webp' },
-  { id: 'female_01', label: 'Maren — keen', skin: '#d9b38c', hairColor: '#5c3a22', hairStyle: 'braid', helm: false, faceTexture: '/textures/character/face_f01.webp' },
-  { id: 'female_02', label: 'Sylva — silver', skin: '#e3bfa0', hairColor: '#b9b2a4', hairStyle: 'long', helm: false, faceTexture: '/textures/character/face_f02.webp' },
-  { id: 'female_03', label: 'Ysolde — bold', skin: '#a9744f', hairColor: '#14100c', hairStyle: 'braid', helm: true, faceTexture: '/textures/character/face_f03.webp' },
+  { id: 'male_01', label: 'Aldric — weathered', skin: '#d9b38c', hairColor: '#4a3524', hairStyle: 'short', helm: true },
+  { id: 'male_02', label: 'Bram — scarred', skin: '#c99a72', hairColor: '#1f1a14', hairStyle: 'short', helm: false },
+  { id: 'male_03', label: 'Cedric — fair', skin: '#e8c39a', hairColor: '#8a6a3a', hairStyle: 'short', helm: true },
+  { id: 'female_01', label: 'Maren — keen', skin: '#d9b38c', hairColor: '#5c3a22', hairStyle: 'braid', helm: false },
+  { id: 'female_02', label: 'Sylva — silver', skin: '#e3bfa0', hairColor: '#b9b2a4', hairStyle: 'long', helm: false },
+  { id: 'female_03', label: 'Ysolde — bold', skin: '#a9744f', hairColor: '#14100c', hairStyle: 'braid', helm: true },
 ];
 export const portraitDef = (id: string): PortraitPreset => PORTRAITS.find(p => p.id === id) ?? PORTRAITS[0];
 
@@ -266,7 +262,7 @@ export function draftToCharacter(d: CharacterDraft): PlayerCharacter {
       ammo: { arrows: fighter.equipment.arrows }, armour: 'chain_mail', pack: 'explorer', gold: soldier.gold,
     },
     personality: { trait: d.trait, ideal: d.ideal, bond: d.bond, flaw: d.flaw },
-    portrait: { preset: portrait.id, faceTexture: portrait.faceTexture, hairMesh: portrait.hairStyle },
+    portrait: { preset: portrait.id, hairStyle: portrait.hairStyle },
     conditions: [], lastLongRestEpochMin: null, campfireSeen: false, alertForFutureCombat: null,
   };
 }

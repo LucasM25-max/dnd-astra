@@ -149,3 +149,40 @@ body[data-creating="true"] .journey-status { visibility: hidden; }
 #inspect-icon { display: inline-flex; color: var(--gold); }
 #inspect-icon:empty { display: none; }
 #inspect-icon svg { width: 15px; height: 15px; }
+
+/* ── Hero health, floating over the character in the world ───────────────
+   Screen-projected pill (see src/ui/hero-health.ts). Deliberately reads as
+   a piece of the world, not a widget: warm rim light, ruby core, hairline
+   quarter ticks, and a soft gold name-plate above. */
+#hero-health{position:absolute;left:0;top:0;display:flex;flex-direction:column;align-items:center;gap:5px;pointer-events:none;z-index:6;opacity:0;transform:translate(-50%,-100%);transition:opacity .45s;will-change:transform,opacity}
+#hero-health.visible{opacity:1}
+.hh-name{font-size:6.5px;letter-spacing:2.6px;color:#eae3c9;text-shadow:0 1px 5px #000,0 0 14px #0008;opacity:.92}
+.hh-frame{display:flex;align-items:center;gap:9px;padding:6px 11px 6px 8px;background:linear-gradient(180deg,#13231796,#0c1a10b8);border:1px solid #d6c49359;border-radius:999px;backdrop-filter:blur(7px);box-shadow:0 7px 26px #040d076e,inset 0 1px 0 #ffffff22;transition:box-shadow .25s}
+.hh-track{position:relative;width:122px;height:9px;border-radius:99px;background:#1c0d0a;box-shadow:inset 0 0 0 1px #00000090,inset 0 2px 5px #000c,0 0 0 1px #f2e2b616;overflow:hidden}
+.hh-fill{position:absolute;top:1px;bottom:1px;left:1px;width:100%;border-radius:99px;background:linear-gradient(180deg,#ffab8d,#d94a30 52%,#871f13);box-shadow:0 0 12px #ff5a3f59,0 0 3px #ffb08a55;transition:width .5s cubic-bezier(.25,1,.32,1)}
+.hh-sheen{position:absolute;left:2px;right:2px;top:1px;height:42%;border-radius:99px;background:linear-gradient(180deg,#ffffff66,#ffffff00)}
+.hh-ticks{position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent 0 calc(25% - 1px),#08120c99 calc(25% - 1px) 25%);pointer-events:none}
+.hh-nums{display:flex;align-items:baseline;gap:3px;font-size:8.5px;color:#d9d4bd;text-shadow:0 1px 3px #000;letter-spacing:.4px}
+.hh-nums b{color:#ffe0cf;font-size:12px;font-weight:700}
+.hh-nums span:last-child{opacity:.72}
+#hero-health.hit .hh-frame{box-shadow:0 7px 26px #040d076e,inset 0 1px 0 #ffffff20,0 0 0 2px #ff8a68a6,0 0 26px #ff5f3a6b}
+#hero-health.hit .hh-fill{animation:hh-strike .5s}
+@keyframes hh-strike{0%{filter:brightness(2.1) saturate(.7)}100%{filter:brightness(1) saturate(1)}}
+#hero-health.low .hh-fill{animation:hh-pulse 1.5s ease-in-out infinite}
+@keyframes hh-pulse{50%{box-shadow:0 0 18px #ff4b2a9c,0 0 4px #ffb08a77}}
+#hero-health.low .hh-name{color:#ffb0a0}
+#hero-health.full .hh-frame{opacity:.78}
+#hero-health.full:hover{opacity:1}
+#hero-plate-hp{display:flex;align-items:center;gap:7px}
+
+/* Topbar hero plate: compact ruby pill replacing the old painted globe. */
+.hero-plate{display:flex;align-items:center;gap:8px;padding:5px 11px 5px 6px;border-radius:999px;background:#16251c38;border:1px solid transparent;transition:background .2s,border-color .2s,box-shadow .3s}
+.hero-plate:hover{border-color:#d6c49340;box-shadow:0 0 18px #c8a86415}
+.hero-plate>*{pointer-events:none}
+.plate-bar{position:relative;width:64px;height:7px;border-radius:99px;background:#1c0d0a;box-shadow:inset 0 0 0 1px #00000080,inset 0 1px 3px #000b,0 0 0 1px #f2e2b614;overflow:hidden;flex-shrink:0}
+.plate-bar i{position:absolute;inset:1px;right:auto;border-radius:99px;background:linear-gradient(180deg,#ffab8d,#d94a30 55%,#871f13);box-shadow:0 0 8px #ff5a3f4d;transition:width .5s cubic-bezier(.25,1,.32,1)}
+.plate-bar.low i{animation:hh-pulse 1.5s ease-in-out infinite}
+.plate-hp{font-size:9px;color:#d9d4bd;letter-spacing:.3px;white-space:nowrap}
+.plate-hp b{color:#ffe0cf;font-size:11.5px;font-weight:700}
+.plate-hp span:last-child{opacity:.66}
+.hero-pips{font-size:10px;letter-spacing:1px;color:#e3cea1cc;line-height:1}

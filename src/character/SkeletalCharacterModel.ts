@@ -57,6 +57,10 @@ export class SkeletalCharacterModel implements CharacterModel {
     this.anim.releaseHold();
   }
 
+  setCombatMode(inCombat: boolean, animate = true): void {
+    this.anim.setCombatMode(inCombat, animate);
+  }
+
   /** Turn the hero's body to face a world position (examinations, campfire). */
   faceTowards(worldPos: THREE.Vector3): void {
     const avatar = this.controller.avatar;

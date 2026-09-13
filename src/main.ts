@@ -114,6 +114,16 @@ function ensureWorld(foreground: boolean): Promise<void> {
                 const character = world!.adventure.inventory.getCharacter();
                 if (character) character.hp.current = Math.max(1, character.hp.current - n);
               },
+              getHeroAnim: () => {
+                const c = world!.controller, v = c.velocity, anim = c.actor.anim;
+                const speed = Math.hypot(v.x, v.z);
+                const move = Math.atan2(-v.x, -v.z);
+                return {
+                  clip: anim.locomotionClip, shot: anim.activeShot, seated: anim.seated, combat: anim.inCombat,
+                  // Angular gap between where the model faces and where it travels.
+                  facingErr: speed > 0.4 ? Math.abs(Math.atan2(Math.sin(c.avatar.rotation.y - move), Math.cos(c.avatar.rotation.y - move))) : 0,
+                };
+              },
             },
           });
         }

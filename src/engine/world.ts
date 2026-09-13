@@ -9,7 +9,7 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { CollisionField, LANDMARKS, seededRandom, terrainHeight } from './landscape';
 import { loadMaterials, type Materials } from './materials';
 import { createTerrain, createForest, type Nature } from './nature';
-import { createAmbush, createCampfireSite } from './props';
+import { createAmbush, createCampfireSite, type CampfireSite } from './props';
 import { PlayerController, type CameraMode } from './controller';
 import { Adventure, type AdventureState } from './adventure';
 import { WeatherEngine, type WeatherFrame } from './weather';
@@ -54,7 +54,7 @@ export class WoodlandWorld {
   private floatText!: FloatingText;
   private sky!: SkyboxManager;
   private emberLoop: { dispose: () => void } | null = null;
-  private campfireLight = new THREE.PointLight('#ff9a3c', 26, 18, 1.8);
+  private campfireSite: CampfireSite | null = null;
   private campfirePos = new THREE.Vector3();
   private pauseReasons = new Set<string>();
   private wasPaused = false;
@@ -159,7 +159,7 @@ export class WoodlandWorld {
     this.adventure = await Adventure.create(this.scene, this.camera, this.controller, this.collision, this.renderer);
     this.adventure.onNotice = message => this.onNotice(message);
     this.adventure.onHandoff = () => { this.renderer.shadowMap.needsUpdate = true; this.renderDirty = true; this.onControlHandoff(); };
-    this.initializeSystems();
+    await this.initializeSystems();
     this.addAtmosphere();
     this.weather = new WeatherEngine({
       scene: this.scene, renderer: this.renderer, sun: this.sun, fill: this.fill, hemisphere: this.hemisphere,
@@ -175,7 +175,7 @@ export class WoodlandWorld {
     this.running = true; this.lastFrame = performance.now(); this.raf = requestAnimationFrame(this.frame);
   }
   /** Dice, narration, hero, camp, and world interactions. Called once adventure exists. */
-  private initializeSystems() {
+  private async initializeSystems() {
     this.fx = new ParticleEffects(this.scene);
     this.floatText = new FloatingText(this.camera);
     this.sky = new SkyboxManager(this.scene);
@@ -185,10 +185,9 @@ export class WoodlandWorld {
     this.narratorSystem.setVoiceEnabled(this.adventure.narrator.state.voiceEnabled);
     this.hero = new PlayerCharacterController(this.controller, this.scene);
     roller.initialize({ pause: reason => this.pause(reason), resume: reason => this.resume(reason) });
-    const campfire = createCampfireSite(this.scene, this.collision);
+    const campfire = await createCampfireSite(this.scene, this.collision);
+    this.campfireSite = campfire;
     this.campfirePos.copy(campfire.position);
-    this.campfireLight.position.copy(campfire.position).add(new THREE.Vector3(0, 1, 0));
-    this.scene.add(this.campfireLight);
     this.emberLoop = this.fx.campfireLoop(campfire.position.clone().add(new THREE.Vector3(0, .35, 0)));
     const cinematic = new RestCinematic(
       this.camera, this.controller, this.narratorCamera, this.sky,
@@ -397,7 +396,7 @@ export class WoodlandWorld {
     this.controller.update(dt);
     this.hero?.update();
     this.fx?.update(dt, this.elapsed);
-    this.campfireLight.intensity = 26 + Math.sin(this.elapsed * 9.3) * 4 + Math.sin(this.elapsed * 23.7) * 2.5;
+    this.campfireSite?.update(this.elapsed);
     this.material.wind.value = this.elapsed;
     const particleMat = this.particles.material as THREE.ShaderMaterial;
     particleMat.uniforms.time.value = this.elapsed; this.shaftMaterial.uniforms.time.value = this.elapsed;
@@ -463,7 +462,7 @@ export class WoodlandWorld {
   stop() { this.running = false; cancelAnimationFrame(this.raf); this.controller?.setPaused(true); this.adventure?.narrator.setPaused(true); }
   dispose() {
     this.stop(); this.observer.disconnect(); this.weather?.dispose(); this.adventure?.dispose(); this.controller?.dispose();
-    this.emberLoop?.dispose(); this.fx?.dispose(); this.sky?.dispose(); this.hero?.dispose(); this.restSystem?.menu.hide();
+    this.emberLoop?.dispose(); this.campfireSite?.dispose(); this.fx?.dispose(); this.sky?.dispose(); this.hero?.dispose(); this.restSystem?.menu.hide();
     this.cleanups.forEach(fn => fn());
     const geometries = new Set<THREE.BufferGeometry>(), materials = new Set<THREE.Material>(), textures = new Set<THREE.Texture>();
     this.scene.traverse(o => {

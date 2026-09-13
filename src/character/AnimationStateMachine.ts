@@ -1,5 +1,5 @@
 import { CLIP_DEFS, PREVIEW_ONLY_CLIPS, type ClipName } from './skeletal/HeroClips';
-import { IDLE_FOR_WEAPON_SET, type SkeletalHero } from './skeletal/SkeletalHero';
+import { DRAWN_IDLE, IDLE_FOR_WEAPON_SET, type SkeletalHero } from './skeletal/SkeletalHero';
 import type { WeaponSet } from './CharacterModel';
 
 /**
@@ -18,6 +18,8 @@ export type OneShotName =
   | 'stand_up'
   | 'sit_chair'
   | 'stand_chair'
+  | 'draw'
+  | 'sheathe'
   | 'flourish';
 
 export const ONESHOT_CLIP: Record<OneShotName, ClipName> = {
@@ -27,6 +29,8 @@ export const ONESHOT_CLIP: Record<OneShotName, ClipName> = {
   stand_up: 'stand_up',
   sit_chair: 'sit_chair',
   stand_chair: 'stand_chair',
+  draw: 'draw',
+  sheathe: 'sheathe',
   flourish: 'salute',
 };
 
@@ -46,6 +50,8 @@ export type SeatKind = 'ground' | 'chair';
 export class AnimationStateMachine {
   weaponSet: WeaponSet = 'sword_shield';
   seated = false;
+  /** Steel in hand (combat) vs riding the belt scabbard (exploration). */
+  inCombat = false;
   private shot: OneShotName | null = null;
   private loco: ClipName = 'idle';
   /** Which seat the held sit pose belongs to (stand matches the sit). */
@@ -60,6 +66,11 @@ export class AnimationStateMachine {
 
   get activeShot(): OneShotName | null {
     return this.shot;
+  }
+
+  /** Current locomotion loop (idle / idle_drawn / idle_dual / walk / run …). */
+  get locomotionClip(): ClipName {
+    return this.loco;
   }
 
   /** Begin a one-shot; resolves when its authored duration elapses. */
@@ -95,6 +106,23 @@ export class AnimationStateMachine {
   }
 
   /**
+   * Enter or leave the combat stance: steel comes out to (or goes back into)
+   * the belt scabbard, with the authored draw/sheathe clips played over the
+   * locomotion so the swap reads as a motion, not a pop.
+   */
+  setCombatMode(inCombat: boolean, animate = true): void {
+    if (inCombat === this.inCombat) return;
+    this.inCombat = inCombat;
+    this.hero.setStowed(!inCombat);
+    if (!this.shot && !this.seated) {
+      // Re-target the underlying loop (guard vs relaxed) first so the shot
+      // that follows fades back into the *right* stance when it ends.
+      this.playIdle();
+      if (animate) void this.playOneShot(inCombat ? 'draw' : 'sheathe');
+    }
+  }
+
+  /**
    * Per-frame locomotion: auto sit/stand on seat changes, speed-blended
    * idle/walk/run otherwise, then step the mixer. The mixer always steps —
    * world pause freezes movement input, never the hero's pose track, so
@@ -104,13 +132,18 @@ export class AnimationStateMachine {
     if (seated && !this.seated && !this.shot) {
       this.seatHeld = seat;
       void this.playOneShot(seat === 'chair' ? 'sit_chair' : 'long_rest_sit');
-    } else if (!seated && this.seated && !this.shot) {
-      void this.playOneShot(this.seatHeld === 'chair' ? 'stand_chair' : 'stand_up');
+    } else if (!seated && this.seated) {
+      // Standing must fire even when the seat pose is a *held* shot
+      // (sit_chair/long_rest_sit clamp forever otherwise) — leaving the
+      // wagon seat or the campfire has to blend back into locomotion.
+      const heldSit = this.shot === 'sit_chair' || this.shot === 'long_rest_sit';
+      if (!this.shot || heldSit) {
+        void this.playOneShot(this.seatHeld === 'chair' ? 'stand_chair' : 'stand_up');
+      }
     }
-    this.hero.setSidearmStowed(this.seated && this.seatHeld === 'chair');
     if (!this.shot && !this.seated) {
       const target: ClipName =
-        speed < 0.15 ? IDLE_FOR_WEAPON_SET[this.weaponSet] : speed > 3.2 || (sprint && speed > 1.5) ? 'run' : 'walk';
+        speed < 0.15 ? (this.inCombat ? DRAWN_IDLE : IDLE_FOR_WEAPON_SET[this.weaponSet]) : speed > 3.2 || (sprint && speed > 1.5) ? 'run' : 'walk';
       if (target !== this.loco) {
         this.loco = target;
         this.hero.playLocomotion(target, 0.2);
@@ -120,7 +153,7 @@ export class AnimationStateMachine {
   }
 
   private playIdle(): void {
-    this.loco = IDLE_FOR_WEAPON_SET[this.weaponSet];
+    this.loco = this.inCombat ? DRAWN_IDLE : IDLE_FOR_WEAPON_SET[this.weaponSet];
     this.hero.playLocomotion(this.loco, 0.2);
   }
 }

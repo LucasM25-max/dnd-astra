@@ -23,6 +23,8 @@ export interface CharacterModel {
   playOneShot(name: OneShotName, opts?: PlayOneShotOptions): Promise<void>;
   /** Release a held pose back to locomotion. */
   releaseHold(): void;
+  /** Draw or sheathe the equipped steel (combat stance vs belt mount). */
+  setCombatMode(inCombat: boolean, animate?: boolean): void;
   anchorPosition(name: SocketName, target: THREE.Vector3): THREE.Vector3;
   dispose(): void;
 }

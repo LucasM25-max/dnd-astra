@@ -5,7 +5,8 @@ import type { SkyboxManager } from '../../world/SkyboxManager';
 import { REST_CONFIG } from './RestResolver';
 
 /**
- * Rest cinematic: wide dolly → slow campfire orbit → clock sweep dusk→night→dawn.
+ * Rest cinematic: wide dolly → slow campfire orbit that lifts into a full
+ * look-up at the night sky → clock sweep dusk→night→dawn.
  * Phased API so the ambush branch can interrupt at midnight and resume.
  */
 export class RestCinematic {
@@ -13,6 +14,8 @@ export class RestCinematic {
   private orbiting = false;
   private orbitAngle = 0;
   private firePos = new THREE.Vector3();
+  /** 0 = framing the campfire, 1 = tilted up to the open sky. */
+  private tilt = 0;
 
   private fogBackup = 0;
 
@@ -66,6 +69,7 @@ export class RestCinematic {
   /** Wide shot of the campsite + orbit start + time overlay. */
   async begin(firePos: THREE.Vector3): Promise<void> {
     this.firePos.copy(firePos);
+    this.tilt = 0;
     const wide = {
       position: firePos.clone().add(new THREE.Vector3(4.5, 3.4, 5.5)),
       lookAt: firePos.clone().add(new THREE.Vector3(0, 0.8, 0)),
@@ -87,10 +91,39 @@ export class RestCinematic {
     return this.sky.sweepClock(this.getMinute(), 1410, 2200, this.setMinute);
   }
 
-  holdNight(): Promise<void> {
+  /**
+   * Deep night: hold the orbit, rise up over the fire, and pan the lens to
+   * the open sky above the clearing (the painted starfield reads at its best
+   * from there), then return to the fire before dawn sweeps in.
+   */
+  async holdNight(): Promise<void> {
     this.sky.showClock('☾ Deep night');
+    const hold = REST_CONFIG.cinematicMs.nightHold;
+    await this.tweenTilt(1, Math.min(2600, hold * 0.35));   // look up at the stars
+    await this.wait(hold * 0.35);                            // hold on the sky
+    this.sky.showClock('☾ Deep night · the stars turn slowly');
+    await this.wait(hold * 0.2);
+    await this.tweenTilt(0, 1500);                           // back down to the fire
+  }
+
+  private wait(ms: number): Promise<void> {
+    return new Promise(resolve => { window.setTimeout(resolve, Math.max(120, ms)); });
+  }
+
+  /** Ease the orbit's vertical framing between campfire (0) and sky (1). */
+  private tweenTilt(to: number, ms: number): Promise<void> {
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const from = this.tilt;
+    if (reduced || ms <= 0) { this.tilt = to; return Promise.resolve(); }
     return new Promise(resolve => {
-      window.setTimeout(resolve, REST_CONFIG.cinematicMs.nightHold);
+      const start = performance.now();
+      const frame = (now: number): void => {
+        const t = Math.min(1, (now - start) / ms);
+        this.tilt = from + (to - from) * (t * t * (3 - 2 * t));
+        if (t < 1) requestAnimationFrame(frame);
+        else resolve();
+      };
+      requestAnimationFrame(frame);
     });
   }
 
@@ -125,16 +158,26 @@ export class RestCinematic {
       this.camera.position.z - this.firePos.z,
     );
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const radius = 7.2;
+    const tmp = new THREE.Vector3();
     const frame = (): void => {
       if (!this.orbiting) return;
       if (!reduced) this.orbitAngle += 0.0035;
+      const tilt = this.tilt;
+      // Tilted up: draw close beside the fire and lift above the smoke, so
+      // the clearing opens into a full bowl of sky (no trees cut the stars).
+      const radius = 7.2 - 4.3 * tilt;
+      const height = 3.2 + 2.6 * tilt;
       this.camera.position.set(
         this.firePos.x + Math.sin(this.orbitAngle) * radius,
-        this.firePos.y + 3.2,
+        this.firePos.y + height,
         this.firePos.z + Math.cos(this.orbitAngle) * radius,
       );
-      this.camera.lookAt(this.firePos.x, this.firePos.y + 0.9, this.firePos.z);
+      // Look point rises from the fire's heart up past the zenith as tilt grows.
+      tmp.set(this.firePos.x, this.firePos.y + 0.9, this.firePos.z);
+      tmp.y += tilt * tilt * 16;
+      tmp.x += Math.sin(this.orbitAngle + 2.4) * tilt * 2.2;
+      tmp.z += Math.cos(this.orbitAngle + 2.4) * tilt * 2.2;
+      this.camera.lookAt(tmp);
       this.orbitRaf = requestAnimationFrame(frame);
     };
     frame();

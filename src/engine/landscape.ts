@@ -3,6 +3,14 @@
 // The reference footprint is extended with woodland beyond its edges, not tiled.
 export type Point2 = { x: number; z: number };
 export const SPAWN = { x: -12.8, z: 4.02, yaw: -1.68 };
+/**
+ * The woodland camp: a few metres off the Triboar Trail, tucked into the
+ * trees east of the ambush clearing. The terrain flattens to a gentle
+ * terrace here (see `terrainHeight`) and the forest generation keeps trees,
+ * undergrowth, and deadwood outside the clearing so the fire reads as a
+ * purpose-made campsite rather than props shoved between trunks.
+ */
+export const CAMP = { x: 14.4, z: 9.3, flatInner: 3.4, flatOuter: 7.6, clearRadius: 6.6 };
 export const WORLD_LIMIT = 47;
 export const MAP_BOUNDS = { minX: -17, maxX: 19, minZ: -22, maxZ: 16 };
 export const ROAD_WIDTH = 2.35;
@@ -84,7 +92,9 @@ export function pathAmount(x: number, z: number) {
   const irregular = (noise(x * 2.3, z * 2.3) - .5) * .38 + (noise(x * 6, z * 6) - .5) * .12;
   return 1 - smoothstep(-.24, .44, pathDistance(x, z) + irregular);
 }
-export function terrainHeight(x: number, z: number) {
+/** Raw terrain elevation without the camp terrace (cached lazily). */
+/** Woodland relief before the camp terrace is blended in. */
+function rawTerrainHeight(x: number, z: number) {
   const distance = pathDistance(x, z);
   const northRise = Math.max(0, -z) * .026;
   const roadUndulation = (noise(x * .14, z * .14) - .5) * .19 + northRise;
@@ -93,6 +103,24 @@ export function terrainHeight(x: number, z: number) {
   const forest = smoothstep(2, 10, distance) * ((fbm(x * .09, z * .09) - .35) * 3.1);
   const distantHills = smoothstep(29, 66, Math.hypot(x, z)) * (3 + fbm(x * .055, z * .055) * 10);
   return roadUndulation + groundDetail + bank + forest + distantHills;
+}
+export function terrainHeight(x: number, z: number) {
+  const raw = rawTerrainHeight(x, z);
+  // A worn camp terrace: blended flat inside the clearing so the fire ring,
+  // benches, and bedroll all sit on one level, easing out to the wild ground
+  // before the edge so there is no visible ring-wall.
+  const campD = Math.hypot(x - CAMP.x, z - CAMP.z);
+  if (campD < CAMP.flatOuter) {
+    const blend = 1 - smoothstep(CAMP.flatInner, CAMP.flatOuter, campD);
+    return lerp(raw, campLevel(), blend);
+  }
+  return raw;
+}
+/** Height of the camp terrace (the raw terrain at the fire's centre). */
+let campLevelCache: number | null = null;
+function campLevel(): number {
+  if (campLevelCache === null) campLevelCache = rawTerrainHeight(CAMP.x, CAMP.z);
+  return campLevelCache;
 }
 export function terrainSlope(x: number, z: number) {
   const e = .16;

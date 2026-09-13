@@ -3,7 +3,7 @@ import { isFormControl } from '../engine/controller';
 import { CONTAINERS, ITEMS, ITEM_IDS, countOf, formatGp, valueOf, type ContainerId, type ItemId } from '../game/items';
 import { NARRATION } from '../game/narrator';
 import { FIGHTER, skillModifier } from '../game/character';
-import { hpGlobeSVG } from './hpGlobe';
+
 
 export type AdventureDialog = 'inventory' | 'cargo' | 'journal' | 'sheet';
 interface Hooks {
@@ -168,10 +168,14 @@ export class AdventureInterface {
       plate.hidden = false;
       const secondWind = hero.features.secondWind.usesCurrent > 0;
       const inspired = hero.features.heroicInspiration.available;
+      const frac = hero.hp.max > 0 ? Math.max(0, Math.min(1, hero.hp.current / hero.hp.max)) : 0;
       const sig = `${hero.hp.current}/${hero.hp.max}/${secondWind}/${inspired}`;
       if (plate.dataset.sig !== sig) {
         plate.dataset.sig = sig;
-        $('#hero-plate-hp').innerHTML = `${hpGlobeSVG(hero.hp.current, hero.hp.max, 34)}`
+        // Ruby pill instead of the old globe: same ember language as the
+        // floating world-space bar, compact enough for the topbar.
+        $('#hero-plate-hp').innerHTML = `<span class="plate-bar${frac <= 0.25 ? ' low' : ''}" aria-hidden="true"><i style="width:${(frac * 100).toFixed(1)}%"></i></span>`
+          + `<span class="plate-hp"><b>${hero.hp.current}</b><span>/${hero.hp.max}</span></span>`
           + `<span class="hero-pips" aria-hidden="true">${secondWind ? '◈' : '◇'}${inspired ? '★' : ''}</span>`;
       }
       plate.title = `${hero.name} — Character sheet · C`;

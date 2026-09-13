@@ -13,6 +13,7 @@
     "assets:adventure": "node scripts/prepare-adventure-assets.mjs",
     "assets:systems": "node scripts/prepare-system-assets.mjs",
     "assets:creation": "node scripts/prepare-creation-assets.mjs",
+    "assets:camp": "node scripts/prepare-camp-assets.mjs",
     "narration:gemini": "node --env-file-if-exists=.env.local scripts/generate-narration-gemini.mjs"
   },
   "dependencies": {

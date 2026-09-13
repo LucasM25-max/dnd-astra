@@ -1,7 +1,10 @@
 /**
- * A dramatic generative score, synthesized entirely in Web Audio: a low drone,
- * slow evolving pads in D Dorian, sparse bell notes, a wind bed, and a deep
- * pulse when storms roll in. No samples, no network.
+ * A dramatic generative score, synthesized entirely in Web Audio: slow
+ * evolving pads in D Dorian, sparse bell notes, a wind bed, and a deep pulse
+ * when storms roll in. No samples, no network.
+ *
+ * (The old continuous low drone bed was retired — it read as a hum rather
+ * than music, and the pads carry the low end with far more warmth.)
  */
 
 const CHORD_SECONDS = 20;
@@ -43,19 +46,8 @@ export class DramaticScore {
     reverb.connect(reverbGain).connect(master);
     this.reverbSend = ctx.createGain(); this.reverbSend.gain.value = .7; this.reverbSend.connect(reverb);
 
-    // Drone bed.
-    const droneGain = ctx.createGain(); droneGain.gain.value = 0;
-    const droneFilter = ctx.createBiquadFilter(); droneFilter.type = 'lowpass'; droneFilter.frequency.value = 240;
-    droneFilter.connect(droneGain); droneGain.connect(master); droneGain.connect(this.reverbSend!);
-    const d1 = ctx.createOscillator(); d1.type = 'sine'; d1.frequency.value = 73.42;
-    const d1g = ctx.createGain(); d1g.gain.value = .05; d1.connect(d1g).connect(droneFilter); d1.start();
-    const d2 = ctx.createOscillator(); d2.type = 'triangle'; d2.frequency.value = 110;
-    const d2g = ctx.createGain(); d2g.gain.value = .026; d2.connect(d2g).connect(droneFilter); d2.start();
-    const lfo = ctx.createOscillator(); lfo.frequency.value = .05;
-    const lfoGain = ctx.createGain(); lfoGain.gain.value = .012; lfo.connect(lfoGain).connect(d1g.gain); lfo.start();
-    droneGain.gain.setTargetAtTime(.9, ctx.currentTime, 4);
-
-    // Pad bus with a slowly breathing low-pass.
+    // Pad bus with a slowly breathing low-pass. The chord voicings own the
+    // low end (the retired drone no longer hums underneath everything).
     const padFilter = ctx.createBiquadFilter(); padFilter.type = 'lowpass'; padFilter.frequency.value = 950; padFilter.Q.value = .6;
     const padBus = ctx.createGain(); padBus.gain.value = 1;
     padFilter.connect(padBus); padBus.connect(master); padBus.connect(this.reverbSend!);
@@ -118,13 +110,25 @@ export class DramaticScore {
   }
   private scheduleChord(t: number, notes: number[]) {
     const ctx = this.context!;
+    // A warm sine below the lowest voice: it breathes with the progression,
+    // fading in and out between chords instead of droning continuously.
+    const sub = ctx.createOscillator(); sub.type = 'sine'; sub.frequency.value = notes[0] / 2;
+    const sg = ctx.createGain();
+    sg.gain.setValueAtTime(0, t);
+    sg.gain.linearRampToValueAtTime(.028, t + 3.6);
+    sg.gain.setValueAtTime(.028, t + CHORD_SECONDS - 5.4);
+    sg.gain.linearRampToValueAtTime(0, t + CHORD_SECONDS + 2.6);
+    const sf = ctx.createBiquadFilter(); sf.type = 'lowpass'; sf.frequency.value = 200;
+    sub.connect(sg).connect(sf).connect(this.master!);
+    sub.start(t); sub.stop(t + CHORD_SECONDS + 3);
+    sub.onended = () => { sub.disconnect(); sg.disconnect(); sf.disconnect(); };
     for (const f of notes) {
       for (const detune of [-6, 5]) {
         const osc = ctx.createOscillator(); osc.type = 'sawtooth'; osc.frequency.value = f; osc.detune.value = detune * (0.6 + Math.random() * .4);
         const g = ctx.createGain();
         g.gain.setValueAtTime(0, t);
-        g.gain.linearRampToValueAtTime(.0165, t + 3.2);
-        g.gain.setValueAtTime(.0165, t + CHORD_SECONDS - 4.2);
+        g.gain.linearRampToValueAtTime(.0205, t + 3.2);
+        g.gain.setValueAtTime(.0205, t + CHORD_SECONDS - 4.2);
         g.gain.linearRampToValueAtTime(0, t + CHORD_SECONDS + 2.6);
         osc.connect(g).connect(this.padBus!);
         osc.start(t); osc.stop(t + CHORD_SECONDS + 3);

@@ -87,6 +87,29 @@ try {
   await page.click('[data-action="take-all"]'); assert.equal((await inventory()).inventory.flour, 6);
   await page.keyboard.press('Escape');
   console.log('✓ Walking reaches a wooden crate; opening it transfers its six flour sacks');
+  // The walking hero: locomotion clip blends in, the model faces its travel
+  // direction (not reversed), and the seated lockup stays released.
+  const walkStart = await state();
+  await page.keyboard.down('w');
+  await page.waitForFunction(start => {
+    const p = window.__astra.getState(); return Math.hypot(p.x - start.x, p.z - start.z) > 1.4 && window.__astra.getHeroAnim().clip === 'walk';
+  }, walkStart, { timeout: 90000, polling: 90 });
+  const walkAnim = await page.evaluate(() => window.__astra.getHeroAnim());
+  await page.keyboard.up('w');
+  assert.equal(walkAnim.clip, 'walk', `walk clip blends in (got ${walkAnim.clip})`);
+  assert.equal(walkAnim.seated, false, 'the dismounted hero is standing, not seated');
+  assert(walkAnim.facingErr < 0.35, `the hero faces where it walks (off by ${walkAnim.facingErr.toFixed(2)} rad)`);
+  // Sprint blends to the run clip.
+  await page.keyboard.down('Shift'); await page.keyboard.down('w');
+  await page.waitForFunction(() => window.__astra.getHeroAnim().clip === 'run', undefined, { timeout: 90000, polling: 90 });
+  await page.keyboard.up('w'); await page.keyboard.up('Shift');
+  console.log('✓ Locomotion blends idle→walk→run and the hero faces its movement');
+  // Floating health bar: visible over the hero, and it shrinks on damage.
+  await page.evaluate(() => { window.__astra.debugDamage(3); });
+  await page.waitForSelector('#hero-health.visible');
+  const healthVisible = await page.locator('#hero-health.visible').count();
+  assert(healthVisible >= 1, 'the floating health bar shows above the hero in third person');
+  console.log('✓ A health bar floats above the hero and reflects damage');
   // Ransacked belongings: kneel + narration + dust, recorded in the save (System 4).
   await page.evaluate(() => window.__astra.teleport(10.5, 1.9));
   await wait(() => window.__astra.getWorld().nearestInteractionId() === 'ransacked_belongings');

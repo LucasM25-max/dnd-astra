@@ -156,23 +156,36 @@ export function buildGauntlet(mats: ArmourMats, side: -1 | 1): ArmourPiece {
   return { object: group, bone: side < 0 ? 'HandR' : 'HandL' };
 }
 
-/** Sword belt: ring, brass buckle, strap end. */
+/**
+ * Sword belt: a broad leather ring that rides OUTSIDE the mail shell (the
+ * lathe torso is ~0.20 half-width at this height; the ring clears it with
+ * room to spare, and rides the same Chest bone as the mail so the walk
+ * cycle's torso twist can never grind them through each other), brass
+ * buckle, ring stud for the scabbard strap, and a hanging strap end.
+ */
 export function buildBelt(mats: ArmourMats): ArmourPiece {
   const group = new THREE.Group();
   group.name = 'belt';
-  const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.155, 0.075, 22, 1, true), mats.leather);
-  ring.scale.set(1.28, 1, 0.9);
+  const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.171, 0.176, 0.075, 22, 1, true), mats.leather);
+  ring.scale.set(1.33, 1, 0.96);
   ring.position.set(0, 1.062, 0);
   group.add(ring);
-  const buckle = new THREE.Mesh(new RoundedBoxGeometry(0.07, 0.055, 0.02, 2, 0.006), mats.brass);
-  buckle.position.set(0, 1.062, 0.142);
+  const buckle = new THREE.Mesh(new RoundedBoxGeometry(0.072, 0.058, 0.02, 2, 0.006), mats.brass);
+  buckle.position.set(0, 1.062, 0.172);
   group.add(buckle);
-  const strap = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.11, 0.008), mats.leather);
-  strap.position.set(0.045, 1.0, 0.138);
-  strap.rotation.x = 0.08;
-  strap.rotation.z = -0.06;
+  const tongue = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.04, 0.014), mats.brass);
+  tongue.position.set(0.012, 1.062, 0.18);
+  group.add(tongue);
+  const strap = new THREE.Mesh(new THREE.BoxGeometry(0.038, 0.12, 0.01), mats.leather);
+  strap.position.set(0.05, 0.995, 0.166);
+  strap.rotation.x = 0.1;
+  strap.rotation.z = -0.07;
   group.add(strap);
-  return { object: group, bone: 'Spine' };
+  const tip = new THREE.Mesh(new THREE.BoxGeometry(0.038, 0.02, 0.012), mats.brass);
+  tip.position.set(0.056, 0.938, 0.16);
+  tip.rotation.x = 0.1;
+  group.add(tip);
+  return { object: group, bone: 'Chest' };
 }
 
 /** Greave: front shell + knee cop + ankle wings. */

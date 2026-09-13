@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
-import { CollisionField, ROAD, TRAIL, SPAWN, clamp, fbm, noise, pathAmount, pathDistance, seededRandom, terrainHeight, terrainSlope } from './landscape';
+import { CAMP, CollisionField, ROAD, TRAIL, SPAWN, clamp, fbm, noise, pathAmount, pathDistance, seededRandom, terrainHeight, terrainSlope } from './landscape';
 import type { Materials } from './materials';
 
 type Rng = () => number;
@@ -51,6 +51,9 @@ function leafCard(b: Builder, center: THREE.Vector3, size: number, rng: Rng, tin
   const verts = [new THREE.Vector3(-w / 2, -h / 2, 0), new THREE.Vector3(w / 2, -h / 2, .015), new THREE.Vector3(w / 2, h / 2, 0), new THREE.Vector3(-w / 2, h / 2, .03)];
   b.quad(verts.map(v => v.applyQuaternion(q).add(center)), tint);
 }
+
+/** Distance from a point to the camp clearing centre (metres). */
+const campDistance = (x: number, z: number) => Math.hypot(x - CAMP.x, z - CAMP.z);
 
 export function createTerrain(scene: THREE.Scene, mat: Materials) {
   const size = 170, seg = 252;
@@ -124,11 +127,15 @@ export function createForest(scene: THREE.Scene, mat: Materials, collisions: Col
   const rng = seededRandom(41721), dummy = new THREE.Object3D();
   const positions: { x: number; z: number; scale: number; angle: number; type: number }[] = [];
   const heroes = [[-14, -.2], [-8, -1.1], [-2, -.9], [2.5, -4], [5, -7], [13.2, -4.4], [15, 6.9], [-4, 9.3], [-15, 10], [-.8, -10], [4, 9.1], [-22, -.8]];
-  for (const [x, z] of heroes) positions.push({ x, z, scale: .92 + rng() * .24, angle: rng() * 6.28, type: Math.floor(rng() * 4) });
+  for (const [x, z] of heroes) {
+    if (campDistance(x, z) < CAMP.clearRadius) continue; // the camp clearing keeps its frame of trunks clear
+    positions.push({ x, z, scale: .92 + rng() * .24, angle: rng() * 6.28, type: Math.floor(rng() * 4) });
+  }
   for (let tries = 0; tries < 18000 && positions.length < 315; tries++) {
     const near = positions.length < 145;
     const x = (rng() - .5) * (near ? 72 : 147), z = (rng() - .57) * (near ? 74 : 150);
     if (pathDistance(x, z) < 1.8 || Math.hypot(x - SPAWN.x, z - SPAWN.z) < 3.8) continue;
+    if (campDistance(x, z) < CAMP.clearRadius) continue;
     const spacing = near ? 3.15 : 3.9;
     if (positions.some(p => (p.x - x) ** 2 + (p.z - z) ** 2 < spacing ** 2)) continue;
     positions.push({ x, z, scale: .76 + rng() * .56, angle: rng() * Math.PI * 2, type: Math.floor(rng() * 4) });
@@ -252,6 +259,7 @@ function createGrass(scene: THREE.Scene, mat: Materials, rng: Rng) {
     const x = (rng() - .5) * 93, z = (rng() - .5) * 86;
     const d = pathDistance(x, z);
     if (d < -.1 || d > 19 || terrainSlope(x, z) > 1.45) continue;
+    if (campDistance(x, z) < 3.1) continue;
     if (rng() > (.46 + noise(x * .4, z * .4) * .45) * (d > 6 ? .55 : 1)) continue;
     points.push({ x, z, s: .55 + rng() * 1.3 });
   }
@@ -287,6 +295,7 @@ function createFerns(scene: THREE.Scene, mat: Materials, rng: Rng) {
   for (let i = 0; i < 10000 && points.length < 380; i++) {
     const x = (rng() - .5) * 80, z = (rng() - .52) * 73, d = pathDistance(x, z);
     if (d < .25 || d > 6 || terrainSlope(x, z) > 1.25) continue;
+    if (campDistance(x, z) < 4.6) continue;
     points.push({ x, z, s: .42 + rng() * .68 });
   }
   points.sort((a, b) => pathDistance(a.x, a.z) - pathDistance(b.x, b.z));
@@ -307,6 +316,7 @@ function createShrubs(scene: THREE.Scene, mat: Materials, rng: Rng) {
   for (let i = 0; i < 9000 && points.length < 275; i++) {
     const x = (rng() - .5) * 100, z = (rng() - .55) * 94, d = pathDistance(x, z);
     if (d < .6 || d > 9) continue;
+    if (campDistance(x, z) < 4.9) continue;
     points.push(new THREE.Vector3(x, terrainHeight(x, z), z));
   }
   const mesh = new THREE.InstancedMesh(b.geometry(), mat.leaves, points.length), dummy = new THREE.Object3D();
