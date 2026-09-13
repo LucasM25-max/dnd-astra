@@ -12,7 +12,7 @@
       "icon": "sword",
       "pitch": "A balanced knight's blade. Reliable, quick, and true.",
       "paint": { "blade": "straight", "length": 1.0, "guard": "cross", "grip": "leather" },
-      "texture": "/textures/weapons/longsword.png"
+      "texture": "/textures/weapons/longsword.webp"
     },
     {
       "id": "battleaxe",
@@ -26,7 +26,7 @@
       "icon": "axe",
       "pitch": "Dark iron head on an ash haft. It bites deep.",
       "paint": { "blade": "axe", "length": 0.9, "guard": "none", "grip": "wood" },
-      "texture": "/textures/weapons/battleaxe.png"
+      "texture": "/textures/weapons/battleaxe.webp"
     },
     {
       "id": "warhammer",
@@ -40,7 +40,7 @@
       "icon": "hammer",
       "pitch": "A heavy head that crushes plate and bone alike.",
       "paint": { "blade": "hammer", "length": 0.85, "guard": "none", "grip": "studded" },
-      "texture": "/textures/weapons/warhammer.png"
+      "texture": "/textures/weapons/warhammer.webp"
     },
     {
       "id": "shortsword",
@@ -54,7 +54,7 @@
       "icon": "sword",
       "pitch": "A short, quick blade with a brass pommel — made for the off hand.",
       "paint": { "blade": "straight", "length": 0.62, "guard": "cross", "grip": "brass" },
-      "texture": "/textures/weapons/shortsword.png"
+      "texture": "/textures/weapons/shortsword.webp"
     },
     {
       "id": "longbow",
@@ -68,7 +68,7 @@
       "icon": "bow",
       "pitch": "Yew wood and sinew string. Every fighter needs an answer at range.",
       "paint": { "blade": "bow", "length": 1.0, "guard": "none", "grip": "wood" },
-      "texture": "/textures/weapons/longbow.png"
+      "texture": "/textures/weapons/longbow.webp"
     },
     {
       "id": "quiver",
@@ -82,7 +82,7 @@
       "icon": "quiver",
       "pitch": "A leather quiver of twenty arrows, slung at the hip.",
       "paint": { "blade": "quiver", "length": 0.7, "guard": "none", "grip": "leather" },
-      "texture": "/textures/weapons/quiver.png"
+      "texture": "/textures/weapons/quiver.webp"
     },
     {
       "id": "shield",
@@ -96,7 +96,7 @@
       "icon": "shield",
       "pitch": "Wooden round shield with an iron rim and the gold Astra sigil. +2 Armour Class.",
       "paint": { "blade": "shield", "length": 0.55, "guard": "rim", "grip": "boss" },
-      "texture": "/textures/weapons/shield.png"
+      "texture": "/textures/weapons/shield.webp"
     }
   ]
 }

@@ -1,5 +1,5 @@
 import {
-  ABILITY_KEYS, ABILITY_NAMES, HUMAN, SOLDIER, pointBuyCost, pointsSpent, rankFor,
+  ABILITY_KEYS, ABILITY_NAMES, HUMAN, SOLDIER, abilityModifier, pointBuyCost, pointsSpent, rankFor,
   type AbilityKey, type CharacterDraft,
 } from '../../game/character';
 import { esc, icon } from './creation-helpers';
@@ -17,6 +17,7 @@ export function renderAbilityAllocator(d: CharacterDraft): string {
     const base = d.bases[k];
     const asi = (k === d.plusTwo ? 2 : 0) + (k === d.plusOne ? 1 : 0);
     const total = base + asi;
+    const mod = abilityModifier(total);
     const upCost = base >= HUMAN.pointBuy.max ? null : pointBuyCost(base + 1) - pointBuyCost(base);
     const canUp = upCost !== null && remaining >= upCost;
     const canDown = base > HUMAN.pointBuy.min;
@@ -28,6 +29,7 @@ export function renderAbilityAllocator(d: CharacterDraft): string {
       + `<button type="button" class="cc-step" data-abase="${k}" data-delta="1" ${canUp ? '' : 'disabled'} aria-label="Increase ${ABILITY_NAMES[k]}${upCost ? `, costs ${upCost} points` : ''}">+</button>`
       + `</div>`
       + `<div class="cc-asi-meta"><span class="cc-rank" title="Score ${total} with bonuses">${esc(rankFor(total))}</span>`
+      + `<span class="cc-asi-mod" title="${esc(HUMAN.abilityGuidance[k])}">${mod >= 0 ? `+${mod}` : mod} mod</span>`
       + `<span class="cc-asi-cost">${upCost === null ? 'max' : `${upCost} pt${upCost === 1 ? '' : 's'} ↑`}</span></div>`
       + `</div>`;
   }).join('');

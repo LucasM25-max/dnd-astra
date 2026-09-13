@@ -20,7 +20,7 @@ export class SkeletalCharacterModel implements CharacterModel {
     private scene: THREE.Scene,
   ) {
     this.root = hero.root;
-    this.glow = new THREE.PointLight('#e8c96a', 0, 7, 1.6);
+    this.glow = new THREE.PointLight('#e3cea1', 0, 7, 1.6);
     this.scene.add(this.glow);
   }
 

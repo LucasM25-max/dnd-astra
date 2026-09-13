@@ -25,6 +25,16 @@
 .camp-frame { max-width: 640px; margin: 0 auto; color: var(--ink); font-family: Manrope, Arial, sans-serif; }
 .camp-head { display: flex; align-items: center; gap: 10px; justify-content: center; margin-bottom: 14px; }
 .camp-head h2 { font-family: var(--serif); letter-spacing: -0.6px; font-size: 35px; font-weight: 400; color: var(--ink); margin: 0; }
+.camp-moon { color: var(--gold); display: inline-flex; }
+.camp-moon svg { width: 24px; height: 24px; }
+.camp-icon { width: 17px; height: 17px; flex-shrink: 0; }
+.camp-card-title { display: flex; align-items: center; gap: 8px; }
+.camp-card-title .camp-icon { color: var(--gold); }
+.camp-card-title .lock { float: right; color: var(--gold); display: inline-flex; }
+.camp-card-title .lock svg { width: 14px; height: 14px; }
+.camp-links button .camp-icon { color: var(--gold); }
+.camp-break { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.camp-break .camp-icon { color: var(--gold); }
 .camp-card {
   background: linear-gradient(140deg, #29342bfd, #16231afb); border: 1px solid #d0d6bc35; border-radius: 9px;
   padding: 16px 18px; margin-bottom: 12px; box-shadow: 0 20px 90px #050e0999;
@@ -70,6 +80,19 @@
 }
 #rest-clock.visible { display: flex; }
 #rest-clock .rest-moon { color: var(--gold); }
+#rest-lapse-moon {
+  position: fixed;
+  z-index: 114;
+  top: 16%;
+  left: 12%;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(circle at 40% 36%, #f6efdd 0%, #ecdfba 45%, #d3c59a 62%, rgba(211, 197, 154, 0) 74%);
+  box-shadow: 0 0 70px 26px rgba(240, 228, 196, 0.14);
+}
 
 /* --- Floating combat text --- */
 .float-text {

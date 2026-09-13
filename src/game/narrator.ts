@@ -85,7 +85,7 @@ export class Narrator {
    * voice in sync with the subtitles.
    */
   private armAutoplayRetry(): void {
-    if (this.autoplayArmed) return;
+    if (this.autoplayArmed || typeof window === 'undefined') return;
     this.autoplayArmed = true;
     const retry = (): void => {
       if (!this.active) return;

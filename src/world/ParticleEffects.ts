@@ -71,7 +71,7 @@ export class ParticleEffects {
   /** Golden inspiration shimmer. */
   inspirationShimmer(position: THREE.Vector3, count = 28): void {
     this.spawnBurst(position, count, {
-      color: '#e8c96a', size: 0.1, life: 2.2, spread: 0.6, rise: 0.8, gravity: 0.2,
+      color: '#e3cea1', size: 0.1, life: 2.2, spread: 0.6, rise: 0.8, gravity: 0.2,
       blending: THREE.AdditiveBlending, opacity: 0.9,
     });
   }

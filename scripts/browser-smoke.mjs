@@ -87,6 +87,12 @@ try {
   await page.click('[data-action="take-all"]'); assert.equal((await inventory()).inventory.flour, 6);
   await page.keyboard.press('Escape');
   console.log('✓ Walking reaches a wooden crate; opening it transfers its six flour sacks');
+  // Ransacked belongings: kneel + narration + dust, recorded in the save (System 4).
+  await page.evaluate(() => window.__astra.teleport(10.5, 1.9));
+  await wait(() => window.__astra.getWorld().nearestInteractionId() === 'ransacked_belongings');
+  await page.keyboard.press('e');
+  await wait(() => (window.__astra.getInventory().inspected ?? []).includes('ransacked_belongings'));
+  console.log('✓ The ransacked belongings kneel-and-narrate and record the inspection');
   await page.keyboard.press('Space'); await wait(() => !window.__astra.getState().grounded); await wait(() => window.__astra.getState().grounded);
   await page.keyboard.press('v'); await wait(() => window.__astra.getState().mode === 'first'); await page.keyboard.press('v'); await wait(() => window.__astra.getState().mode === 'third');
   await page.keyboard.press('m'); await page.waitForSelector('[data-kind="map"]'); assert.equal((await state()).paused, true);
@@ -99,13 +105,27 @@ try {
   assert((await page.locator('#dialog').innerText()).includes('LEVEL 1 HUMAN FIGHTER'));
   assert((await page.locator('#dialog').innerText()).includes('Second Wind'));
   await page.keyboard.press('Escape');
+  // Short rest: damage the hero, spend a hit die, heal by the roll (System 5).
+  const hpBeforeDamage = (await character()).hp.current;
+  await page.evaluate(() => window.__astra.debugDamage(4));
+  await page.waitForFunction(before => window.__astra.getCharacter().hp.current === Math.max(1, before - 4), hpBeforeDamage, { timeout: 90000, polling: 100 });
   await page.evaluate(() => window.__astra.openCamp());
   await page.waitForSelector('#camp-menu.visible');
   assert((await page.locator('#camp-menu').innerText()).includes('LONG REST'));
   assert((await page.locator('#camp-menu').innerText()).includes('SHORT REST'));
+  const hpBeforeRest = (await character()).hp.current;
+  const diceBeforeRest = (await character()).hitDice.current;
+  const spendButton = page.locator('[data-camp="short-spend"]');
+  assert.equal(await spendButton.isDisabled(), false);
+  await spendButton.click();
+  await page.waitForFunction(before => window.__astra.getCharacter().hitDice.current === before - 1, diceBeforeRest, { timeout: 90000, polling: 100 });
+  const afterRest = await character();
+  assert.equal(afterRest.hitDice.current, diceBeforeRest - 1);
+  assert(afterRest.hp.current > hpBeforeRest && afterRest.hp.current <= afterRest.hp.max);
+  assert((await page.locator('#camp-short').innerText()).includes(`${diceBeforeRest - 1}d10`));
   await page.click('[data-camp="close"]');
   await page.waitForSelector('#camp-menu', { state: 'hidden' });
-  console.log('✓ Character sheet and the make-camp menu open over the live world');
+  console.log('✓ Character sheet, the make-camp menu, and a short rest that spends a hit die all work');
   await page.click('#settings-toggle');
   await page.click('[data-weather="rain"]'); assert.equal(await page.locator('[data-weather="rain"]').getAttribute('aria-pressed'), 'true');
   await page.click('[data-weather="auto"]'); assert.equal(await page.locator('[data-weather="auto"]').getAttribute('aria-pressed'), 'true');

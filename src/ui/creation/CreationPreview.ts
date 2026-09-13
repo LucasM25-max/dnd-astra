@@ -216,11 +216,21 @@ export class CreationPreview {
     }
   }
 
-  start(): void {
+  async start(): Promise<void> {
     if (!this.renderer || !this.hero || this.raf) return;
+    // Warm the shaders chunk-by-chunk before the first frame. A cold
+    // first render would compile every program in one synchronous
+    // stretch — minutes on a software rasteriser, long enough to freeze
+    // the whole creation screen.
+    await this.renderer.compileAsync(this.scene, this.camera).catch(() => undefined);
+    if (!this.renderer || !this.hero) return; // disposed mid-warmup
     this.last = performance.now();
     const frame = (now: number): void => {
       this.raf = requestAnimationFrame(frame);
+      // ~30 fps cap: the idle turntable is slow enough that halving the
+      // frame rate is invisible, and it halves the render load on weak
+      // GPUs (and keeps the creation screen's own UI crisp on them).
+      if (now - this.last < 33) return;
       const dt = Math.min(0.05, (now - this.last) / 1000);
       this.last = now;
       this.hero?.update(dt);

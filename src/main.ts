@@ -106,6 +106,14 @@ function ensureWorld(foreground: boolean): Promise<void> {
               openCamp: () => world!.openCamp(),
               previewRoll: (die: 4 | 6 | 8 | 10 | 12 | 20 = 20, modifier = 0, label = 'Preview Roll', dc?: number) =>
                 import('./systems/dice/DiceRoller').then(({ roll }) => roll({ die, modifier, label, dc })),
+              teleport: (x: number, z: number) => {
+                const controller = world!.controller;
+                controller.placeOnFoot(controller.position.clone().set(x, 0, z), 0);
+              },
+              debugDamage: (n: number) => {
+                const character = world!.adventure.inventory.getCharacter();
+                if (character) character.hp.current = Math.max(1, character.hp.current - n);
+              },
             },
           });
         }
@@ -137,7 +145,10 @@ async function onBegin(): Promise<void> {
     ui?.start();
     return;
   }
-  // New hero: forge first while the world loads silently behind creation.
+  // New hero: forge first. The world loads when the legend is forged
+  // (behind the loading veil, exactly like a returning hero) — running the
+  // heavy world build in parallel would fight the creation screen for the
+  // main thread and freeze its UI on low-power GPUs.
   const screen = new CharacterCreationScreen({
     onComplete: async character => {
       creation = null;
@@ -153,12 +164,6 @@ async function onBegin(): Promise<void> {
   });
   creation = screen;
   screen.open();
-  try {
-    await ensureWorld(false);
-  } catch {
-    screen.close();
-    creation = null;
-  }
 }
 
 document.getElementById('enter-world')!.addEventListener('click', () => void onBegin(), { once: true });

@@ -1,6 +1,3 @@
-import { portraitDef, type CharacterDraft } from '../../game/character';
-import type { FighterLook } from '../../engine/actors/fighter';
-
 /** Escape user text (hero names) before injecting into HTML. */
 export const esc = (s: string): string =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -19,6 +16,7 @@ const PATHS: Record<string, string> = {
   check: 'M4 12.5l5 5L20 6.5',
   dice: 'M5 5h14v14H5z M9 9h.1 M15 9h.1 M12 12h.1 M9 15h.1 M15 15h.1',
   chevron: 'M9 5l7 7-7 7',
+  back: 'M15 5l-7 7 7 7',
   x: 'M6 6l12 12 M18 6L6 18',
   moon: 'M19 13.5A7.5 7.5 0 0110.5 5 7.5 7.5 0 1019 13.5z',
   coin: 'M12 3a9 9 0 100 18 9 9 0 000-18z M12 8v8 M9.5 10h4a2 2 0 010 4H10',
@@ -29,6 +27,15 @@ const PATHS: Record<string, string> = {
   star: 'M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z',
   info: 'M12 3a9 9 0 100 18 9 9 0 000-18z M12 11v5 M12 8h.1',
   speaker: 'M4 10v4h4l5 4V6l-5 4z M16 9a4 4 0 010 6',
+  feather: 'M20 4c-5 0-11 4-13 10l-3 6 6-3c6-2 10-8 10-13z M8 16l6-6',
+  paw: 'M12 12c1.8 0 3.5 1.4 3.5 3.4 0 2.2-1.6 3.6-3.5 3.6s-3.5-1.4-3.5-3.6c0-2 1.7-3.4 3.5-3.4z M7 9.5a1.8 1.8 0 113.6 0 M13.4 9.5a1.8 1.8 0 113.6 0 M9.5 6a1.8 1.8 0 113.6 0',
+  dumbbell: 'M4 9v6 M7 7v10 M17 7v10 M20 9v6 M7 12h10',
+  book: 'M5 4h11a3 3 0 013 3v13H8a3 3 0 01-3-3V4z M8 4v13 M11 8h4',
+  flame: 'M12 3c1 4-4 5.5-4 10a4 4 0 008 0c0-2-1-3.5-2-5-.6 1.4-1.6 2-2.6 2C13 8.5 12.6 5.5 12 3z',
+  search: 'M10 4a6 6 0 104.5 10L19 19 M13.5 13.5L19 19',
+  compass: 'M12 21a9 9 0 100-18 9 9 0 000 18z M15.5 8.5l-2 5-5 2 2-5z',
+  footprints: 'M6 4c2 0 3 2.5 3 5s-1 4-3 4-3-1.5-3-4S4 4 6 4z M18 9c-2 0-3 2.5-3 5s1 4 3 4 3-1.5 3-4-1-5-3-5z M6 17v3 M18 14v3',
+  shirt: 'M8 4l4 2 4-2 4 4-3 3v11H7V11L4 8l4-4z',
 };
 
 export function icon(name: string, cls = 'cc-icon'): string {
@@ -44,15 +51,14 @@ export function darken(hex: string, amt: number): string {
   return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
 }
 
-/** Map the creation draft onto the painted fighter look (live preview model). */
-export function draftLook(d: CharacterDraft): FighterLook {
-  const p = portraitDef(d.portrait);
-  const mainHand = d.mainHand === 'battleaxe' ? 'battleaxe'
-    : d.mainHand === 'warhammer' ? 'warhammer' : 'longsword';
-  const offHand = d.offHand === 'shield' ? 'shield' : d.offHand === 'shortsword' ? 'shortsword' : null;
-  return {
-    skin: p.skin, skinShade: darken(p.skin, 0.22),
-    hairColor: p.hairColor, hairStyle: p.hairStyle, helm: p.helm,
-    mainHand, offHand, bow: true,
-  };
-}
+/** Skill icon per card in the class/species pickers. */
+export const SKILL_ICONS: Record<string, string> = {
+  acrobatics: 'feather',
+  animal_handling: 'paw',
+  athletics: 'dumbbell',
+  history: 'book',
+  insight: 'eye',
+  intimidation: 'flame',
+  perception: 'search',
+  survival: 'compass',
+};
