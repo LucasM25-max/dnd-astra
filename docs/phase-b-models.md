@@ -1,5 +1,15 @@
 # Phase B — Skeletal Hero Models (deferred)
 
+> **SUPERSEDED (Sept 2026).** Phase B is no longer deferred: the hero is a
+> full skeletal rig (`src/character/skeletal/`) with procedural geometry,
+> canvas-painted materials, and an animation state machine
+> (`src/character/AnimationStateMachine.ts`), and every weapon/behaviour seam
+> this document describes is wired up. The PNG paths referenced below no
+> longer exist — character art is WebP under `/textures/character/` and
+> `/textures/weapons/` (see `public/credits.txt`). **README.md's roadmap is
+> the authoritative specification.** Keep this file only as historical
+> context for the Phase A → B handoff.
+
 Phase A (current) renders the hero as a painted 16-direction sprite billboard
 with paint-only `attack` / `hit` / `down` flourish frames used by character
 creation. A full skeletal GLB model with real animation clips cannot be

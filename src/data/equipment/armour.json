@@ -6,11 +6,9 @@
       "ac": 16,
       "stealthDisadvantage": true,
       "weight": "heavy",
-      "pitch": "Interlocking iron rings over quilted gambeson. Superb protection — but the rings chime when you sneak (disadvantage on Stealth).",
+      "pitch": "Interlocking iron rings over quilted gambeson. Superb protection \u2014 but the rings chime when you sneak (disadvantage on Stealth).",
       "icon": "shirt",
-      "texture": "/textures/character/armour_chainmail_albedo.png",
-      "modelPath": "/models/armour/chainmail.glb",
-      "pitchRich": "16 AC · Disadvantage on Stealth"
+      "pitchRich": "16 AC \u00b7 Disadvantage on Stealth"
     }
   ]
 }

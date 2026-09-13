@@ -2,14 +2,14 @@ import {
   ABILITY_KEYS, ABILITY_NAMES, SOLDIER, featDef, skillDef,
   type AbilityKey, type CharacterDraft,
 } from '../../game/character';
-import { esc, icon } from './creation-helpers';
+import { esc, icon, SKILL_ICONS } from './creation-helpers';
 import { renderPersonalityPicker, bindPersonalityPicker } from './PersonalityPicker';
 import type { PanelContext } from './ClassPanel';
 
 /** Click-to-assign fallback selection (survives re-renders; drag-and-drop is primary). */
 let selectedToken: '+2' | '+1' | null = null;
 
-/** Soldier panel: draggable ASI tokens, fixed proficiencies, personality. */
+/** Soldier panel: draggable ASI tokens, confirmed grants, coin pouch, personality. */
 export function renderBackgroundPanel(d: CharacterDraft): string {
   const ai = SOLDIER.abilityIncreases;
   const feat = featDef(SOLDIER.feat);
@@ -29,17 +29,22 @@ export function renderBackgroundPanel(d: CharacterDraft): string {
     + `<span class="cc-asi-target-accept">${accepts2 ? '+2' : ''}${accepts2 && accepts1 ? ' / ' : ''}${accepts1 ? '+1' : ''}</span>`
     + `</div>`;
   };
-  const skillName = (id: string): string => skillDef(id)?.name ?? id;
+  const grantedCard = (id: string): string => {
+    const def = skillDef(id);
+    if (!def) return '';
+    return `<span class="cc-granted-card" title="${esc(def.pitch)}">`
+      + `${icon(SKILL_ICONS[id] ?? 'info')} <strong>${esc(def.name)}</strong> ${icon('check', 'cc-granted-check')}</span>`;
+  };
   return `<div class="cc-panel" data-panel="background">`
     + `<div class="cc-identity"><h3>${esc(SOLDIER.title)}</h3>`
-    + `<p class="cc-card-blurb">${esc((SOLDIER as { cardBlurb?: string }).cardBlurb ?? '')}</p>`
-    + `<p>${esc(SOLDIER.flavour)}</p>`
-    + `<ul class="cc-traits">`
-    + `<li>${icon('star')} Skills: <strong>${SOLDIER.skills.map(skillName).join(', ')}</strong></li>`
-    + `<li>${icon('pack')} Tool: <strong>${esc(SOLDIER.tools.join(', '))}</strong> — ${esc(SOLDIER.toolNote)}</li>`
-    + `<li>${icon('coin')} Starting gold: <strong>${SOLDIER.gold}</strong></li>`
-    + `<li>${icon('zap')} Bonus feat: <strong>${esc(feat?.name ?? SOLDIER.feat)}</strong> — ${esc(feat?.detail ?? '')}</li>`
-    + `</ul></div>`
+    + `<p>${esc(SOLDIER.flavour)}</p></div>`
+    + `<div class="cc-identity-grid">`
+    + `<div><h4>Granted skills</h4><div class="cc-granted-row">${grantedCard('athletics')}${grantedCard('intimidation')}</div></div>`
+    + `<div><h4>Tool</h4><p class="cc-note">${icon('pack')} <strong>${esc(SOLDIER.tools.join(', '))}</strong> — ${esc(SOLDIER.toolNote)}</p></div>`
+    + `<div><h4>Starting gold</h4><div class="cc-coinpouch" title="Soldier backpay, paid out before the road.">`
+    + `${icon('coin', 'cc-coinpouch-icon')}<span><strong>${SOLDIER.gold} gp</strong><small>Soldier backpay</small></span></div></div>`
+    + `<div><h4>Background feat</h4><p class="cc-note">${icon('zap')} <strong>${esc(feat?.name ?? SOLDIER.feat)}</strong> — ${esc(feat?.detail ?? '')}</p></div>`
+    + `</div>`
     + `<h4>Background ability increases</h4>`
     + `<p class="cc-note">Drag each token onto an ability (or click a token, then an ability). Recommended: +2 ${ai.recommended.plusTwo}, +1 ${ai.recommended.plusOne}.</p>`
     + `<div class="cc-tokens" role="group" aria-label="Background bonus tokens">${token('+2', d.plusTwo)}${token('+1', d.plusOne)}`

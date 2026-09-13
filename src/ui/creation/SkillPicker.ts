@@ -1,5 +1,5 @@
 import { skillDef, SKILL_IDS, type CharacterDraft } from '../../game/character';
-import { esc, icon } from './creation-helpers';
+import { esc, icon, SKILL_ICONS } from './creation-helpers';
 
 export interface SkillPickerOptions {
   /** Skill ids already granted elsewhere (shown locked). */
@@ -24,6 +24,7 @@ export function renderSkillPicker(d: CharacterDraft, ns: string, opts: SkillPick
     return `<button type="button" class="cc-skill${isSel ? ' selected' : ''}${isTaken ? ' taken' : ''}"`
       + ` data-skill-${ns}="${id}" ${isTaken || disabled ? 'disabled' : ''}`
       + ` aria-pressed="${isSel}" title="${esc(def.pitch)}">`
+      + `<span class="cc-skill-icon">${icon(SKILL_ICONS[id] ?? 'info')}</span>`
       + `<span class="cc-skill-name">${esc(def.name)}</span>`
       + `<span class="cc-ability-tag">${def.ability}</span>`
       + `<span class="cc-skill-pitch">${esc(def.pitch)}</span>`

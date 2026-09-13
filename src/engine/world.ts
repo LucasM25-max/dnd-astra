@@ -14,6 +14,7 @@ import { PlayerController, type CameraMode } from './controller';
 import { Adventure, type AdventureState } from './adventure';
 import { WeatherEngine, type WeatherFrame } from './weather';
 import { MONTHS, WEATHER_NAMES, type Season, type WeatherId } from '../game/time';
+import { gameState } from '../game/state';
 import { spriteLightUniforms } from './actors/sprites';
 import { InteractionManager } from '../systems/interaction/InteractionManager';
 import { createRansackedBelongingsInteraction } from '../systems/interaction/interactions/RansackedBelongingsInteraction';
@@ -71,6 +72,8 @@ export class WoodlandWorld {
   private sun = new THREE.DirectionalLight('#ffe0a6', 3.8);
   private hemisphere = new THREE.HemisphereLight('#d1ded9', '#746b48', 1.95);
   private fill = new THREE.DirectionalLight('#e1e4ca', .75);
+  // Daylight levels as the rest begins (weather may have dimmed them).
+  private nightLightBase: { sun: number; hemi: number; fill: number } | null = null;
   private particles!: THREE.Points;
   private shaftMaterial!: THREE.ShaderMaterial;
   private weather!: WeatherEngine;
@@ -175,7 +178,7 @@ export class WoodlandWorld {
   private initializeSystems() {
     this.fx = new ParticleEffects(this.scene);
     this.floatText = new FloatingText(this.camera);
-    this.sky = new SkyboxManager();
+    this.sky = new SkyboxManager(this.scene);
     this.narratorCamera = new NarratorCamera(this.controller, this.camera, this.collision);
     this.narratorSystem = new NarratorSystem(this.narratorCamera);
     void this.narratorSystem.initialize();
@@ -191,6 +194,28 @@ export class WoodlandWorld {
       this.camera, this.controller, this.narratorCamera, this.sky,
       () => this.adventure.clock.minuteOfDay,
       minutes => this.setTimeOfDay(minutes),
+      () => this.scene.fog instanceof THREE.FogExp2 ? this.scene.fog.density : 0,
+      density => {
+        if (this.scene.fog instanceof THREE.FogExp2) {
+          this.scene.fog.density = density;
+          this.renderDirty = true;
+        }
+      },
+      // f: 0 = full daylight, 1 = firelight night (rest time-lapse).
+      f => {
+        let b = this.nightLightBase;
+        if (!b) {
+          b = { sun: this.sun.intensity, hemi: this.hemisphere.intensity, fill: this.fill.intensity };
+          this.nightLightBase = b;
+        } else if (f === 0) {
+          this.nightLightBase = null; // Rest over — levels restored.
+        }
+        const lerp = THREE.MathUtils.lerp;
+        this.sun.intensity = lerp(b.sun, b.sun * 0.1, f);
+        this.hemisphere.intensity = lerp(b.hemi, b.hemi * 0.3, f);
+        this.fill.intensity = lerp(b.fill, b.fill * 0.22, f);
+        this.renderDirty = true;
+      },
     );
     this.restSystem = new RestSystem({
       store: this.adventure.inventory,
@@ -238,6 +263,10 @@ export class WoodlandWorld {
   }
   hasNearbyInteraction(): boolean {
     return this.interactions.nearest(this.controller.position) !== null;
+  }
+  /** Id of the nearest world interaction in range, or null (diagnostics). */
+  nearestInteractionId(): string | null {
+    return this.interactions.nearest(this.controller.position)?.id ?? null;
   }
   async interactNearest(): Promise<boolean> {
     const def = this.interactions.nearest(this.controller.position);
@@ -400,7 +429,12 @@ export class WoodlandWorld {
     if (this.controller.velocity.lengthSq() > .0004 || !this.controller.grounded || this.sun.target.position.x !== targetX || this.sun.target.position.z !== targetZ) this.renderer.shadowMap.needsUpdate = true;
     this.sun.target.position.set(targetX, terrainHeight(targetX, targetZ), targetZ);
     this.renderer.info.reset();
-    if (!this.controller.paused || this.renderDirty || this.adventure.needsRender) { this.composer.render(); this.renderDirty = false; }
+    // Camp and cinematics keep rendering every frame even while the
+    // controller is paused — the rest orbit, painted night→dawn sky, dice,
+    // and camera dollies all live behind those overlays.
+    if (!this.controller.paused || this.renderDirty || this.adventure.needsRender || gameState.inCamp || gameState.inCinematic) {
+      this.composer.render(); this.renderDirty = false;
+    }
     this.frameCount++; this.fpsTimer += realDelta;
     if (this.fpsTimer > 1) { this.fps = Math.round(this.frameCount / this.fpsTimer); this.frameCount = 0; this.fpsTimer = 0; }
     if (this.frameCount % 3 === 0) {

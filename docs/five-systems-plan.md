@@ -1,5 +1,14 @@
 # Astra — Five-Systems Architectural Plan (PLAN ONLY, no implementation)
 
+> **SUPERSEDED (Sept 2026).** This plan targets the pre-Phase-B codebase
+> (16-direction sprite billboards, no skeletal rig, no character-creation
+> screen). The roadmap it planned has since been built: the five systems are
+> implemented in `src/`, the hero is a skeletal rig
+> (`src/character/skeletal/`), and character creation is a full three-part
+> screen (`src/ui/creation/`). **README.md — "Roadmap: Completing Systems 1–5
+> to Their Full Vision (Post–PR #37)" is the authoritative specification.**
+> Keep this file only as historical context.
+
 > **Status: PLAN — do not implement from the prompt verbatim.**
 > This document is the file-by-file architectural plan for the five video-game systems
 > (Dice, Character Creation, Player Character, Ransacked-Belongings Narration, Long Rest),

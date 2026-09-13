@@ -8,7 +8,7 @@ export function createCreationBackground(): HTMLElement {
   bg.setAttribute('aria-hidden', 'true');
   const img = document.createElement('img');
   img.className = 'creation-bg-pan';
-  img.src = '/images/skies/sky_dusk.png';
+  img.src = '/images/skies/sky_dusk.webp';
   img.alt = '';
   img.addEventListener('error', () => img.remove());
   const vignette = document.createElement('div');

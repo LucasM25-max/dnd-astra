@@ -130,14 +130,16 @@ npm run narration:gemini
 ## Validation and asset preparation
 
 ```bash
-npm test                  # 73 deterministic map, economy, story, transport, and sprite checks
+npm test                  # 120 deterministic map, economy, story, transport, animation, and sprite checks
 npm run build             # type-check and production bundle
 npm run test:browser      # real-browser integration suite; dev server must already be running
 npm run assets:prepare    # original forest textures from included sources
 npm run assets:adventure  # wagon wood, sackcloth, and animal coat textures
+npm run assets:systems    # dice PBR set + tray to game-ready WebP
+npm run assets:creation   # creation art, portrait/weapon WebP, and the rest time-lapse skies
 ```
 
-The integration suite is for a **Linux sandbox**. It uses development-only `@sparticuz/chromium` and Playwright, extracting browser libraries into the system temp directory. It checks voiced opening/pause, handoff, driving, dismounting, actual walking to cargo, partial/all transfers, no duplication or coin minting, decimal values, search, jump/cameras, maps/journal, settings, audio controls, photo download, reload persistence, pointer-lock fallback, and the small-screen inventory. Set `BASE_URL` to override the default dev-server address.
+The integration suite is for a **Linux sandbox**. It uses development-only `@sparticuz/chromium` and Playwright, extracting browser libraries into the system temp directory. It checks voiced opening/pause, handoff, driving, dismounting, actual walking to cargo, partial/all transfers, no duplication or coin minting, decimal values, search, the ransacked-belongings kneel-and-narrate inspection, jump/cameras, maps/journal, character sheet, camp menu with a hit-die short rest, settings, audio controls, photo download, reload persistence, pointer-lock fallback, and the small-screen inventory. Set `BASE_URL` to override the default dev-server address.
 
 Chromium is exercised directly. Firefox/Safari use standard WebGL 2/media APIs but have not been independently validated here. Vite currently reports a non-blocking vendor-chunk size warning for Three.js.
 
@@ -159,8 +161,15 @@ src/engine/controller.ts          Foot movement, seated fighter/hands, camera an
 src/engine/weather.ts             Weather engine: seasonal palettes, rain/snow/wind particles, lightning
 src/engine/audio.ts               Forest ambience plus rain, gusts, and thunder weather beds
 src/engine/world.ts               Renderer, clock-driven atmosphere, quality, world update, capture
+src/character/skeletal/           Skeletal hero rig: procedural geometry, painted materials, clip library
+src/character/AnimationStateMachine.ts  Clip selection, crossfades, holds, seat/weapon transitions
+src/systems/dice/                 3D dice roll: scene, physics, roller, SFX
+src/systems/narration/            Narrator camera + story transport, subtitles, handoff
+src/systems/rest/                 Camp menu, rest resolver, long/short rest cinematic
+src/systems/interaction/          World interaction manager (cargo, ransacked belongings, campfire)
 src/ui/                           HUD, Narrator panel, inventory/cargo, dialogs, cartography, calendar
-assets-source/                   Original generated texture sources (not served in production)
+src/ui/creation/                  Character-creation screen: banner/drawer panels, live 3D preview, forge
+assets-source/                    Original generated texture sources (not served in production)
 public/audio/narration/           Bundled voice clips and duration/source manifest
 public/credits.txt               Asset/library provenance and license references
 ```

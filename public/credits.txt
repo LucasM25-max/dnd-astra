@@ -9,11 +9,10 @@ the continuous environment and in-game cartography are recreated in code.
 ORIGINAL ENVIRONMENT MATERIALS
 The earth-path, forest-soil (forest floor), leaf-litter, mossy-bark, rock,
 and oak-branch source images in assets-source/ were AI-generated for this
-prototype.
-Optimized WebP textures, alpha masks, and image-derived normal maps were
-prepared locally with Sharp. These are not claimed to be scanned/photogrammetry
-materials. Terrain, plants, rocks, character proxy, UI, and map graphics are
-procedural.
+prototype. Optimized WebP textures, alpha masks, and image-derived normal
+maps were prepared locally with Sharp. These are not claimed to be
+scanned/photogrammetry materials. Terrain, plants, rocks, UI, and map
+graphics are procedural.
 
 HDR ENVIRONMENT
 Forest Slope, from the Poly Haven / HDRI Haven CC0 environment collection.
@@ -22,12 +21,45 @@ https://github.com/pmndrs/drei-assets/blob/master/hdri/forest_slope_1k.hdr
 https://polyhaven.com/a/forest_slope
 https://polyhaven.com/license
 
-CHARACTERS & ANIMALS
+CHARACTER
+The hero is an original skeletal 3D rig built procedurally in code
+(geometry, jointing, and canvas-painted albedo maps for mail, plate,
+leather, blades, wood, and hair; see src/character/skeletal/).
+Six AI-generated portrait paintings (three male, three female) are bundled
+as size-optimized WebP faces for the character-creation portraits.
+Seven AI-generated weapon-card paintings (longsword, battleaxe, warhammer,
+shortsword, longbow, quiver, shield) appear in the creation screens and
+item detail views.
+
+CREATION-SCREEN ART
+AI-generated, size-optimized to WebP (scripts/prepare-creation-assets.mjs):
+the class banner (Fighter), species banner (Human), background banner
+(Soldier), the gilded arch frame, the parchment background, and the dragon
+wax seal. The rest time-lapse sky pair (sky_night, sky_dawn) is generated
+procedurally in that script — seamless equirectangular gradients with
+period-wrapped starfields.
+
+ANIMALS
 The Wanderer, the yoked oxen, and the horses are original procedurally
 painted canvas sprite sheets (sixteen direction variants per actor, with
 idle, walk, sprint, seated, and head-down animation frames), displayed on
-upright billboards that crossfade between neighbouring directions. No
-external character meshes, rigs, or image-generated sprite sheets are used.
+upright billboards that crossfade between neighbouring directions.
+
+DICE & PARTICLES
+The ivory dice-body PBR set and the dragon dice tray are size-optimized
+WebP conversions of AI-generated sources (scripts/prepare-system-assets.mjs);
+normal maps are derived, not photogrammetry scans. Dust motes, campfire
+embers, and smoke are fully procedural (shader/canvas) — no sprite files
+are bundled.
+
+AUDIO
+Ambient, SFX, and narration playback is synthesized/decoded locally. All
+narration passages are an AI-generated spoken performance in the voice
+auditioned and selected for this session, using the user's provided story
+text; no API key is required for playback. The optional Gemini
+regeneration script (scripts/generate-narration-gemini.mjs) uses a private
+environment key and is not run automatically or called from browser code.
+Ambient beds and one-shot SFX are synthesized with the Web Audio API.
 
 LIBRARIES & TYPEFACES
 Three.js — three.js authors — MIT (licenses/three-MIT.txt)
@@ -36,26 +68,3 @@ Manrope — Manrope Project Authors — SIL OFL 1.1 (licenses/manrope-OFL.txt)
 Cormorant Garamond — Cormorant Project Authors — SIL OFL 1.1
 (licenses/cormorant-garamond-OFL.txt)
 Fonts are self-hosted through @fontsource; no Google Fonts runtime request.
-
-Audio is locally synthesized with the Web Audio API. No third-party audio
-recordings, music, or speech are included.
-
-CHAPTER I ADDITIONS
-The Narrator is an AI-generated spoken performance in the voice auditioned
-and selected for this session. All six local MP3 passages use the user's
-provided story text. No API key is required for playback.
-The optional Gemini regeneration script uses gemini-3.1-flash-tts-preview,
-a private environment key, natural-language direction, and inline audio tags.
-It is not run automatically or called from browser code.
-
-Additional original AI-generated texture sources: wagon oak, flax sackcloth,
-short animal coat, the ivory dice-body PBR set, the dragon dice tray, and the
-campfire ember/smoke sprites. Normal maps are derived, not photogrammetry
-scans. The dice and particle WebP files are size-optimized conversions of
-those sources (scripts/prepare-system-assets.mjs); the dust-mote sprite is a
-procedural soft dot after its source shipped with a baked-in artefact.
-The wagon, cargo containers, casks, sacks, tools, lanterns, yoke, reins, and
-hinged lids are procedural models created for this chapter.
-The character and animal sprites are painted in code (canvas 2D) as
-sixteen-direction billboards covering walking, breathing, head lowering,
-looking, and tail movement; no external sprite art is bundled.

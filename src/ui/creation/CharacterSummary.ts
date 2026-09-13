@@ -29,7 +29,7 @@ export function renderCharacterSummary(d: CharacterDraft, c: PlayerCharacter): s
   const main = weaponDef(c.equipment.mainHand);
   const off = c.equipment.offHand ? weaponDef(c.equipment.offHand) : null;
   return `<div class="cc-summary-parchment" role="document" aria-label="Hero summary">`
-    + `<img class="cc-seal" src="/images/creation/wax_seal_dragon.png" alt="Dragon wax seal" onerror="this.style.display='none'"/>`
+    + `<img class="cc-seal" src="/images/creation/wax_seal_dragon.webp" alt="Dragon wax seal" onerror="this.style.display='none'"/>`
     + `<h3>${esc(c.name || 'Unnamed Hero')}</h3>`
     + `<p class="cc-summary-sub">Level 1 Human Fighter · Soldier</p>`
     + `<div class="cc-summary-hero"><div class="cc-summary-globe">${hpGlobeSVG(c.hp.max, c.hp.max, 84)}</div>`
