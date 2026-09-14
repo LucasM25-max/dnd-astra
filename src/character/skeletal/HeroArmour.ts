@@ -159,9 +159,9 @@ export function buildGauntlet(mats: ArmourMats, side: -1 | 1): ArmourPiece {
 /**
  * Sword belt: a broad leather ring that rides OUTSIDE the mail shell (the
  * lathe torso is ~0.20 half-width at this height; the ring clears it with
- * room to spare, and rides the same Chest bone as the mail so the walk
- * cycle's torso twist can never grind them through each other), brass
- * buckle, ring stud for the scabbard strap, and a hanging strap end.
+ * room to spare), brass buckle, ring stud for the scabbard strap, and a
+ * hanging strap end. Rides the Hips bone so it tracks the pelvis through
+ * the walk cycle's hip twist instead of skewing on the chest.
  */
 export function buildBelt(mats: ArmourMats): ArmourPiece {
   const group = new THREE.Group();
@@ -185,7 +185,9 @@ export function buildBelt(mats: ArmourMats): ArmourPiece {
   tip.position.set(0.056, 0.938, 0.16);
   tip.rotation.x = 0.1;
   group.add(tip);
-  return { object: group, bone: 'Chest' };
+  // Rides the pelvis (not the chest) so the waist kit never skews against
+  // the trousers when the walk cycle twists the hips against the shoulders.
+  return { object: group, bone: 'Hips' };
 }
 
 /** Greave: front shell + knee cop + ankle wings. */

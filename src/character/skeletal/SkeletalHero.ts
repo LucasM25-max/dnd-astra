@@ -334,22 +334,26 @@ export class SkeletalHero {
   private buildSheathRig(mainHand: WeaponId, offHand: WeaponId | null): void {
     const rig: NonNullable<typeof this.sheathRig> = { extra: [] };
     const chest = this.rig.bones.Chest;
+    // The waist kit (belt, scabbards) rides the Hips bone so it tracks the
+    // pelvis; the back sling rides the chest. Hips bind (0, 0.98, 0.02),
+    // chest bind (0, 1.32, 0) — the offsets below are the same bind
+    // positions expressed in Hips bone space.
+    const hips = this.rig.bones.Hips;
     if (mainHand === 'longsword') {
       const { object, mouth } = buildScabbard(this.weaponMats, { length: 0.95, width: 0.075 });
       object.name = 'swordScabbard';
-      // Bone-local frame: the belt sits at bind y ≈ 1.06, the Chest bone at 1.3.
-      object.position.set(0.262, -0.25, 0.02);
+      object.position.set(0.262, 0.09, 0);
       object.rotation.set(0.34, 0, 0.13); // hilt forward, mouth out past the skirt
-      chest.add(object);
+      hips.add(object);
       rig.scabbard = mouth;
       rig.extra.push(object);
     }
     if (offHand === 'shortsword') {
       const { object, mouth } = buildScabbard(this.weaponMats, { length: 0.5, width: 0.058 });
       object.name = 'daggerSheath';
-      object.position.set(-0.252, -0.258, 0.05);
+      object.position.set(-0.252, 0.082, 0.03);
       object.rotation.set(0.38, 0, -0.2);
-      chest.add(object);
+      hips.add(object);
       rig.dagger = mouth;
       rig.extra.push(object);
     }
@@ -464,7 +468,19 @@ export class SkeletalHero {
           this.triangles += Math.round((idx ? idx.count : geo.getAttribute('position').count) / 3);
         }
       });
-      this.rig.bones[piece.bone].attach(piece.object);
+      // Pieces are authored in absolute bind-space coordinates (the same
+      // space the skinned body uses), so parent them to the bone with a
+      // pure bind-relative offset — no rotation, no world-matrix baking.
+      // (three's Object3D.attach() preserves the object's current world
+      // transform; these pieces are unattached, so it would bake in the
+      // inverse of the bone's world matrix — including the root's π flip —
+      // and render every group piece backwards and crossed to the
+      // opposite limb.)
+      piece.object.updateMatrix();
+      const bind = this.rig.bindPos[piece.bone];
+      piece.object.matrix.premultiply(new THREE.Matrix4().makeTranslation(-bind.x, -bind.y, -bind.z));
+      piece.object.matrix.decompose(piece.object.position, piece.object.quaternion, piece.object.scale);
+      this.rig.bones[piece.bone].add(piece.object);
       if (portrait) this.portraitPieces.push(piece.object);
     }
   }

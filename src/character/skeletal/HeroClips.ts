@@ -171,7 +171,9 @@ interface GaitConfig {
   thigh: number;
   kneeLoad: number;
   kneeSwing: number;
+  /** Peak plantarflexion (toe-off push), degrees. */
   toeOff: number;
+  /** Mid-swing dorsiflexion dip (toe clearance), degrees. */
   heelOut: number;
   splay: number;
   armSwing: number;
@@ -199,9 +201,13 @@ function legPose(a: number, cfg: GaitConfig, side: -1 | 1): Pose {
   const knee = stance
     ? cfg.kneeLoad * Math.sin(a)
     : cfg.kneeSwing * Math.pow(Math.sin(Math.PI * q), 0.82);
-  const toe = cfg.toeOff * smoothstep01(0.52, 0.98, stance ? q : 2);
-  const heel = cfg.heelOut * (stance ? 0 : smoothstep01(0.72, 1, q));
-  const foot = toe - heel + 4 * (1 - Math.abs(Math.sin(a)));
+  // Ankle rocker, continuous across the whole cycle so foot(0) === foot(2π)
+  // (no heel-strike snap): stance rolls from a neutral heel strike to full
+  // plantarflexion at toe-off; the swing releases that, dorsiflexes (toe up)
+  // mid-swing to clear the ground, and lands back on a neutral heel.
+  const foot = stance
+    ? cfg.toeOff * smoothstep01(0.3, 1, q)
+    : cfg.toeOff * (1 - q) - cfg.heelOut * Math.sin(Math.PI * q);
   const leg = side < 0 ? 'L' : 'R';
   return {
     [`UpperLeg${leg}`]: [thigh, 0, side * cfg.splay],
@@ -244,16 +250,16 @@ function gaitKeys(cfg: GaitConfig): ClipKey[] {
 
 const WALK_CYCLE: ClipKey[] = gaitKeys({
   duration: 1, samples: 16, dip: 0.026, rise: 0.016, hop: 0,
-  thigh: 30, kneeLoad: 9, kneeSwing: 38, toeOff: 24, heelOut: 8, splay: 5,
+  thigh: 30, kneeLoad: 9, kneeSwing: 38, toeOff: 24, heelOut: 22, splay: 5,
   armSwing: 19, elbowBase: 21, elbowBack: 7, lean: 2.5,
-  hipYaw: 5, hipRoll: 2.2, shoulder: 5, headPitch: 0.35,
+  hipYaw: 3, hipRoll: 1.6, shoulder: 3.5, headPitch: 0.35,
 });
 
 const RUN_CYCLE: ClipKey[] = gaitKeys({
   duration: 0.62, samples: 16, dip: 0.046, rise: 0.026, hop: 0.03,
-  thigh: 47, kneeLoad: 16, kneeSwing: 78, toeOff: 44, heelOut: 16, splay: 6,
+  thigh: 47, kneeLoad: 16, kneeSwing: 78, toeOff: 44, heelOut: 38, splay: 6,
   armSwing: 34, elbowBase: 56, elbowBack: 14, lean: 10,
-  hipYaw: 6.5, hipRoll: 3, shoulder: 7, headPitch: 0.7,
+  hipYaw: 5, hipRoll: 2.4, shoulder: 5.5, headPitch: 0.7,
 });
 
 /** Low guard: sword presented off the forearm, shield hand covering the chest. */
