@@ -1,4 +1,4 @@
-import { ROAD, TRAIL, MAP_BOUNDS, pathDistance, seededRandom, type Point2 } from '../engine/landscape';
+import { CAMP, ROAD, TRAIL, MAP_BOUNDS, pathDistance, seededRandom, type Point2 } from '../engine/landscape';
 import type { WorldState } from '../engine/world';
 
 type Bounds = { minX: number; maxX: number; minZ: number; maxZ: number };
@@ -37,6 +37,16 @@ export class Cartography {
       ctx.fillStyle = ['#465c3d', '#3d5138', '#677452', '#819068'][Math.floor(rng() * 4)];
       ctx.globalAlpha = .3 + rng() * .6; ctx.beginPath(); ctx.arc(x, y, .5 + rng() * 2.3, 0, Math.PI * 2); ctx.fill();
     }
+    // The camp clearing: worn pale earth with a three-stone fire glyph.
+    {
+      const [cx, cy] = project({ x: CAMP.x, z: CAMP.z });
+      const gl = ctx.createRadialGradient(cx, cy, 3, cx, cy, CAMP.clearRadius * this.scale);
+      gl.addColorStop(0, '#6f6a4d88'); gl.addColorStop(0.65, '#5d5a4245'); gl.addColorStop(1, 'transparent');
+      ctx.fillStyle = gl; ctx.beginPath(); ctx.arc(cx, cy, CAMP.clearRadius * this.scale, 0, 6.28); ctx.fill();
+      ctx.fillStyle = '#c98a4a'; ctx.globalAlpha = 0.85; ctx.beginPath(); ctx.arc(cx, cy, 2.4, 0, 6.28); ctx.fill();
+      ctx.fillStyle = '#4a4535';
+      for (let i = 0; i < 3; i++) { const a = i * 2.1 + 0.5; ctx.beginPath(); ctx.arc(cx + Math.cos(a) * 4.4, cy + Math.sin(a) * 4.4, 1.4, 0, 6.28); ctx.fill(); }
+    }
     ctx.globalAlpha = .35;
     for (let i = 0; i < 10000; i++) { ctx.fillStyle = rng() > .5 ? '#d2c7a1' : '#14261d'; ctx.fillRect(rng() * 1024, rng() * 1024, .7, .7); }
     ctx.globalAlpha = 1;
@@ -61,8 +71,9 @@ export class Cartography {
       label('↑', -1.1, -19.4, 24);
       label('Neverwinter Wood', -8, -10, 21, '#9dba8b');
       label('Triboar Trail', -9.5, 3.4, 21, '#342c20');
-      label('To Phandalin →', 12.6, 9.1, 19);
+      label('To Phandalin →', 12.9, 12.9, 19);
       label('The ambush clearing', 10, -.8, 16);
+      label('Encampment', CAMP.x, CAMP.z + 1.9, 15, '#d8c497');
       const [cx, cy] = point(9.7, 2.0);
       ctx.strokeStyle = '#d7ba77'; ctx.lineWidth = 1; ctx.setLineDash([2, 4]); ctx.beginPath(); ctx.ellipse(cx, cy, 26, 32, .6, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
       for (const horse of state.horses) {
@@ -76,6 +87,11 @@ export class Cartography {
     } else {
       this.compass(ctx, width - 15, 20, 7);
       const [cx, cy] = point(9.7, 2.0); ctx.save(); ctx.translate(cx, cy); ctx.rotate(Math.PI / 4); ctx.fillStyle = '#c8b17b'; ctx.fillRect(-3, -3, 6, 6); ctx.restore();
+      const [kx, ky] = point(CAMP.x, CAMP.z);
+      if (kx > -8 && kx < width + 8 && ky > -8 && ky < height + 8) {
+        ctx.fillStyle = '#e09a4e'; ctx.beginPath(); ctx.arc(kx, ky, 2.1, 0, 6.28); ctx.fill();
+        ctx.fillStyle = '#e09a4e2e'; ctx.beginPath(); ctx.arc(kx, ky, 4.6, 0, 6.28); ctx.fill();
+      }
     }
     const [wx, wy] = point(state.wagon.x, state.wagon.z);
     ctx.save(); ctx.translate(wx, wy); ctx.rotate(-state.wagon.yaw);

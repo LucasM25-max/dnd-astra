@@ -3,6 +3,7 @@ import { ForestAudio } from '../engine/audio';
 import { isFormControl, type CameraMode } from '../engine/controller';
 import { WoodlandWorld, type Quality, type WorldState } from '../engine/world';
 import { Cartography, paintCompass } from './cartography';
+import { HeroHealthIndicator } from './hero-health';
 import { AdventureInterface, type AdventureDialog } from './adventure-interface';
 import { DramaticScore } from '../game/music';
 import { MONTH_LENGTH, MONTHS, SEASONS, WEATHER_IDS, WEATHER_LINES, holidayOf, nextHoliday, type WeatherId } from '../game/time';
@@ -23,6 +24,7 @@ export class WorldInterface {
   private audio = new ForestAudio();
   private music = new DramaticScore();
   private map = new Cartography();
+  private heroHealth: HeroHealthIndicator | null = null;
   private dialog: DialogKind | null = null;
   private photo = false;
   private state: WorldState;
@@ -145,6 +147,8 @@ export class WorldInterface {
     joystick.addEventListener('pointerup', releaseJoystick, opts); joystick.addEventListener('pointercancel', releaseJoystick, opts); joystick.addEventListener('lostpointercapture', releaseJoystick, opts);
   }
   start() {
+    this.heroHealth ??= new HeroHealthIndicator(this.world);
+    this.heroHealth.start();
     if (!this.world.controller.started) {
       this.world.beginAdventure(); document.body.dataset.playing = 'true';
       this.music.begin();
@@ -304,5 +308,5 @@ export class WorldInterface {
   }
   private savePreferences() { try { localStorage.setItem('astra-preferences-v1', JSON.stringify(this.config)); } catch { /* Settings still work for this session. */ } }
   private applyPreferences() { this.world.setQuality(this.config.quality); this.world.setWeatherOverride(this.config.weatherOverride); this.world.controller.sensitivity = this.config.sensitivity; this.world.controller.invertY = this.config.invertY; this.audio.setVolume(this.config.volume); this.music.setVolume(this.config.musicVolume); this.music.setEnabled(this.config.musicEnabled); this.updateChip(this.state); }
-  dispose() { this.abort.abort(); this.adventureUI.dispose(); this.music.dispose(); this.audio.dispose(); clearTimeout(this.toastTimer); clearTimeout(this.discoveryTimer); }
+  dispose() { this.abort.abort(); this.heroHealth?.dispose(); this.adventureUI.dispose(); this.music.dispose(); this.audio.dispose(); clearTimeout(this.toastTimer); clearTimeout(this.discoveryTimer); }
 }

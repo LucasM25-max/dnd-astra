@@ -63,7 +63,7 @@ The chapter opens on the **afternoon of 15 Ches** in the Calendar of Harptos —
 - **The day turns in real time**: one in-game minute passes every five real seconds, so two real hours cover one full game day. Day length follows the season (eight winter hours, fourteen under highsun), with smooth dawn/dusk and a moonlit, star-filled night.
 - **Long rests are optional**: the pause screen offers *Long rest — sleep until morning*, which simply advances the clock to 6:00 am. Rests are never forced, and recovery effects are a later chapter.
 - **Weather follows the season**: clear, overcast, rain, storm, snow (winter only), and wind, each with its own lighting, fog, sky, and particle treatment. Conditions crossfade over about a minute of real time; storms bring lightning, distant thunder, and rain.
-- **Music and ambience follow the scene**: a low D-Dorian score with a drone, pads, and sparse bells that respond to weather (a pulse in storms, a wind bed that swells with the gusts), plus rain, gusts, and thunder layered into the forest ambience. Both have separate toggles and volume sliders in **World settings**, alongside a time-of-day slider and a weather override (seasonal by default).
+- **Music and ambience follow the scene**: a low D-Dorian score of slow-evolving pads and sparse bells that respond to weather (a pulse in storms, a wind bed that swells with the gusts), plus rain, gusts, and thunder layered into the forest ambience. (The former continuous low drone was removed — the chords' own sub-bass now breathes with the progression instead.) Both have separate toggles and volume sliders in **World settings**, alongside a time-of-day slider and a weather override (seasonal by default).
 
 The small chip above the minimap shows the current date, time, and weather; clicking it opens World settings. The world map includes the Calendar of Harptos for the current month.
 
@@ -136,7 +136,8 @@ npm run test:browser      # real-browser integration suite; dev server must alre
 npm run assets:prepare    # original forest textures from included sources
 npm run assets:adventure  # wagon wood, sackcloth, and animal coat textures
 npm run assets:systems    # dice PBR set + tray to game-ready WebP
-npm run assets:creation   # creation art, portrait/weapon WebP, and the rest time-lapse skies
+npm run assets:creation   # procedural rest time-lapse skies (night/dawn WebP)
+npm run assets:camp       # campfire textures derived from the environment set
 ```
 
 The integration suite is for a **Linux sandbox**. It uses development-only `@sparticuz/chromium` and Playwright, extracting browser libraries into the system temp directory. It checks voiced opening/pause, handoff, driving, dismounting, actual walking to cargo, partial/all transfers, no duplication or coin minting, decimal values, search, the ransacked-belongings kneel-and-narrate inspection, jump/cameras, maps/journal, character sheet, camp menu with a hit-die short rest, settings, audio controls, photo download, reload persistence, pointer-lock fallback, and the small-screen inventory. Set `BASE_URL` to override the default dev-server address.
@@ -151,7 +152,7 @@ src/game/save.ts                  Atomic local save, validation, conservative tr
 src/game/narration-script.json    Exact visible/spoken passages and optional Gemini directions
 src/game/narrator.ts              Audio-clock timeline, pause ownership, fallback, handoff
 src/game/time.ts                  Calendar of Harptos, game clock, sun geometry, seasonal weather tables
-src/game/music.ts                 Dramatic score: drone, Dorian pads/bells, storm pulse, wind bed
+src/game/music.ts                 Dramatic score: Dorian pads/bells, chord-breathing sub-bass, storm pulse, wind bed
 src/game/road.ts                  Continuous wagon route and heading
 src/engine/adventure.ts           Chapter orchestration, driving, boarding, interactions, saves
 src/engine/actors/                Wagon/cargo construction, materials, and painted sprite actors
@@ -168,7 +169,7 @@ src/systems/narration/            Narrator camera + story transport, subtitles, 
 src/systems/rest/                 Camp menu, rest resolver, long/short rest cinematic
 src/systems/interaction/          World interaction manager (cargo, ransacked belongings, campfire)
 src/ui/                           HUD, Narrator panel, inventory/cargo, dialogs, cartography, calendar
-src/ui/creation/                  Character-creation screen: banner/drawer panels, live 3D preview, forge
+src/ui/creation/                  Character-creation wizard: steps, procedural busts, live 3D preview, forge
 assets-source/                    Original generated texture sources (not served in production)
 public/audio/narration/           Bundled voice clips and duration/source manifest
 public/credits.txt               Asset/library provenance and license references
@@ -206,10 +207,14 @@ use the game's existing woodland language:
   `.setting-segment`, `.toast`, and `.inspect-prompt` patterns rather than
   inventing new chrome. New screens should feel like they always belonged
   next to the minimap, compass, and region label.
-- **Art direction**: every new or regenerated texture (banners, arch frame,
-  parchment, wax seal, faces, chainmail, weapons, dice sets, skies,
-  particles) is graded toward the same warm woodland palette as the existing
-  wagon/forest art — no cool purple-leaning or desaturated slabs.
+- **Art direction**: every new or regenerated texture (camp clearing and
+  campfire elements, chainmail, weapons, dice sets, skies, particles) is
+  graded toward the same warm woodland palette as the existing wagon/forest
+  art — no cool purple-leaning or desaturated slabs. Character creation
+  carries no baked art at all: its decoration is pure CSS, its portrait
+  busts are painted at runtime with the same routine that paints the 3D
+  head, and the earlier AI-generated banners/frame/parchment/seal/face/
+  weapon-card images were removed as off-theme.
 - **Z-order**: HUD (base) → camp overlay (110) → subtitles (115) → dice
   overlay (120), all sharing the same backdrop-blur/border/shadow language
   already used elsewhere in the game.
@@ -275,25 +280,24 @@ no need to pull in Cannon/Ammo/Rapier.
 
 ### System 2 — Character Creation
 
-**Rebuild the layout to spec**, replacing PR #37's cramped three-column grid
-(300 px cards + 400 px preview + drawer) and thumbnail-sized cards:
+**As built** (this supersedes PR #37's banner-card + slide-out-drawer plan,
+which was rebuilt from scratch after its painted art was removed as
+off-theme): a four-step wizard — Fighter, Human, Soldier, Review — on one
+opaque screen with three columns:
 
-- **Left panel (~65% width):** three stacked cards — Class, Species,
-  Background — each a full moody silhouette banner (not an 86 px thumbnail)
-  with a "CHOOSE" label, category title, flavour text, and a gold-bordered
-  "SEE OPTIONS" button. Because there's exactly one option per category
-  (Fighter / Human / Soldier), "SEE OPTIONS" opens a **drawer sliding in
-  from the right over the cards**, auto-selects that option, and surfaces
-  its full mechanical configuration.
-- **Right panel (~35% width):** a gothic-arch portrait frame (dark iron +
-  gold filigree, matching the existing `arch_frame` art direction but
-  woodland-graded) containing a **live real-time 3D render** of the player
-  model — not the current 2D canvas turntable — that updates immediately as
-  equipment and portrait choices change. Below it: a name field with a
-  gold-underline focus state, a row of suggested-name pills (Aldric, Maren,
-  Theron, Sylva, Kael) that auto-fill the field on click, and a pulsing gold
-  **"FORGE YOUR LEGEND"** button, disabled until every section is confirmed.
-  This replaces PR #37's plain footer button.
+- **Step rail:** numbered gothic steps with live completion ticks; clicking
+  any step walks the wizard there.
+- **Active panel:** each step's full mechanical configuration (style, skills,
+  point buy, feat, equipment…). Choices update **in place** — the panel
+  keeps its scroll and the clicked control keeps focus; there is no
+  drawer open/close, no full-screen re-render, and no scroll-to-top.
+- **Side column:** the **live real-time 3D render** of the exact model the
+  game plays (same `SkeletalHero`, WebGL on a CSS-drawn dais — drag to turn
+  it), pose flourishes (attack plays draw → strike → sheathe from the belt
+  scabbard), the vitality readout, name field + suggested-name pills, and a
+  portrait picker whose six cards are procedural canvases painted with the
+  same routine as the in-game head. A pulsing gold **"See your summary →
+  Forge"** button, gated on completion, leads to the review step.
 
 **Fighter class drawer** — build out in full, not just mechanically but with
 the video-game framing from the brief:
@@ -364,11 +368,11 @@ the video-game framing from the brief:
   reactions later — wire the data through even though nothing consumes it
   yet beyond storage on the character record.
 
-**Summary screen:** a parchment-style overlay (restyled to the woodland
-palette, not PR #37's purple gradient) showing the complete character sheet
-— stats, skills, equipment, features — while the 3D model performs an idle
-weapon-flourish animation. On "FORGE YOUR LEGEND": forge-hammer strike VFX
-+ SFX, the parchment seals with a wax stamp, then transition into gameplay.
+**Review step:** a drafted "charter" card drawn entirely with rules,
+typography, and gradients (no parchment sheet, no wax seal) showing the
+complete character sheet — vitals meter, abilities, skills, equipment,
+features, personality. On "FORGE HERO & BEGIN": the forge-hammer strike SFX
+with a warm bloom, then transition into gameplay.
 
 **Background scene:** replace the static purple gradient with a slow,
 lightweight woodland scene/fog pan across the Triboar Trail at dusk, in
@@ -493,15 +497,23 @@ Logic (long/short rest math, cooldown, hidden ambush roll, perception
 check, partial-rest healing, Poorly Rested debuff, floating text, dawn
 toast) is already sound — the remaining work is cinematic and visual:
 
-- **Skybox time-lapse.** `SkyboxManager` currently only fades and tweens a
-  clock label. Build the actual spec'd night→dawn time-lapse using the
-  existing `sky_dusk/night/dawn` textures (and `forest.hdr` if applicable):
-  stars and dark blue at night, warm orange at dawn, with a translucent
-  clock/moon-phase graphic sliding across the screen as time passes, and a
-  brief soft-black fade at the transition point.
-- **Camera.** Add a real slow orbit of the campfire during the rest
-  cinematic rather than a static shot, resuming the standard follow-cam on
-  wake.
+- **Skybox time-lapse** (implemented): `SkyboxManager` crossfades painted
+  `sky_night`/`sky_dawn` spheres (procedurally generated starfields,
+  `npm run assets:creation`) behind the camp as the clock sweeps, with a
+  translucent clock/moon-phase graphic sliding across the screen and a soft
+  black fade at the transition. The old creation-screen `sky_dusk` sheet
+  was retired with the creation redesign.
+- **Camera** (implemented): a slow campfire orbit through the rest, and at
+  deep night it lifts and **pans up to the open sky** above the clearing
+  before easing back to the fire for the dawn sweep — reduced-motion views
+  skip the travel. The follow-cam resumes on wake.
+- **The camp itself** is a real campsite: a flattened terrace in a thinned
+  forest clearing a few metres off the trail (`CAMP` in `landscape.ts`,
+  honoured by terrain height and the nature scatter), with a stone ring,
+  stacked charked logs, shader-animated flames over glowing coals, a
+  tripod pot, log benches, a bedroll and crate, a lit lantern, drifting
+  GPU embers and smoke, and a random-walk firelight that also lights the
+  hero.
 - **Camp menu.** Rebuild `CampMenu`/`systems.css` as a woodland-styled
   overlay — the 3D campfire scene stays visible behind it, not a full-screen
   opaque takeover — containing:
@@ -535,10 +547,12 @@ toast) is already sound — the remaining work is cinematic and visual:
   currently equipped weapon set.
 - **Ambient audio.** Campfire crackle loop under the whole sequence,
   crickets/owl at night fading into dawn birds at the transition.
-- **HUD integration.** Fold HP globe, Second Wind cooldown icon, and
-  Inspiration star into the game's existing topbar/world-tools chrome —
-  replacing PR #37's separate purple `hero-plate` pill — with plain-language
-  tooltips on each.
+- **HUD integration.** A compact ruby-bar `hero-plate` (HP numbers + Second
+  Wind/Inspiration pips) lives in the topbar world-tools chrome with
+  plain-language tooltips, and a matching **health bar floats above the hero
+  in the world** (`hero-health.ts`): gold-rimmed channel, ember-ruby fill,
+  name plate, hit-flash, and a low-HP pulse, projected every frame and
+  hidden in first-person, photo mode, and menus.
 
 ---
 

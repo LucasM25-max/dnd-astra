@@ -30,13 +30,19 @@ import {
   type ArmourMats,
   type ArmourPiece,
 } from './HeroArmour';
-import { buildWeapon, type WeaponId, type WeaponMats } from './HeroWeapons';
+import { buildScabbard, buildWeapon, type WeaponId, type WeaponMats } from './HeroWeapons';
 import { buildClips, CLIP_DEFS, type ClipName } from './HeroClips';
 
 /**
  * The assembled skeletal hero: one SkinnedMesh body (smooth joints, per-part
  * textures), rigid armour parented to bones, weapons on named bone sockets,
  * and a mixer playing the procedural clip catalogue.
+ *
+ * The rig is authored facing +Z, but the avatar world convention is
+ * `rotation.y = yaw` where forward travel is (−sin θ, −cos θ) — a model
+ * facing −Z. So the whole assembly rotates π about Y at build (before
+ * binding, so skinning, armour attaches, sockets, and clip pose space all
+ * stay consistent) and the hero faces the way it walks, sits, and looks.
  *
  * DOM-free except for the injected canvas factory (tests pass a stub).
  */
@@ -52,15 +58,39 @@ export interface SkeletalHeroOptions {
   equipment?: HeroEquipment;
 }
 
-/** Per-item socket frames (bind space, radians). Tuned against screenshots. */
-const ITEM_SOCKETS: Record<WeaponId, { socket: SocketName; pos: [number, number, number]; rot: [number, number, number] }> = {
-  longsword: { socket: 'mainhand', pos: [0, -0.05, 0.008], rot: [0, 0, 0] },
-  battleaxe: { socket: 'mainhand', pos: [0, -0.05, 0.008], rot: [0, 0, 0] },
-  warhammer: { socket: 'mainhand', pos: [0, -0.05, 0.008], rot: [0, 0, 0] },
-  shortsword: { socket: 'offhand', pos: [0, -0.05, 0.008], rot: [0, 0, 0] },
-  shield: { socket: 'offhand', pos: [0.045, -0.055, 0.008], rot: [0, Math.PI / 2, 0] },
+/**
+ * Per-item socket frames. `socket` names the fixed anchor on the body;
+ * local pos/rot orient the item in that anchor (bind space, radians).
+ * Tuned against screenshots. The longsword's guard rotation presents the
+ * blade forward over the fist instead of laying it along the forearm.
+ */
+interface ItemFrame { socket: SocketName; pos: [number, number, number]; rot: [number, number, number] }
+
+const WIELD_FRAMES: Record<WeaponId, ItemFrame> = {
+  longsword: { socket: 'mainhand', pos: [0, 0, 0], rot: [0.42, 0, -0.1] },
+  battleaxe: { socket: 'mainhand', pos: [0, 0, 0], rot: [0.32, 0, -0.08] },
+  warhammer: { socket: 'mainhand', pos: [0, 0, 0], rot: [0.32, 0, -0.08] },
+  shortsword: { socket: 'offhand', pos: [0, 0, 0], rot: [0.36, 0, 0.1] },
+  shield: { socket: 'offhand', pos: [0.045, -0.005, 0], rot: [0, Math.PI / 2, 0] },
   longbow: { socket: 'back', pos: [0.15, 0.14, -0.17], rot: [-0.1, -0.1, 0.72] },
   quiver: { socket: 'quiver', pos: [-0.17, 0.05, -0.13], rot: [-0.3, 0, 0.15] },
+};
+
+/**
+ * Where each item rides while exploring (not in combat). The scabbard and
+ * sheath hang from the belt bone so they sway with the torso like the mail
+ * does; heavy axes and hammers sling across the back on the opposite
+ * diagonal to the bow. Items without a stow route just stay put.
+ */
+type StowRoute = 'scabbard' | 'daggerSheath' | 'backCarry' | null;
+const STOW_ROUTES: Record<WeaponId, StowRoute> = {
+  longsword: 'scabbard',
+  shortsword: 'daggerSheath',
+  battleaxe: 'backCarry',
+  warhammer: 'backCarry',
+  shield: null,
+  longbow: null,
+  quiver: null,
 };
 
 const SOCKET_BONES: Record<SocketName, BoneName> = {
@@ -71,6 +101,9 @@ const SOCKET_BONES: Record<SocketName, BoneName> = {
   quiver: 'Hips',
 };
 
+/** Fixed fist frames — the reins and glove anchors read these positions. */
+const FIST_FRAME: [number, number, number] = [0, -0.05, 0.008];
+
 export const IDLE_FOR_WEAPON_SET: Record<WeaponSet, ClipName> = {
   sword_shield: 'idle',
   two_hand: 'idle',
@@ -78,6 +111,12 @@ export const IDLE_FOR_WEAPON_SET: Record<WeaponSet, ClipName> = {
   bow: 'idle_bow',
   unarmed: 'idle_bow',
 };
+
+/** Standing guard while steel is in hand (drawn state overrides the idle). */
+export const DRAWN_IDLE: ClipName = 'idle_drawn';
+
+/** Bone-local frames for the back-carried long weapons (Chest bone space). */
+const BACK_CARRY_FRAME = { pos: [-0.02, 0.13, -0.235] as [number, number, number], rot: [0.05, 0, -0.6] as [number, number, number], item: [0, 0.4, 0] as [number, number, number] };
 
 export function weaponSetForLoadout(mainHand: WeaponId, offHand: WeaponId | null): WeaponSet {
   if (offHand === 'shortsword') return 'dual';
@@ -125,19 +164,24 @@ export class SkeletalHero {
   private equipped: THREE.Object3D[] = [];
   private preset: PortraitPreset;
   private triangles = 0;
-  private mainHandId: WeaponId = 'longsword';
-  private mainWeapon: THREE.Object3D | null = null;
   private bowWeapon: THREE.Object3D | null = null;
-  private sidearmStowed = false;
   private bowDrawn = false;
   private bowGrip: THREE.Object3D | null = null;
+  /** False while steel is in hand (combat); true = riding its stow mount. */
+  private stowed = true;
+  /** wield/stow anchor pairs per equipped weapon (rebuilt on setEquipment). */
+  private mounts = new Map<THREE.Object3D, { wield: THREE.Object3D; stow: THREE.Object3D | null }>();
+  private sheathRig: { scabbard?: THREE.Object3D; dagger?: THREE.Object3D; backCarry?: THREE.Object3D; extra: THREE.Object3D[] } | null = null;
 
   constructor(opts: SkeletalHeroOptions) {
     this.root.name = 'SkeletalHero';
     this.preset = opts.preset ?? portraitDef('male_01');
     const factory = opts.canvasFactory;
 
-    // Rig + skinned body.
+    // Rig + skinned body. The assembly is squared to the avatar convention
+    // (hero faces −Z, see class doc) before any bone-relative attachment so
+    // bind matrices, armour attaches, and socket chains all bake the flip.
+    this.root.rotation.y = Math.PI;
     this.rig = buildRig();
     this.root.add(this.rig.group);
     const body = buildBodyGeometry(this.rig);
@@ -154,13 +198,16 @@ export class SkeletalHero {
     this.body.normalizeSkinWeights();
 
     // Shared armour / weapon materials.
-    const mailTex = canvasTexture(factory, 256, 256, ctx => paintMail(ctx, 256, 256));
-    const plateTex = canvasTexture(factory, 256, 256, ctx => paintPlate(ctx, 256, 256));
-    const leatherTex = canvasTexture(factory, 256, 256, ctx => paintLeather(ctx, 256, 256));
-    const bladeTex = canvasTexture(factory, 128, 256, ctx => paintBlade(ctx, 128, 256));
-    const woodTex = canvasTexture(factory, 128, 128, ctx => paintWood(ctx, 128, 128));
-    const bowTex = canvasTexture(factory, 128, 128, ctx => paintWood(ctx, 128, 128, '#7a4e28', 43));
-    const shieldTex = canvasTexture(factory, 256, 256, ctx => paintShieldFace(ctx, 256, 256));
+    // 512 sheets on the close-read armour (mail, plate, leather, blade):
+    // the third-person camera sits 2.5–7 m out and the mail rings used to
+    // turn to mush past a few metres.
+    const mailTex = canvasTexture(factory, 512, 512, ctx => paintMail(ctx, 512, 512));
+    const plateTex = canvasTexture(factory, 512, 512, ctx => paintPlate(ctx, 512, 512));
+    const leatherTex = canvasTexture(factory, 512, 512, ctx => paintLeather(ctx, 512, 512));
+    const bladeTex = canvasTexture(factory, 256, 512, ctx => paintBlade(ctx, 256, 512));
+    const woodTex = canvasTexture(factory, 256, 256, ctx => paintWood(ctx, 256, 256));
+    const bowTex = canvasTexture(factory, 256, 256, ctx => paintWood(ctx, 256, 256, '#7a4e28', 43));
+    const shieldTex = canvasTexture(factory, 512, 512, ctx => paintShieldFace(ctx, 512, 512));
     const hairTex = canvasTexture(factory, 128, 128, ctx => paintHair(ctx, 128, 128, this.preset.hairColor));
     const std = (o: THREE.MeshStandardMaterialParameters): THREE.MeshStandardMaterial =>
       new THREE.MeshStandardMaterial(o);
@@ -193,10 +240,12 @@ export class SkeletalHero {
     this.attachArmour([buildBoot(this.armourMats, -1), buildBoot(this.armourMats, 1)]);
     this.applyPortraitPieces();
 
-    // Bone sockets.
+    // Bone sockets. The fist frames are fixed (reins and glove anchors read
+    // them); weapon orientation lives in the per-item mount anchors below.
     for (const [name, bone] of Object.entries(SOCKET_BONES) as [SocketName, BoneName][]) {
       const socket = new THREE.Object3D();
       socket.name = `socket_${name}`;
+      if (name === 'mainhand' || name === 'offhand') socket.position.set(...FIST_FRAME);
       this.rig.bones[bone].add(socket);
       this.sockets[name] = socket;
     }
@@ -269,20 +318,61 @@ export class SkeletalHero {
   setEquipment(mainHand: WeaponId, offHand: WeaponId | null): void {
     for (const o of this.equipped) o.parent?.remove(o);
     this.equipped = [];
-    this.sidearmStowed = false;
-    this.mainHandId = mainHand;
-    this.mainWeapon = this.equipItem(mainHand);
+    this.mounts.clear();
+    this.clearSheathRig();
+    // Sheaths first: the scabbard rides on the belt bone so its mouth frame
+    // exists before the blade docks into it.
+    this.buildSheathRig(mainHand, offHand);
+    this.equipItem(mainHand);
     if (offHand) this.equipItem(offHand);
     this.weaponSet = weaponSetForLoadout(mainHand, offHand);
     const idle = IDLE_FOR_WEAPON_SET[this.weaponSet];
     if (!this.oneShot) this.playLocomotion(idle);
   }
 
+  /** Build the scabbard / dagger sheath / back sling this loadout stows to. */
+  private buildSheathRig(mainHand: WeaponId, offHand: WeaponId | null): void {
+    const rig: NonNullable<typeof this.sheathRig> = { extra: [] };
+    const chest = this.rig.bones.Chest;
+    if (mainHand === 'longsword') {
+      const { object, mouth } = buildScabbard(this.weaponMats, { length: 0.95, width: 0.075 });
+      object.name = 'swordScabbard';
+      // Bone-local frame: the belt sits at bind y ≈ 1.06, the Chest bone at 1.3.
+      object.position.set(0.262, -0.25, 0.02);
+      object.rotation.set(0.34, 0, 0.13); // hilt forward, mouth out past the skirt
+      chest.add(object);
+      rig.scabbard = mouth;
+      rig.extra.push(object);
+    }
+    if (offHand === 'shortsword') {
+      const { object, mouth } = buildScabbard(this.weaponMats, { length: 0.5, width: 0.058 });
+      object.name = 'daggerSheath';
+      object.position.set(-0.252, -0.258, 0.05);
+      object.rotation.set(0.38, 0, -0.2);
+      chest.add(object);
+      rig.dagger = mouth;
+      rig.extra.push(object);
+    }
+    if (mainHand === 'battleaxe' || mainHand === 'warhammer') {
+      const sling = new THREE.Object3D();
+      sling.name = 'backCarry';
+      sling.position.set(...BACK_CARRY_FRAME.pos);
+      sling.rotation.set(...BACK_CARRY_FRAME.rot);
+      chest.add(sling);
+      rig.backCarry = sling;
+      rig.extra.push(sling);
+    }
+    this.sheathRig = rig;
+  }
+
+  private clearSheathRig(): void {
+    if (!this.sheathRig) return;
+    for (const o of this.sheathRig.extra) o.parent?.remove(o);
+    this.sheathRig = null;
+  }
+
   private equipItem(id: WeaponId): THREE.Object3D {
-    const def = ITEM_SOCKETS[id];
-    const socket = this.sockets[def.socket];
-    socket.position.set(...def.pos);
-    socket.rotation.set(...def.rot);
+    const def = WIELD_FRAMES[id];
     const weapon = buildWeapon(id, this.weaponMats);
     weapon.traverse(o => {
       if (o instanceof THREE.Mesh) {
@@ -290,44 +380,66 @@ export class SkeletalHero {
         o.receiveShadow = true;
       }
     });
-    socket.add(weapon);
+    const wield = new THREE.Object3D();
+    wield.name = `${id}_wield`;
+    wield.position.set(...def.pos);
+    wield.rotation.set(...def.rot);
+    // The longbow's carry frame is its wield frame (it lives on the back
+    // either way); the draw pose swaps it through setBowDrawn.
+    const wieldParent = this.sockets[def.socket];
+    wieldParent.add(wield);
+    let stow: THREE.Object3D | null = null;
+    const route = STOW_ROUTES[id];
+    if (route === 'scabbard' && this.sheathRig?.scabbard) {
+      stow = new THREE.Object3D();
+      stow.position.set(0, 0.115, 0.01);
+      stow.rotation.set(Math.PI, 0, 0); // blade down into the throat, hilt proud
+      this.sheathRig.scabbard.add(stow);
+    } else if (route === 'daggerSheath' && this.sheathRig?.dagger) {
+      stow = new THREE.Object3D();
+      stow.position.set(0, 0.07, 0.01);
+      stow.rotation.set(Math.PI, 0, 0);
+      this.sheathRig.dagger.add(stow);
+    } else if (route === 'backCarry' && this.sheathRig?.backCarry) {
+      stow = new THREE.Object3D();
+      stow.position.set(...BACK_CARRY_FRAME.item);
+      this.sheathRig.backCarry.add(stow);
+    }
+    (stow ?? wield).add(weapon);
+    this.mounts.set(weapon, { wield, stow });
     if (id !== 'longbow' && id !== 'quiver') this.equipped.push(weapon);
     return weapon;
   }
 
+  /** True while every stowable item rides its sheath (exploration state). */
+  get itemsStowed(): boolean {
+    return this.stowed;
+  }
+
   /**
-   * Stow the main-hand sidearm at the left hip (blade down) or draw it back
-   * to the fist. The wagon seat stows on sit and draws on stand; the motion
-   * masks the swap, so no dedicated transition clip is needed.
+   * Stow or draw the equipped steel. Exploration keeps the longsword in its
+   * scabbard (nothing runs along the forearm); combat takes it in hand with
+   * the guard rotation. Swap is instant — callers bracket it with the
+   * draw / sheathe clips.
    */
-  setSidearmStowed(stowed: boolean): void {
-    if (stowed === this.sidearmStowed || !this.mainWeapon) return;
-    this.sidearmStowed = stowed;
-    if (stowed) {
-      const hip = this.sockets.hip;
-      hip.position.set(0.2, -0.05, 0.02);
-      hip.rotation.set(Math.PI, 0, 0);
-      hip.add(this.mainWeapon);
-    } else {
-      const def = ITEM_SOCKETS[this.mainHandId];
-      const socket = this.sockets[def.socket];
-      socket.position.set(...def.pos);
-      socket.rotation.set(...def.rot);
-      socket.add(this.mainWeapon);
+  setStowed(stowed: boolean): void {
+    if (stowed === this.stowed) return;
+    this.stowed = stowed;
+    for (const [item, mounts] of this.mounts) {
+      const frame = stowed && mounts.stow ? mounts.stow : mounts.wield;
+      frame.add(item);
     }
   }
 
   /**
    * Preview-only prop swap for the archery flourish: the longbow leaves the
    * back for a dedicated left-fist grip (limbs vertical, string to the
-   * archer) while the sidearm stows. Restored automatically when the shot
-   * ends or is interrupted.
+   * archer). Restored automatically when the shot ends or is interrupted.
    */
   setBowDrawn(drawn: boolean): void {
     if (drawn === this.bowDrawn || !this.bowWeapon) return;
     this.bowDrawn = drawn;
     if (drawn) {
-      this.setSidearmStowed(true);
       if (!this.bowGrip) {
         this.bowGrip = new THREE.Object3D();
         this.bowGrip.name = 'socket_bow_grip';
@@ -337,12 +449,7 @@ export class SkeletalHero {
       this.bowGrip.rotation.set(-Math.PI / 2, 0, 0);
       this.bowGrip.add(this.bowWeapon);
     } else {
-      const def = ITEM_SOCKETS.longbow;
-      const socket = this.sockets[def.socket];
-      socket.position.set(...def.pos);
-      socket.rotation.set(...def.rot);
-      socket.add(this.bowWeapon);
-      this.setSidearmStowed(false);
+      this.mounts.get(this.bowWeapon)?.wield.add(this.bowWeapon);
     }
   }
 

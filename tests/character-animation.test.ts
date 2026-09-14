@@ -16,7 +16,7 @@ function fakeHero() {
     playLocomotion: vi.fn(),
     update: vi.fn(),
     releaseShot: vi.fn(),
-    setSidearmStowed: vi.fn(),
+    setStowed: vi.fn(),
     shotProgress: () => null,
   };
   return hero as unknown as SkeletalHero;
@@ -67,7 +67,6 @@ describe('skeletal animation state machine', () => {
     anim.updateLocomotion(0.016, 0, false, true, 'ground');
     expect(hero.playOneShot).toHaveBeenCalledWith('long_rest_sit', expect.objectContaining({ hold: true }));
     expect(anim.seated).toBe(true);
-    expect(hero.setSidearmStowed).toHaveBeenCalledWith(false);
     resolve();
     await Promise.resolve();
     // The held sit keeps reporting; the seat release + hold release stand the hero up.
@@ -75,6 +74,24 @@ describe('skeletal animation state machine', () => {
     anim.updateLocomotion(0.016, 0, false, false, 'ground');
     expect(hero.playOneShot).toHaveBeenLastCalledWith('stand_up', expect.objectContaining({ hold: false }));
     expect(anim.seated).toBe(false);
+  });
+
+  it('standing out of a HELD chair sit needs no manual release (dismount lockup regression)', async () => {
+    // Mounting plays a held sit_chair; the dismount path only flips the
+    // control mode. If standing were gated behind "no active shot" the hero
+    // would ride seated forever and walk/run could never blend in.
+    const { hero, resolve } = pendingHero();
+    const anim = new ASM(hero);
+    anim.updateLocomotion(0.016, 0, false, true, 'chair');
+    expect(hero.playOneShot).toHaveBeenLastCalledWith('sit_chair', expect.objectContaining({ hold: true }));
+    anim.updateLocomotion(0.016, 0, false, false, 'chair');
+    expect(hero.playOneShot).toHaveBeenLastCalledWith('stand_chair', expect.objectContaining({ hold: false }));
+    expect(anim.seated).toBe(false);
+    resolve();
+    await new Promise(r => setTimeout(r, 0)); // let the shot-clearing microtasks flush
+    // Once the stand finishes, walking must blend in at locomotion speeds.
+    anim.updateLocomotion(0.016, 2.5, false, false, 'ground');
+    expect(hero.playLocomotion).toHaveBeenLastCalledWith('walk', 0.2);
   });
 
   it('steps the hero mixer every frame, even while held', () => {

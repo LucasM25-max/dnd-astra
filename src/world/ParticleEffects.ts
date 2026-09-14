@@ -43,6 +43,7 @@ export class ParticleEffects {
   private bursts: Burst[] = [];
   private loops: Loop[] = [];
   private textures: THREE.Texture[] = [];
+  private loopUniforms: { material: THREE.ShaderMaterial; origin: THREE.Vector3 }[] = [];
 
   constructor(private scene: THREE.Scene) {}
 
@@ -106,13 +107,69 @@ export class ParticleEffects {
   /** Continuous campfire embers + smoke. Dispose when leaving camp. */
   campfireLoop(origin: THREE.Vector3): { dispose: () => void } {
     const disposers: (() => void)[] = [];
-    disposers.push(this.spawnLoop(origin, 46, {
-      color: '#ff9a3c', size: 0.12, height: 2.2, radius: 0.35, speed: 0.9,
-      blending: THREE.AdditiveBlending, opacity: 0.95,
-    }));
-    disposers.push(this.spawnLoop(origin.clone().add(new THREE.Vector3(0, 1.2, 0)), 22, {
-      color: '#8a8a8a', size: 0.5, height: 3.4, radius: 0.5, speed: 0.5,
-      blending: THREE.NormalBlending, opacity: 0.28,
+
+    // Embers: a shader-driven point cloud — each spark lives on its own
+    // cycle, rises, wobbles on the thermals, and fades gold → ember red.
+    {
+      const count = 64;
+      const seeds = new Float32Array(count * 2);
+      const offsets = new Float32Array(count * 2);
+      for (let i = 0; i < count; i++) {
+        seeds[i * 2] = Math.random();           // life phase
+        seeds[i * 2 + 1] = 0.55 + Math.random() * 0.75; // speed
+        offsets[i * 2] = (Math.random() - 0.5) * 0.5;
+        offsets[i * 2 + 1] = (Math.random() - 0.5) * 0.5;
+      }
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
+      geometry.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 2));
+      geometry.setAttribute('aOff', new THREE.BufferAttribute(offsets, 2));
+      const material = new THREE.ShaderMaterial({
+        uniforms: {
+          uTime: { value: 0 },
+          uOrigin: { value: origin.clone() },
+          uHeight: { value: 3.1 },
+          uPixelRatio: { value: Math.min(window.devicePixelRatio || 1, 2) },
+        },
+        vertexShader: `
+          uniform float uTime, uHeight, uPixelRatio; uniform vec3 uOrigin;
+          attribute vec2 aSeed; attribute vec2 aOff;
+          varying float vLife; varying float vFlicker;
+          void main() {
+            float life = fract(aSeed.x + uTime * 0.13 * aSeed.y);
+            vLife = life;
+            float rise = life * uHeight;
+            vec3 p = uOrigin;
+            p.x += aOff.x * (1.0 + rise * 1.5) + sin(uTime * 1.6 + aSeed.x * 61.0 + rise * 3.4) * (0.06 + rise * 0.08);
+            p.z += aOff.y * (1.0 + rise * 1.5) + cos(uTime * 1.3 + aSeed.x * 27.0 + rise * 2.8) * (0.06 + rise * 0.08);
+            p.y += rise * (0.55 + aSeed.y * 0.5);
+            vFlicker = 0.6 + 0.4 * sin(uTime * 21.0 + aSeed.x * 90.0);
+            vec4 mv = modelViewMatrix * vec4(p, 1.0);
+            gl_Position = projectionMatrix * mv;
+            // Sparkle size, clamped so embers passing the lens never bloom into lens-filling discs.
+            gl_PointSize = min(30.0, (2.6 + aSeed.y * 2.6) * (1.0 - life * 0.55) * (14.0 / max(1.0, -mv.z)) * 2.4) * uPixelRatio;
+          }`,
+        fragmentShader: `
+          varying float vLife; varying float vFlicker;
+          void main() {
+            float d = length(gl_PointCoord - 0.5);
+            float a = smoothstep(0.5, 0.08, d) * (1.0 - smoothstep(0.62, 1.0, vLife)) * smoothstep(0.0, 0.12, vLife);
+            vec3 col = mix(vec3(1.0, 0.85, 0.45), vec3(0.98, 0.32, 0.08), vLife);
+            gl_FragColor = vec4(col * (1.1 + vFlicker * 0.5), a * (0.5 + vFlicker * 0.5) * 0.9);
+          }`,
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      });
+      const points = new THREE.Points(geometry, material);
+      points.frustumCulled = false;
+      this.scene.add(points);
+      disposers.push(() => { this.scene.remove(points); geometry.dispose(); material.dispose(); });
+      this.loopUniforms.push({ material, origin: origin.clone() });
+    }
+
+    // Smoke: slow grey puffs swelling and drifting off the wind line.
+    disposers.push(this.spawnLoop(origin.clone().add(new THREE.Vector3(0, 1.15, 0)), 24, {
+      color: '#9a958a', size: 0.62, height: 3.8, radius: 0.5, speed: 0.42,
+      blending: THREE.NormalBlending, opacity: 0.2,
     }));
     return { dispose: () => disposers.forEach(d => d()) };
   }
@@ -189,10 +246,14 @@ export class ParticleEffects {
           arr[j * 3 + 2] = loop.origin.z + (Math.random() - 0.5) * loop.radius;
         }
         arr[j * 3 + 1] = y;
-        arr[j * 3] += Math.sin(elapsed * 2 + loop.seeds[j] * 20) * dt * 0.25;
+        // Drift with a lazy gust line so the plume leans downwind.
+        arr[j * 3] += (Math.sin(elapsed * 2 + loop.seeds[j] * 20) * 0.25 + 0.16) * dt;
       }
+      // Plume breathes: puffs swell gently as the column rises.
+      loop.material.size = 0.52 + 0.14 * (0.5 + 0.5 * Math.sin(elapsed * 0.7));
       positions.needsUpdate = true;
     }
+    for (const ember of this.loopUniforms) ember.material.uniforms.uTime.value = elapsed;
   }
 
   dispose(): void {
@@ -210,5 +271,6 @@ export class ParticleEffects {
     this.bursts = [];
     this.loops = [];
     this.textures = [];
+    this.loopUniforms = [];
   }
 }

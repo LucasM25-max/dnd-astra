@@ -131,6 +131,12 @@ export class PlayerController {
     this.setControlMode('foot'); this.position.copy(position); this.position.y = terrainHeight(position.x, position.z);
     this.yaw = yaw; this.avatar.rotation.y = yaw; this.avatar.position.copy(this.position); this.pitch = .16;
     this.grounded = true; this.verticalVelocity = 0;
+    // Stepping off a seat releases the held-sit latch: postUpdate mirrors
+    // forceSeated from the animation machine, which only unsets once the
+    // stand blend runs — and the stand blend is gated on seated=false.
+    // Without this clear the two latch each other forever (hero stuck
+    // seated on foot; walk/run never blend in).
+    this.forceSeated = false;
   }
   reset() {
     this.position.set(SPAWN.x, terrainHeight(SPAWN.x, SPAWN.z), SPAWN.z); this.yaw = SPAWN.yaw; this.pitch = .17;

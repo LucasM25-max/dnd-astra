@@ -42,6 +42,7 @@ export class CreationPreview {
   private flourishing = false;
   private attackAlt = 0;
   private downHeld = false;
+  private userTurn = 0;
   private mainHand: WeaponId;
   private offHand: WeaponId | null;
 
@@ -50,9 +51,9 @@ export class CreationPreview {
     this.offHand = opts.offHand ?? 'shield';
     this.turntable = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.camera = new THREE.PerspectiveCamera(30, 1, 0.1, 30);
-    // Three-quarter view off the sword side; the arch column is portrait-ish,
-    // so frame chest-to-boots and let the helm crown the frame.
-    this.camera.position.set(-0.85, 1.42, 3.05);
+    // Three-quarter view off the sword side (the assembled hero faces −Z,
+    // so its right hand sits at +X); frame chest-to-boots.
+    this.camera.position.set(0.85, 1.42, -3.05);
     this.camera.lookAt(0, 0.96, 0);
     try {
       this.boot(opts.preset ?? portraitDef('male_01'));
@@ -145,6 +146,12 @@ export class CreationPreview {
     this.resizeObserver.observe(parent);
   }
 
+  /** Extra rotation from the player dragging on the canvas (added to the turntable). */
+  addTurn(radians: number): void {
+    this.userTurn += radians;
+    if (this.hero) this.hero.root.rotation.y = Math.PI + this.userTurn;
+  }
+
   /** Swap the portrait sculpt (instant re-dress). */
   setPortrait(preset: PortraitPreset): void {
     this.releaseFall();
@@ -170,12 +177,15 @@ export class CreationPreview {
     const hero = this.hero;
     if (!hero || this.flourishing) return;
     this.releaseFall();
+    if (kind === 'attack') {
+      // Combat look: draw from the belt scabbard, strike, sheathe again.
+      this.flourishing = true;
+      void this.attackSequence();
+      return;
+    }
     let clip: ClipName;
     let hold = false;
     switch (kind) {
-      case 'attack':
-        clip = this.attackClip();
-        break;
       case 'hit':
         clip = 'hit_react';
         break;
@@ -189,12 +199,34 @@ export class CreationPreview {
       case 'bow':
         clip = 'bow_draw';
         break;
+      default:
+        this.flourishing = false;
+        return;
     }
     this.flourishing = true;
     if (hold) this.downHeld = true;
     void hero.playOneShot(clip, { hold }).finally(() => {
       this.flourishing = false;
     });
+  }
+
+  private async attackSequence(): Promise<void> {
+    const hero = this.hero!;
+    const wasStowed = hero.itemsStowed;
+    try {
+      if (wasStowed) {
+        hero.setStowed(false);
+        await hero.playOneShot('draw');
+      }
+      await hero.playOneShot(this.attackClip());
+      if (wasStowed) {
+        hero.setStowed(true);
+        await hero.playOneShot('sheathe');
+      }
+    } finally {
+      this.flourishing = false;
+      hero.playLocomotion(IDLE_FOR_WEAPON_SET[weaponSetForLoadout(this.mainHand, this.offHand)], 0.25);
+    }
   }
 
   private attackClip(): ClipName {
@@ -235,7 +267,8 @@ export class CreationPreview {
       this.last = now;
       this.hero?.update(dt);
       if (this.turntable && !this.flourishing) {
-        this.hero!.root.rotation.y += dt * (this.downHeld ? 0.25 : 0.45);
+        this.userTurn += dt * (this.downHeld ? 0.25 : 0.45);
+        this.hero!.root.rotation.y = Math.PI + this.userTurn;
       }
       this.renderer?.render(this.scene, this.camera);
     };

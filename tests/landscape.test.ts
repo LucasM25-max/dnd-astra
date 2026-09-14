@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CollisionField, LANDMARKS, ROAD, ROAD_POINTS, SPAWN, TRAIL, TRAIL_POINTS, WORLD_LIMIT, distanceToPath, pathAmount, pathDistance, sampleCurve, seededRandom, terrainHeight } from '../src/engine/landscape';
+import { CAMP, CollisionField, LANDMARKS, ROAD, ROAD_POINTS, SPAWN, TRAIL, TRAIL_POINTS, WORLD_LIMIT, distanceToPath, pathAmount, pathDistance, sampleCurve, seededRandom, terrainHeight } from '../src/engine/landscape';
 
 describe('map-derived continuous landscape', () => {
   it('preserves the reference road and northern trail endpoints', () => {
@@ -26,6 +26,23 @@ describe('map-derived continuous landscape', () => {
       expect(Number.isFinite(height)).toBe(true);
       expect(Math.abs(height - terrainHeight(x + .01, z))).toBeLessThan(.06);
       expect(blend).toBeGreaterThanOrEqual(0); expect(blend).toBeLessThanOrEqual(1);
+    }
+  });
+  it('flattens a buildable terrace for the woodland camp', () => {
+    const base = terrainHeight(CAMP.x, CAMP.z);
+    for (const [dx, dz] of [[1.5, 0], [-1.5, 0], [0, 1.5], [0, -1.5], [2.2, 2.2], [-2.4, 1.1]] as const) {
+      expect(Math.abs(terrainHeight(CAMP.x + dx, CAMP.z + dz) - base)).toBeLessThan(0.04);
+    }
+    // And the blend eases out: walking across the terrace rim at 0.1 m steps
+    // never meets a ledge (props and the player both read this height).
+    for (const [ax, az] of [[1, 0], [-1, 0], [0, 1], [0, -1], [.707, .707], [-.707, .707]] as const) {
+      let prev = terrainHeight(CAMP.x + ax * (CAMP.flatOuter - .6), CAMP.z + az * (CAMP.flatOuter - .6));
+      for (let i = 1; i <= 12; i++) {
+        const d = CAMP.flatOuter - .6 + i * .1;
+        const h = terrainHeight(CAMP.x + ax * d, CAMP.z + az * d);
+        expect(Math.abs(h - prev)).toBeLessThan(.06);
+        prev = h;
+      }
     }
   });
   it('creates repeatable variation without a random world on every reload', () => {

@@ -47,6 +47,16 @@ export class PlayerCharacterController {
     this.model.releaseHold();
   }
 
+  /**
+   * Combat vs exploration: steel comes out to (or rides back into) the belt
+   * scabbard, with the draw/sheathe clips bracketing the swap. The future
+   * combat system toggles this on encounter start/end; the creation preview
+   * exercises the same path through its flourish buttons.
+   */
+  setCombatMode(inCombat: boolean, animate = true): void {
+    this.model.setCombatMode(inCombat, animate);
+  }
+
   faceTowards(worldPos: THREE.Vector3): void {
     this.model.faceTowards(worldPos);
   }

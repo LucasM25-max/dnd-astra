@@ -184,6 +184,37 @@ function buildShield(m: WeaponMats): THREE.Group {
   return g;
 }
 
+/**
+ * A belt scabbard (or dagger sheath) authored around its own origin: the
+ * body descends −Y from the mouth, so the hero parent places the mouth at
+ * the belt. The `mouth` marker is the frame a sheathed weapon docks into —
+ * its +Y runs back up out of the throat, so a blade rotated π about X drops
+ * tip-first while the hilt stays proud above the locket.
+ */
+export function buildScabbard(
+  mats: WeaponMats,
+  opts: { length: number; width: number },
+): { object: THREE.Group; mouth: THREE.Object3D } {
+  const { length, width } = opts;
+  const group = new THREE.Group();
+  group.name = 'scabbard';
+  const body = mesh(new RoundedBoxGeometry(width, length, width * 0.68, 2, width * 0.28), mats.leather, 0, -length / 2, -length * 0.045);
+  group.add(body);
+  group.add(mesh(new RoundedBoxGeometry(width * 1.14, 0.055, width * 0.8, 2, 0.012), mats.brass, 0, -length + 0.008, -length * 0.05));
+  group.add(mesh(new RoundedBoxGeometry(width * 1.2, 0.068, width * 0.86, 2, 0.014), mats.brass, 0, -0.028, -length * 0.038));
+  // Two suspension straps up to the belt, riveted at the locket.
+  for (const dy of [0.03, -0.03]) {
+    const strap = mesh(new THREE.BoxGeometry(width * 0.4, 0.16, 0.012), mats.leather, 0, 0.1 + dy, 0.012);
+    strap.rotation.x = 0.16;
+    group.add(strap);
+    group.add(mesh(new THREE.SphereGeometry(0.008, 8, 6), mats.brass, 0, 0.02 + dy, 0.024));
+  }
+  const mouth = new THREE.Object3D();
+  mouth.name = 'scabbard_mouth';
+  group.add(mouth);
+  return { object: group, mouth };
+}
+
 export function buildWeapon(id: WeaponId, mats: WeaponMats): THREE.Group {
   switch (id) {
     case 'longsword':

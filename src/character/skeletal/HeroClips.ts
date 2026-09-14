@@ -40,6 +40,9 @@ export type ClipName =
   | 'stand_up'
   | 'sit_chair'
   | 'stand_chair'
+  | 'idle_drawn'
+  | 'draw'
+  | 'sheathe'
   | 'salute';
 
 export const PREVIEW_ONLY_CLIPS: ReadonlySet<ClipName> = new Set([
@@ -127,7 +130,7 @@ const SIT_POSE: Pose = {
 
 // --- Clip catalogue ---
 
-function idleClip(name: 'idle' | 'idle_dual' | 'idle_bow', arms: Pose, breathe: number, sway: number): ClipDef {
+function idleClip(name: 'idle' | 'idle_dual' | 'idle_bow' | 'idle_drawn', arms: Pose, breathe: number, sway: number): ClipDef {
   const keys: ClipKey[] = [0, 1, 2, 3].map(i => {
     const phase = (i / 4) * Math.PI * 2;
     const br = Math.sin(phase);
@@ -148,102 +151,143 @@ function idleClip(name: 'idle' | 'idle_dual' | 'idle_bow', arms: Pose, breathe: 
   return { name, duration: 4, loop: true, previewOnly: false, keys };
 }
 
-const WALK_CYCLE: ClipKey[] = [
-  {
-    t: 0,
-    root: [0, -0.008, 0],
-    pose: {
-      UpperLegL: [-28, 0, 0], LowerLegL: [8, 0, 0], FootL: [-4, 0, 0],
-      UpperLegR: [26, 0, 0], LowerLegR: [18, 0, 0], FootR: [22, 0, 0],
-      Hips: [0, 5, 0], Spine: [2, 0, 0], Chest: [1, -5, 0], Head: [0, 3, 0],
-      UpperArmL: [18, 0, 4], LowerArmL: [-20, 0, 0],
-      UpperArmR: [-20, 0, -4], LowerArmR: [-26, 0, 0],
-    },
-  },
-  {
-    t: 0.25,
-    root: [0, -0.026, 0],
-    pose: {
-      UpperLegL: [-6, 0, 0], LowerLegL: [24, 0, 0], FootL: [8, 0, 0],
-      UpperLegR: [8, 0, 0], LowerLegR: [42, 0, 0], FootR: [34, 0, 0],
-      Hips: [0, 0, 0], Spine: [2.5, 0, 0], Chest: [1, 0, 0], Head: [1, 0, 0],
-      UpperArmL: [6, 0, 4], LowerArmL: [-22, 0, 0],
-      UpperArmR: [-6, 0, -4], LowerArmR: [-24, 0, 0],
-    },
-  },
-  {
-    t: 0.5,
-    root: [0, -0.008, 0],
-    pose: {
-      UpperLegL: [26, 0, 0], LowerLegL: [18, 0, 0], FootL: [22, 0, 0],
-      UpperLegR: [-28, 0, 0], LowerLegR: [8, 0, 0], FootR: [-4, 0, 0],
-      Hips: [0, -5, 0], Spine: [2, 0, 0], Chest: [1, 5, 0], Head: [0, -3, 0],
-      UpperArmL: [-20, 0, 4], LowerArmL: [-26, 0, 0],
-      UpperArmR: [18, 0, -4], LowerArmR: [-20, 0, 0],
-    },
-  },
-  {
-    t: 0.75,
-    root: [0, -0.026, 0],
-    pose: {
-      UpperLegL: [8, 0, 0], LowerLegL: [42, 0, 0], FootL: [34, 0, 0],
-      UpperLegR: [-6, 0, 0], LowerLegR: [24, 0, 0], FootR: [8, 0, 0],
-      Hips: [0, 0, 0], Spine: [2.5, 0, 0], Chest: [1, 0, 0], Head: [1, 0, 0],
-      UpperArmL: [-6, 0, 4], LowerArmL: [-24, 0, 0],
-      UpperArmR: [6, 0, -4], LowerArmR: [-22, 0, 0],
-    },
-  },
-];
+// --- Parametric gait model ------------------------------------------------
+// Walk and run are generated from a mathematical stride rather than hand-
+// keyed: phase = 0 is left heel strike, the right leg carries π. Thigh swing,
+// knee flexion (stance dip vs swing lift), ankle rockers, counter-swinging
+// arms, pelvis yaw/roll, shoulder counter-twist, and the vertical bob are
+// continuous functions of the phase — so the cycle has no "keyframe pulse"
+// and the contacts actually match.
 
-const RUN_CYCLE: ClipKey[] = [
-  {
-    t: 0,
-    root: [0, -0.01, 0],
-    pose: {
-      UpperLegL: [-46, 0, 0], LowerLegL: [20, 0, 0], FootL: [30, 0, 0],
-      UpperLegR: [38, 0, 0], LowerLegR: [72, 0, 0], FootR: [48, 0, 0],
-      Hips: [0, 6, 0], Spine: [9, 0, 0], Chest: [6, -6, 0], Head: [-6, 4, 0],
-      UpperArmL: [30, 0, 5], LowerArmL: [-62, 0, 0],
-      UpperArmR: [-34, 0, -5], LowerArmR: [-58, 0, 0],
-    },
-  },
-  {
-    t: 0.155,
-    root: [0, -0.045, 0],
-    pose: {
-      UpperLegL: [-10, 0, 0], LowerLegL: [44, 0, 0], FootL: [20, 0, 0],
-      UpperLegR: [10, 0, 0], LowerLegR: [88, 0, 0], FootR: [55, 0, 0],
-      Hips: [0, 0, 0], Spine: [10, 0, 0], Chest: [7, 0, 0], Head: [-6, 0, 0],
-      UpperArmL: [10, 0, 5], LowerArmL: [-66, 0, 0],
-      UpperArmR: [-10, 0, -5], LowerArmR: [-64, 0, 0],
-    },
-  },
-  {
-    t: 0.31,
-    root: [0, -0.01, 0],
-    pose: {
-      UpperLegL: [38, 0, 0], LowerLegL: [72, 0, 0], FootL: [48, 0, 0],
-      UpperLegR: [-46, 0, 0], LowerLegR: [20, 0, 0], FootR: [30, 0, 0],
-      Hips: [0, -6, 0], Spine: [9, 0, 0], Chest: [6, 6, 0], Head: [-6, -4, 0],
-      UpperArmL: [-34, 0, 5], LowerArmL: [-58, 0, 0],
-      UpperArmR: [30, 0, -5], LowerArmR: [-62, 0, 0],
-    },
-  },
-  {
-    t: 0.465,
-    root: [0, -0.045, 0],
-    pose: {
-      UpperLegL: [10, 0, 0], LowerLegL: [88, 0, 0], FootL: [55, 0, 0],
-      UpperLegR: [-10, 0, 0], LowerLegR: [44, 0, 0], FootR: [20, 0, 0],
-      Hips: [0, 0, 0], Spine: [10, 0, 0], Chest: [7, 0, 0], Head: [-6, 0, 0],
-      UpperArmL: [-10, 0, 5], LowerArmL: [-64, 0, 0],
-      UpperArmR: [10, 0, -5], LowerArmR: [-66, 0, 0],
-    },
-  },
+interface GaitConfig {
+  duration: number;
+  samples: number;
+  /** Pelvis height at the lowest dip, metres. */
+  dip: number;
+  /** Rise toward mid-stance, metres. */
+  rise: number;
+  /** Extra flight bounce (run), added where the legs exchange. */
+  hop: number;
+  thigh: number;
+  kneeLoad: number;
+  kneeSwing: number;
+  toeOff: number;
+  heelOut: number;
+  splay: number;
+  armSwing: number;
+  elbowBase: number;
+  elbowBack: number;
+  lean: number;
+  hipYaw: number;
+  hipRoll: number;
+  shoulder: number;
+  headPitch: number;
+}
+
+const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+const smoothstep01 = (a: number, b: number, v: number) => {
+  const t = clamp01((v - a) / (b - a));
+  return t * t * (3 - 2 * t);
+};
+
+function legPose(a: number, cfg: GaitConfig, side: -1 | 1): Pose {
+  const stance = a <= Math.PI;
+  const q = stance ? a / Math.PI : (a - Math.PI) / Math.PI;
+  const thigh = -cfg.thigh * Math.cos(a);
+  // Stance: small shock-absorb dip mid-support. Swing: heel toward the seat,
+  // then the shank whips forward as the foot reaches.
+  const knee = stance
+    ? cfg.kneeLoad * Math.sin(a)
+    : cfg.kneeSwing * Math.pow(Math.sin(Math.PI * q), 0.82);
+  const toe = cfg.toeOff * smoothstep01(0.52, 0.98, stance ? q : 2);
+  const heel = cfg.heelOut * (stance ? 0 : smoothstep01(0.72, 1, q));
+  const foot = toe - heel + 4 * (1 - Math.abs(Math.sin(a)));
+  const leg = side < 0 ? 'L' : 'R';
+  return {
+    [`UpperLeg${leg}`]: [thigh, 0, side * cfg.splay],
+    [`LowerLeg${leg}`]: [knee, 0, 0],
+    [`Foot${leg}`]: [foot, 0, 0],
+  } as Pose;
+}
+
+function armPose(a: number, cfg: GaitConfig, side: -1 | 1): Pose {
+  // The arm swings opposite the same-side leg; elbow flexes as it goes back.
+  const arm = side < 0 ? 'L' : 'R';
+  const swing = cfg.armSwing * Math.cos(a);
+  const elbow = cfg.elbowBase + cfg.elbowBack * Math.max(0, -swing / (cfg.armSwing || 1));
+  return {
+    [`UpperArm${arm}`]: [swing, 0, side * (4 + Math.abs(swing) * 0.05)],
+    [`LowerArm${arm}`]: [-elbow, 0, 0],
+  } as Pose;
+}
+
+function gaitKeys(cfg: GaitConfig): ClipKey[] {
+  const keys: ClipKey[] = [];
+  for (let i = 0; i < cfg.samples; i++) {
+    const p = i / cfg.samples;
+    const a = p * Math.PI * 2;
+    const pose: Pose = {
+      ...legPose(a, cfg, -1),
+      ...legPose(a + Math.PI, cfg, 1),
+      ...armPose(a, cfg, -1),
+      ...armPose(a + Math.PI, cfg, 1),
+      Hips: [1.5 * Math.abs(Math.sin(a)), cfg.hipYaw * Math.cos(a), cfg.hipRoll * Math.sin(a)],
+      Spine: [cfg.lean * 0.4 + 0.6, 0, 0],
+      Chest: [cfg.lean * 0.6, -cfg.shoulder * Math.cos(a), 0],
+      Head: [-cfg.headPitch * cfg.lean + 1.5 * Math.sin(a * 2), cfg.shoulder * 0.5 * Math.cos(a), 0],
+    };
+    const dip = cfg.dip - cfg.rise * Math.abs(Math.sin(a)) + cfg.hop * Math.pow(Math.cos(a), 2);
+    keys.push({ t: +(p * cfg.duration).toFixed(4), ease: 'linear', root: [0, -dip, 0], pose });
+  }
+  return keys;
+}
+
+const WALK_CYCLE: ClipKey[] = gaitKeys({
+  duration: 1, samples: 16, dip: 0.026, rise: 0.016, hop: 0,
+  thigh: 30, kneeLoad: 9, kneeSwing: 38, toeOff: 24, heelOut: 8, splay: 5,
+  armSwing: 19, elbowBase: 21, elbowBack: 7, lean: 2.5,
+  hipYaw: 5, hipRoll: 2.2, shoulder: 5, headPitch: 0.35,
+});
+
+const RUN_CYCLE: ClipKey[] = gaitKeys({
+  duration: 0.62, samples: 16, dip: 0.046, rise: 0.026, hop: 0.03,
+  thigh: 47, kneeLoad: 16, kneeSwing: 78, toeOff: 44, heelOut: 16, splay: 6,
+  armSwing: 34, elbowBase: 56, elbowBack: 14, lean: 10,
+  hipYaw: 6.5, hipRoll: 3, shoulder: 7, headPitch: 0.7,
+});
+
+/** Low guard: sword presented off the forearm, shield hand covering the chest. */
+const GUARD_ARMS: Pose = {
+  UpperArmL: [-14, 0, 9], LowerArmL: [-62, 0, 0], HandL: [0, 0, 6],
+  UpperArmR: [4, 0, -13], LowerArmR: [-64, 0, -4], HandR: [0, 0, -8],
+};
+
+/**
+ * Draw from the belt scabbard: reach down to the hilt, come up across the
+ * hip, settle into the guard. `sheathe` replays the same poses backwards, so
+ * the two always meet at the guard without drift.
+ */
+const DRAW_T = [0, 0.18, 0.34, 0.55];
+const DRAW_POSES: Pose[] = [
+  { ...RELAXED_ARMS },
+  { ...RELAXED_ARMS, UpperArmR: [34, -10, -32], LowerArmR: [-36, 0, 0], Head: [10, 10, 0], Chest: [4, 12, 1], Spine: [3, 6, 0] },
+  { UpperArmR: [6, -6, -22], LowerArmR: [-58, 0, -4], HandR: [0, 0, -6], UpperArmL: [-8, 0, 9], LowerArmL: [-30, 0, 0], Head: [2, 4, 0], Chest: [2, 4, 0], Spine: [1, 2, 0] },
+  { ...GUARD_ARMS, Chest: [-1, 0, 0], Spine: [1, 0, 0] },
 ];
+const DRAW_EASES: EaseName[] = ['inout', 'in', 'smooth', 'out'];
+function drawSheatheClip(name: 'draw' | 'sheathe'): ClipDef {
+  const poses = name === 'draw' ? DRAW_POSES : DRAW_POSES.slice().reverse();
+  const keys: ClipKey[] = poses.map((pose, i) => ({
+    t: name === 'draw' ? DRAW_T[i] : +(0.55 - DRAW_T[DRAW_POSES.length - 1 - i]).toFixed(3),
+    ease: name === 'draw' ? DRAW_EASES[i] : DRAW_EASES[DRAW_POSES.length - 1 - i],
+    pose,
+  }));
+  return { name, duration: 0.55, loop: false, previewOnly: false, keys };
+}
 
 export const CLIP_DEFS: Record<ClipName, ClipDef> = {
   idle: idleClip('idle', RELAXED_ARMS, 1, 1),
+  idle_drawn: idleClip('idle_drawn', GUARD_ARMS, 1.15, 0.85),
   idle_dual: idleClip('idle_dual', DUAL_ARMS, 1.25, 0.7),
   idle_bow: idleClip('idle_bow', RELAXED_ARMS, 0.9, 1.3),
 
@@ -747,6 +791,9 @@ export const CLIP_DEFS: Record<ClipName, ClipDef> = {
   // Wagon-seat sit: the avatar origin rides AT the seat (~1.1 m up), so the
   // hips drop to just above the cushion, thighs level, calves dangling, hands
   // forward where the reins run. Held while mounted / riding the journey.
+  draw: drawSheatheClip('draw'),
+  sheathe: drawSheatheClip('sheathe'),
+
   sit_chair: {
     name: 'sit_chair',
     duration: 0.7,

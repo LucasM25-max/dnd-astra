@@ -391,6 +391,23 @@ export function paintMail(ctx: Ctx, w: number, h: number, base = '#6a6f76', seed
       ctx.fill();
     }
   }
+  // Rust freckles, heavier toward the shirt's hem, plus a dirt gradient at
+  // the bottom edge — mail that has seen a season reads darker where the
+  // skirt drags, not uniformly painted.
+  for (let i = 0; i < w * 0.6; i++) {
+    const x = rand() * w;
+    const t = rand();
+    const y = h * (0.35 + t * 0.65);
+    ctx.fillStyle = rgba(hexToRgb(rand() < 0.6 ? '#7a4a24' : '#4a3322'), 0.05 + rand() * 0.16 * (0.3 + t));
+    ctx.beginPath();
+    ctx.arc(x, y % h, Math.max(0.7, ringR * (0.1 + rand() * 0.22)), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const hem = ctx.createLinearGradient(0, h * 0.8, 0, h);
+  hem.addColorStop(0, 'rgba(10,11,13,0)');
+  hem.addColorStop(1, 'rgba(10,11,13,0.34)');
+  ctx.fillStyle = hem;
+  ctx.fillRect(0, h * 0.8, w, h * 0.2);
   grain(ctx, w, h, rand, w * h * 0.01, '#cfd4dc', '#0c0d10', 0.12);
 }
 
@@ -449,6 +466,31 @@ export function paintPlate(ctx: Ctx, w: number, h: number, base = '#8a9098', see
   edge.addColorStop(1, rgba(hexToRgb('#ffffff'), 0));
   ctx.fillStyle = edge;
   ctx.fillRect(0, 0, w, h * 0.3);
+  // Rain streaks: faint vertical weathering, brighter on the upper faces.
+  for (let i = 0; i < w / 3; i++) {
+    const x = rand() * w;
+    const y0 = rand() * h * 0.4;
+    const len = h * (0.2 + rand() * 0.6);
+    const sg = ctx.createLinearGradient(0, y0, 0, y0 + len);
+    sg.addColorStop(0, rgba(hexToRgb('#0c0d10'), 0.10));
+    sg.addColorStop(1, rgba(hexToRgb('#0c0d10'), 0));
+    ctx.fillStyle = sg;
+    ctx.fillRect(x, y0, Math.max(1, w / 160), len);
+  }
+  // A couple of shallow dents catch the light.
+  for (let i = 0; i < 4; i++) {
+    const x = rand() * w;
+    const y = h * (0.2 + rand() * 0.6);
+    const r = w * (0.02 + rand() * 0.03);
+    const dg = ctx.createRadialGradient(x, y - r * 0.3, r * 0.2, x, y, r);
+    dg.addColorStop(0, 'rgba(255,255,255,0.16)');
+    dg.addColorStop(0.65, 'rgba(12,13,16,0.12)');
+    dg.addColorStop(1, 'rgba(12,13,16,0)');
+    ctx.fillStyle = dg;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
   grain(ctx, w, h, rand, w * h * 0.008, '#ffffff', '#202329', 0.1);
 }
 
