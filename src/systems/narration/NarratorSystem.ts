@@ -1,17 +1,34 @@
 import type { NarratorCamera, CameraFocus } from './NarratorCamera';
-import { hideCinematicSubtitle, showCinematicSubtitle } from './NarratorSubtitles';
+import { hideNarratorBox, paintVoice, setNarratorBoxProgress, showNarratorBox } from './NarratorBox';
 
 /**
- * One-shot narrator voice-over (interaction lines, rest lines). A second audio
- * element so the chapter timeline is never hijacked; timed subtitles keep
- * every line usable when voice is muted, missing, or blocked.
+ * One-shot narrator voice-over (interaction lines, rest lines, the horses).
+ * A second audio element so the chapter timeline is never hijacked.
+ *
+ * Every line is read in the same boxed panel as the opening chapter
+ * (NarratorBox), with the progress rail tracking the voice (or the timed
+ * subtitle fallback when voice is muted, missing, or blocked).
  */
 interface QueuedLine {
   clipId: string;
   text: string;
   focus: CameraFocus | null;
   duration: number;
+  heading?: string;
+  chapter?: string;
+  dollyIn: number;
+  dollyOut: number;
   resolve: () => void;
+}
+
+export interface NarrateOptions {
+  /** Italic aside in the box header. */
+  heading?: string;
+  /** Small-caps rail label. */
+  chapter?: string;
+  /** Cinematic dolly-in / dolly-out durations in ms. */
+  dollyIn?: number;
+  dollyOut?: number;
 }
 
 export const ONE_SHOT_CLIPS = [
@@ -22,6 +39,9 @@ export const ONE_SHOT_CLIPS = [
   'something_stirs',
   'well_rested_already',
   'retreated_for_now',
+  'horses_settle',
+  'horses_refuse',
+  'horses_tied',
 ] as const;
 export type OneShotClipId = (typeof ONE_SHOT_CLIPS)[number];
 
@@ -33,6 +53,9 @@ const FALLBACK_DURATIONS: Record<string, number> = {
   something_stirs: 3.262,
   well_rested_already: 4.457,
   retreated_for_now: 7.874,
+  horses_settle: 4.6,
+  horses_refuse: 4.8,
+  horses_tied: 5.2,
 };
 
 export class NarratorSystem {
@@ -43,6 +66,7 @@ export class NarratorSystem {
   private durations = new Map<string, number>(Object.entries(FALLBACK_DURATIONS));
   private voiceEnabled = true;
   private paused = false;
+  private progressRaf = 0;
 
   constructor(private camera: NarratorCamera | null = null) {
     this.audio.preload = 'auto';
@@ -71,9 +95,11 @@ export class NarratorSystem {
   setVoiceEnabled(enabled: boolean): void {
     this.voiceEnabled = enabled;
     if (!enabled) this.audio.pause();
+    else if (this.playing && this.audio.src && this.audio.currentTime > 0) void this.audio.play().catch(() => {});
     try {
       localStorage.setItem('astra-narrator-voice', enabled ? 'on' : 'off');
     } catch { /* Session-only preference. */ }
+    paintVoice(enabled, false);
   }
 
   get isVoiceEnabled(): boolean {
@@ -89,10 +115,15 @@ export class NarratorSystem {
   }
 
   /** Speak a line (queued; resolves when voice/subtitles finish and camera restores). */
-  narrate(clipId: string, text: string, focus: CameraFocus | null = null, duration?: number): Promise<void> {
+  narrate(clipId: string, text: string, focus: CameraFocus | null = null, duration?: number, opts: NarrateOptions = {}): Promise<void> {
     const lineDuration = duration ?? this.durations.get(clipId) ?? Math.max(2.5, text.length / 16);
     return new Promise(resolve => {
-      this.queue.push({ clipId, text, focus, duration: lineDuration, resolve });
+      this.queue.push({
+        clipId, text, focus, duration: lineDuration,
+        heading: opts.heading, chapter: opts.chapter,
+        dollyIn: opts.dollyIn ?? 800, dollyOut: opts.dollyOut ?? 800,
+        resolve,
+      });
       void this.pump();
     });
   }
@@ -103,9 +134,9 @@ export class NarratorSystem {
     if (!line) return;
     this.playing = true;
     try {
-      if (line.focus && this.camera) await this.camera.dollyTo(line.focus, 800);
+      if (line.focus && this.camera) await this.camera.dollyTo(line.focus, line.dollyIn);
       await this.speak(line);
-      if (line.focus && this.camera) await this.camera.restore(800);
+      if (line.focus && this.camera) await this.camera.restore(line.dollyOut);
     } finally {
       this.playing = false;
       line.resolve();
@@ -114,9 +145,21 @@ export class NarratorSystem {
   }
 
   private speak(line: QueuedLine): Promise<void> {
-    showCinematicSubtitle(line.text);
+    let fallback = false;
+    showNarratorBox({
+      text: line.text,
+      heading: line.heading,
+      chapter: line.chapter,
+      voiceEnabled: this.voiceEnabled,
+      toggleVoice: () => this.setVoiceEnabled(!this.voiceEnabled),
+    });
+    this.trackProgress(line, () => fallback);
     const url = this.urls.get(line.clipId);
-    if (!this.voiceEnabled || !url) return this.timed(line.duration);
+    if (!this.voiceEnabled || !url) {
+      fallback = true;
+      paintVoice(this.voiceEnabled, true);
+      return this.timed(line.duration);
+    }
     return new Promise(resolve => {
       let done = false;
       const finish = (): void => {
@@ -127,22 +170,30 @@ export class NarratorSystem {
         this.audio.onerror = null;
         window.clearTimeout(stall);
         window.clearTimeout(hard);
-        hideCinematicSubtitle();
+        this.stopProgress();
+        hideNarratorBox();
         resolve();
       };
       // Stall guard + hard cap so a missing clip can never hang the game.
       const stall = window.setTimeout(() => {
-        if (this.audio.readyState < 2) void this.timed(line.duration).then(finish);
+        if (this.audio.readyState < 2) {
+          fallback = true;
+          paintVoice(this.voiceEnabled, true);
+          void this.timed(line.duration).then(finish);
+        }
       }, 2500);
       const hard = window.setTimeout(finish, Math.max(4000, line.duration * 1000 + 4000));
       this.audio.onended = finish;
       this.audio.onerror = () => {
         window.clearTimeout(stall);
+        fallback = true;
+        paintVoice(this.voiceEnabled, true);
         void this.timed(line.duration).then(() => {
           window.clearTimeout(hard);
           if (!done) {
             done = true;
-            hideCinematicSubtitle();
+            this.stopProgress();
+            hideNarratorBox();
             resolve();
           }
         });
@@ -151,6 +202,25 @@ export class NarratorSystem {
       this.audio.load();
       if (!this.paused) void this.audio.play().catch(() => this.audio.onerror?.(new Event('error')));
     });
+  }
+
+  /** Progress rail follows the voice clock, or the timed fallback when muted. */
+  private trackProgress(line: QueuedLine, isFallback: () => boolean): void {
+    this.stopProgress();
+    const start = performance.now();
+    const frame = (now: number): void => {
+      const voiced = !isFallback() && this.audio.readyState >= 2 && !this.audio.paused && this.audio.duration > 0;
+      const span = voiced ? Math.max(line.duration, this.audio.duration) : line.duration;
+      const elapsed = voiced ? this.audio.currentTime : (now - start) / 1000;
+      setNarratorBoxProgress(span > 0 ? elapsed / span : 1);
+      this.progressRaf = requestAnimationFrame(frame);
+    };
+    this.progressRaf = requestAnimationFrame(frame);
+  }
+
+  private stopProgress(): void {
+    if (this.progressRaf) cancelAnimationFrame(this.progressRaf);
+    this.progressRaf = 0;
   }
 
   private timed(seconds: number): Promise<void> {

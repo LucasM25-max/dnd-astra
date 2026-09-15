@@ -123,30 +123,71 @@ function buildTree(seed: number, detailed = true) {
   return { trunk: trunk.geometry(), leaf: foliage.geometry(), radius, h };
 }
 export interface Nature { grass: THREE.InstancedMesh; ferns: THREE.InstancedMesh; detailCounts: number[]; trees: number }
+export interface Nature { grass: THREE.InstancedMesh; ferns: THREE.InstancedMesh; detailCounts: number[]; trees: number }
+/**
+ * The woodland is a proper dense forest everywhere the player can walk
+ * outside the worn corridors: three density zones of oaks (tight around the
+ * play area, easing out to a backdrop silhouette), a shrub/fern/grass
+ * understory carpet, scattered boulders and pebbles, and fallen deadwood.
+ *
+ * Walkability is preserved by construction: trunks keep a Poisson minimum
+ * distance that always leaves a corridor wider than the player capsule,
+ * boulders only become colliders above a size threshold and keep their
+ * distance from every other blocker, and the road, trail, camp terrace and
+ * ambush clearing stay clear of growth.
+ */
 export function createForest(scene: THREE.Scene, mat: Materials, collisions: CollisionField): Nature {
   const rng = seededRandom(41721), dummy = new THREE.Object3D();
-  const positions: { x: number; z: number; scale: number; angle: number; type: number }[] = [];
+  const positions: { x: number; z: number; scale: number; angle: number; type: number; spacing: number }[] = [];
+  const grid = new Map<string, number[]>();
+  const cellKey = (x: number, z: number) => `${Math.floor(x / 4)},${Math.floor(z / 4)}`;
+  const tooClose = (x: number, z: number, min: number) => {
+    const cx = Math.floor(x / 4), cz = Math.floor(z / 4);
+    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
+      for (const i of grid.get(`${cx + a},${cz + b}`) ?? []) {
+        const p = positions[i], need = Math.max(min, p.spacing);
+        if ((p.x - x) ** 2 + (p.z - z) ** 2 < need ** 2) return true;
+      }
+    }
+    return false;
+  };
+  const push = (x: number, z: number, spacing: number) => {
+    positions.push({ x, z, scale: .76 + rng() * .56, angle: rng() * Math.PI * 2, type: Math.floor(rng() * 4), spacing });
+    const key = cellKey(x, z), list = grid.get(key) ?? [];
+    list.push(positions.length - 1); grid.set(key, list);
+  };
   const heroes = [[-14, -.2], [-8, -1.1], [-2, -.9], [2.5, -4], [5, -7], [13.2, -4.4], [15, 6.9], [-4, 9.3], [-15, 10], [-.8, -10], [4, 9.1], [-22, -.8]];
   for (const [x, z] of heroes) {
     if (campDistance(x, z) < CAMP.clearRadius) continue; // the camp clearing keeps its frame of trunks clear
-    positions.push({ x, z, scale: .92 + rng() * .24, angle: rng() * 6.28, type: Math.floor(rng() * 4) });
+    positions.push({ x, z, scale: .92 + rng() * .24, angle: rng() * 6.28, type: Math.floor(rng() * 4), spacing: 3.15 });
   }
-  for (let tries = 0; tries < 18000 && positions.length < 315; tries++) {
-    const near = positions.length < 145;
-    const x = (rng() - .5) * (near ? 72 : 147), z = (rng() - .57) * (near ? 74 : 150);
-    if (pathDistance(x, z) < 1.8 || Math.hypot(x - SPAWN.x, z - SPAWN.z) < 3.8) continue;
-    if (campDistance(x, z) < CAMP.clearRadius) continue;
-    const spacing = near ? 3.15 : 3.9;
-    if (positions.some(p => (p.x - x) ** 2 + (p.z - z) ** 2 < spacing ** 2)) continue;
-    positions.push({ x, z, scale: .76 + rng() * .56, angle: rng() * Math.PI * 2, type: Math.floor(rng() * 4) });
+  // Zone A: the walkable play forest. Zone B: surrounding woodland.
+  // Zone C: horizon backdrop so the canopy never ends abruptly.
+  const zones = [
+    { hx: 27, hz: 27, spacing: 2.2, cap: 620, tries: 90000 },
+    { hx: 60, hz: 58, spacing: 3.2, cap: 820, tries: 110000 },
+    { hx: 78, hz: 76, spacing: 6.5, cap: 240, tries: 40000 },
+  ];
+  for (const zone of zones) {
+    let placed = 0;
+    for (let tries = 0; tries < zone.tries && placed < zone.cap; tries++) {
+      const x = (rng() - .5) * 2 * zone.hx, z = (rng() - .52) * 2 * zone.hz;
+      if (pathDistance(x, z) < 1.8 || Math.hypot(x - SPAWN.x, z - SPAWN.z) < 3.8) continue;
+      if (campDistance(x, z) < CAMP.clearRadius) continue;
+      if (tooClose(x, z, zone.spacing)) continue;
+      push(x, z, zone.spacing); placed++;
+    }
   }
+  // Blocker list (trunk colliders) so boulders and deadwood never pinch a
+  // walking corridor closed.
+  const blockers: { x: number; z: number; r: number }[] = [];
   for (let type = 0; type < 4; type++) {
     for (const near of [true, false]) {
       const geo = buildTree(type * 913 + 529, near);
       // Spatial batches retain instancing while letting the frustum discard whole forest patches.
       const buckets = new Map<string, typeof positions>();
-      for (const p of positions.filter(p => p.type === type && (Math.hypot(p.x + 4, p.z) < 29) === near)) {
-        const key = `${Math.floor(p.x / 16)},${Math.floor(p.z / 16)}`;
+      for (const p of positions.filter(p => p.type === type && (Math.hypot(p.x + 4, p.z) < 26) === near)) {
+        const key = `${Math.floor(p.x / 28)},${Math.floor(p.z / 28)}`;
         const points = buckets.get(key) ?? []; points.push(p); buckets.set(key, points);
       }
       for (const pts of buckets.values()) {
@@ -156,23 +197,25 @@ export function createForest(scene: THREE.Scene, mat: Materials, collisions: Col
         const y = terrainHeight(p.x, p.z) - .07;
         dummy.position.set(p.x, y, p.z); dummy.rotation.set(0, p.angle, (rng() - .5) * .035); dummy.scale.setScalar(p.scale); dummy.updateMatrix();
         trunks.setMatrixAt(i, dummy.matrix); leaves.setMatrixAt(i, dummy.matrix);
-        collisions.add({ x: p.x, z: p.z, radius: geo.radius * p.scale * 1.17, bottom: y, top: y + geo.h * p.scale });
+        const r = geo.radius * p.scale * 1.17;
+        collisions.add({ x: p.x, z: p.z, radius: r, bottom: y, top: y + geo.h * p.scale });
+        blockers.push({ x: p.x, z: p.z, r });
       });
-      const roadShadows = near || pts.some(p => Math.abs(p.x) < 49 && pathDistance(p.x, p.z) < 6);
+      const roadShadows = pts.some(p => Math.abs(p.x) < 49 && (pathDistance(p.x, p.z) < 4.5 || Math.hypot(p.x - 6, p.z - 2.2) < 13 || campDistance(p.x, p.z) < 11));
       trunks.castShadow = roadShadows; trunks.receiveShadow = true;
       leaves.castShadow = roadShadows; leaves.receiveShadow = true; leaves.customDepthMaterial = mat.leafDepth;
       trunks.name = `Old-growth oak trunks ${type}`; leaves.name = `Wind-stirred oak canopy ${type}`;
-      for (const mesh of [trunks, leaves]) mesh.userData.density = { total: pts.length, performance: near ? .42 : .18, balanced: near ? .85 : .7 };
+      for (const mesh of [trunks, leaves]) mesh.userData.density = { total: pts.length, performance: near ? .5 : .3, balanced: near ? .68 : .5 };
       trunks.computeBoundingSphere(); leaves.computeBoundingSphere();
       scene.add(trunks, leaves);
       }
     }
   }
-  createRocks(scene, mat, collisions);
+  createRocks(scene, mat, collisions, blockers);
   const grass = createGrass(scene, mat, rng);
   const ferns = createFerns(scene, mat, rng);
   createShrubs(scene, mat, rng);
-  createDeadwood(scene, mat, collisions, rng);
+  createDeadwood(scene, mat, collisions, rng, blockers);
   return { grass, ferns, detailCounts: [grass.count, ferns.count], trees: positions.length };
 }
 function rockGeometry(seed: number) {
@@ -190,7 +233,7 @@ function rockGeometry(seed: number) {
   g.deleteAttribute('normal'); g = mergeVertices(g, .0001); g.computeVertexNormals();
   return g;
 }
-function createRocks(scene: THREE.Scene, mat: Materials, collision: CollisionField) {
+function createRocks(scene: THREE.Scene, mat: Materials, collision: CollisionField, blockers: { x: number; z: number; r: number }[]) {
   const rng = seededRandom(112), dummy = new THREE.Object3D();
   const points: {x: number; z: number; s: number}[] = [];
   for (const path of [ROAD, TRAIL]) {
@@ -207,10 +250,23 @@ function createRocks(scene: THREE.Scene, mat: Materials, collision: CollisionFie
       }
     }
   }
-  for (let i = 0; i < 105; i++) {
-    const x = (rng() - .5) * 95, z = (rng() - .5) * 98;
-    if (pathDistance(x, z) < .2) continue;
-    points.push({ x, z, s: .3 + rng() * 1.18 });
+  // Boulders scattered through the whole forest floor, thinning only on the
+  // worn corridors, the camp terrace and the ambush clearing.
+  const clearOfBlockers = (x: number, z: number, r: number) => {
+    for (const b of blockers) if ((b.x - x) ** 2 + (b.z - z) ** 2 < (b.r + r + .75) ** 2) return false;
+    return true;
+  };
+  for (let i = 0; i < 5200 && points.length < 780; i++) {
+    const x = (rng() - .5) * 108, z = (rng() - .5) * 104;
+    const d = pathDistance(x, z);
+    if (d < .2) continue;
+    if (campDistance(x, z) < 5.2) continue;
+    if (Math.hypot(x - 6, z - 2.2) < 4.5) continue;
+    const s = .22 + rng() * 1.26;
+    // Colliding boulders keep a walkable gap from every other blocker.
+    if (s > .62 && !clearOfBlockers(x, z, s * .64)) continue;
+    points.push({ x, z, s });
+    if (s > .62) blockers.push({ x, z, r: s * .64 });
   }
   for (let type = 0; type < 3; type++) {
     const pts = points.filter((_, i) => i % 3 === type);
@@ -219,21 +275,24 @@ function createRocks(scene: THREE.Scene, mat: Materials, collision: CollisionFie
       const y = terrainHeight(p.x, p.z);
       dummy.position.set(p.x, y + p.s * .08, p.z); dummy.rotation.set((rng() - .5) * .45, rng() * 6.28, (rng() - .5) * .3); dummy.scale.set(p.s, p.s * (.65 + rng() * .5), p.s * (.7 + rng() * .65)); dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
-      collision.add({ x: p.x, z: p.z, radius: p.s * .64, bottom: y - .2, top: y + p.s * .55 });
+      if (p.s > .62) collision.add({ x: p.x, z: p.z, radius: p.s * .64, bottom: y - .2, top: y + p.s * .55 });
     });
     mesh.castShadow = true; mesh.receiveShadow = true; mesh.computeBoundingSphere(); scene.add(mesh);
   }
   const pebbleGeo = new THREE.IcosahedronGeometry(1, 0);
-  pebbleGeo.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(pebbleGeo.getAttribute('position').count * 3).fill(.72), 3));
-  const pebbles = new THREE.InstancedMesh(pebbleGeo, mat.stone, 900);
+  pebbleGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(pebbleGeo.getAttribute('position').count * 3).fill(.72), 3));
+  const pebbles = new THREE.InstancedMesh(pebbleGeo, mat.stone, 2800);
   let n = 0;
-  for (let i = 0; i < 12000 && n < 900; i++) {
-    const x = (rng() - .5) * 75, z = (rng() - .5) * 67;
-    if (pathDistance(x, z) > 1.5) continue;
+  for (let i = 0; i < 40000 && n < 2800; i++) {
+    const x = (rng() - .5) * 96, z = (rng() - .5) * 92;
+    const d = pathDistance(x, z);
+    if (d < -.2 || d > 34) continue;
+    if (campDistance(x, z) < 3.4) continue;
+    if (d > 1.5 && rng() > .5) continue;
     const s = .014 + rng() ** 2 * .066;
     dummy.position.set(x, terrainHeight(x, z) + s * .2, z); dummy.rotation.set(rng(), rng() * 6.28, rng()); dummy.scale.set(s * 1.2, s * .7, s); dummy.updateMatrix(); pebbles.setMatrixAt(n++, dummy.matrix);
   }
-  pebbles.userData.density = { total: n, performance: .35, balanced: .75 };
+  pebbles.userData.density = { total: n, performance: .4, balanced: .78 };
   pebbles.count = n; pebbles.receiveShadow = true; pebbles.computeBoundingSphere(); scene.add(pebbles);
 }
 function grassGeometry() {
@@ -255,12 +314,12 @@ function grassGeometry() {
 }
 function createGrass(scene: THREE.Scene, mat: Materials, rng: Rng) {
   const points: {x: number; z: number; s: number}[] = [];
-  for (let i = 0; i < 65000 && points.length < 10500; i++) {
-    const x = (rng() - .5) * 93, z = (rng() - .5) * 86;
+  for (let i = 0; i < 120000 && points.length < 20000; i++) {
+    const x = (rng() - .5) * 104, z = (rng() - .5) * 98;
     const d = pathDistance(x, z);
-    if (d < -.1 || d > 19 || terrainSlope(x, z) > 1.45) continue;
+    if (d < -.1 || d > 32 || terrainSlope(x, z) > 1.45) continue;
     if (campDistance(x, z) < 3.1) continue;
-    if (rng() > (.46 + noise(x * .4, z * .4) * .45) * (d > 6 ? .55 : 1)) continue;
+    if (rng() > (.52 + noise(x * .4, z * .4) * .5) * (d > 6 ? .8 : 1)) continue;
     points.push({ x, z, s: .55 + rng() * 1.3 });
   }
   points.sort((a, b) => pathDistance(a.x, a.z) - pathDistance(b.x, b.z));
@@ -268,7 +327,9 @@ function createGrass(scene: THREE.Scene, mat: Materials, rng: Rng) {
   points.forEach((p, i) => {
     dummy.position.set(p.x, terrainHeight(p.x, p.z) - .025, p.z); dummy.rotation.set(0, rng() * 6.28, 0); dummy.scale.setScalar(p.s); dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix);
   });
-  mesh.receiveShadow = true; mesh.computeBoundingSphere(); mesh.name = 'Individual windblown grass blades'; scene.add(mesh); return mesh;
+  mesh.receiveShadow = true; mesh.computeBoundingSphere(); mesh.name = 'Individual windblown grass blades';
+  mesh.userData.density = { total: points.length, performance: .34, balanced: .6 };
+  scene.add(mesh); return mesh;
 }
 function fernGeometry() {
   const b = new Builder(), rng = seededRandom(2092);
@@ -292,10 +353,12 @@ function fernGeometry() {
 }
 function createFerns(scene: THREE.Scene, mat: Materials, rng: Rng) {
   const points: {x: number; z: number; s: number}[] = [];
-  for (let i = 0; i < 10000 && points.length < 380; i++) {
-    const x = (rng() - .5) * 80, z = (rng() - .52) * 73, d = pathDistance(x, z);
-    if (d < .25 || d > 6 || terrainSlope(x, z) > 1.25) continue;
+  for (let i = 0; i < 60000 && points.length < 1500; i++) {
+    const x = (rng() - .5) * 96, z = (rng() - .52) * 90, d = pathDistance(x, z);
+    if (d < .25 || d > 18 || terrainSlope(x, z) > 1.25) continue;
     if (campDistance(x, z) < 4.6) continue;
+    if (Math.hypot(x - 6, z - 2.2) < 3.2) continue;
+    if (rng() > .8) continue;
     points.push({ x, z, s: .42 + rng() * .68 });
   }
   points.sort((a, b) => pathDistance(a.x, a.z) - pathDistance(b.x, b.z));
@@ -303,7 +366,9 @@ function createFerns(scene: THREE.Scene, mat: Materials, rng: Rng) {
   points.forEach((p, i) => {
     dummy.position.set(p.x, terrainHeight(p.x, p.z) - .025, p.z); dummy.rotation.set(0, rng() * 6.28, 0); dummy.scale.setScalar(p.s); dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix);
   });
-  mesh.receiveShadow = true; mesh.castShadow = true; mesh.computeBoundingSphere(); mesh.name = 'Pinnate woodland ferns'; scene.add(mesh); return mesh;
+  mesh.receiveShadow = true; mesh.computeBoundingSphere(); mesh.name = 'Pinnate woodland ferns';
+  mesh.userData.density = { total: points.length, performance: .4, balanced: .6 };
+  scene.add(mesh); return mesh;
 }
 function createShrubs(scene: THREE.Scene, mat: Materials, rng: Rng) {
   const b = new Builder();
@@ -313,30 +378,42 @@ function createShrubs(scene: THREE.Scene, mat: Materials, rng: Rng) {
     leafCard(b, p, .35 + rng() * .3, rng, new THREE.Color().setHSL(.23 + rng() * .06, .33, .45 + rng() * .3));
   }
   const points: THREE.Vector3[] = [];
-  for (let i = 0; i < 9000 && points.length < 275; i++) {
-    const x = (rng() - .5) * 100, z = (rng() - .55) * 94, d = pathDistance(x, z);
-    if (d < .6 || d > 9) continue;
-    if (campDistance(x, z) < 4.9) continue;
+  for (let i = 0; i < 90000 && points.length < 1600; i++) {
+    const x = (rng() - .5) * 104, z = (rng() - .55) * 98, d = pathDistance(x, z);
+    if (d < .55 || d > 26) continue;
+    if (campDistance(x, z) < 5.1) continue;
+    if (Math.hypot(x - 6, z - 2.2) < 3.6) continue;
+    if (rng() > .72 + noise(x * .3, z * .3) * .28) continue;
     points.push(new THREE.Vector3(x, terrainHeight(x, z), z));
   }
+  points.sort((a, b2) => pathDistance(a.x, a.z) - pathDistance(b2.x, b2.z));
   const mesh = new THREE.InstancedMesh(b.geometry(), mat.leaves, points.length), dummy = new THREE.Object3D();
   points.forEach((p, i) => {
     dummy.position.copy(p); dummy.rotation.set(0, rng() * 6.28, 0); dummy.scale.setScalar(.7 + rng() * 1.1); dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix);
   });
-  mesh.userData.density = { total: points.length, performance: .45, balanced: .8 };
+  mesh.userData.density = { total: points.length, performance: .45, balanced: .7 };
   mesh.castShadow = true; mesh.receiveShadow = true; mesh.customDepthMaterial = mat.leafDepth; mesh.computeBoundingSphere(); scene.add(mesh);
   // A little colour, never a carpet of identical flowers.
-  const flowerGeo = new THREE.SphereGeometry(.027, 5, 4), flowers = new THREE.InstancedMesh(flowerGeo, new THREE.MeshStandardMaterial({ color: '#d3d2b1', roughness: .9 }), 220);
+  const flowerGeo = new THREE.SphereGeometry(.027, 5, 4), flowers = new THREE.InstancedMesh(flowerGeo, new THREE.MeshStandardMaterial({ color: '#d3d2b1', roughness: .9 }), 420);
   let n = 0;
-  for (let i = 0; i < 4000 && n < 220; i++) {
+  for (let i = 0; i < 9000 && n < 420; i++) {
     const x = (rng() - .5) * 42, z = (rng() - .5) * 37, d = pathDistance(x, z);
     if (d < .35 || d > 2.1) continue;
     dummy.position.set(x, terrainHeight(x, z) + .15 + rng() * .2, z); dummy.scale.set(1, .5, 1); dummy.updateMatrix(); flowers.setMatrixAt(n++, dummy.matrix);
   }
   flowers.count = n; flowers.computeBoundingSphere(); scene.add(flowers);
 }
-function createDeadwood(scene: THREE.Scene, mat: Materials, collision: CollisionField, rng: Rng) {
-  const locs = [[-5, -2.6, .4, 3.3], [1, 8.1, 1.6, 3], [13, -11.5, .8, 2.6], [-16, 9.3, 2, 2.8]];
+function createDeadwood(scene: THREE.Scene, mat: Materials, collision: CollisionField, rng: Rng, blockers: { x: number; z: number; r: number }[]) {
+  const locs: [number, number, number, number][] = [[-5, -2.6, .4, 3.3], [1, 8.1, 1.6, 3], [13, -11.5, .8, 2.6], [-16, 9.3, 2, 2.8]];
+  // A handful more fallen trunks deepen the forest floor; each keeps clear of
+  // the corridors, the camp, the clearing, and every other walking blocker.
+  for (let i = 0; i < 400 && locs.length < 11; i++) {
+    const x = (rng() - .5) * 74, z = (rng() - .5) * 70;
+    if (pathDistance(x, z) < 2.6 || campDistance(x, z) < 8 || Math.hypot(x - 6, z - 2.2) < 6) continue;
+    if (terrainSlope(x, z) > .5) continue;
+    if (blockers.some(b => (b.x - x) ** 2 + (b.z - z) ** 2 < (b.r + 1.6) ** 2)) continue;
+    locs.push([x, z, rng() * Math.PI, 2.4 + rng() * 1.6]);
+  }
   for (const [x, z, angle, length] of locs) {
     const group = new THREE.Group(); group.position.set(x, terrainHeight(x, z) + .18, z); group.rotation.y = angle;
     const builder = new Builder();
@@ -351,6 +428,7 @@ function createDeadwood(scene: THREE.Scene, mat: Materials, collision: Collision
     for (let t = -length / 2; t <= length / 2; t += .5) {
       const px = x + Math.cos(angle) * t, pz = z - Math.sin(angle) * t;
       collision.add({ x: px, z: pz, radius: .2, bottom: group.position.y - .2, top: group.position.y + .2 });
+      blockers.push({ x: px, z: pz, r: .2 });
     }
   }
 }

@@ -304,15 +304,18 @@ function buildShin(rig: HeroRig, side: -1 | 1): PartBuild {
 function buildFoot(rig: HeroRig, side: -1 | 1): PartBuild {
   const s = side < 0 ? 'R' : 'L';
   const ankle = rig.bindPos[`Foot${s}` as BoneName];
+  // A plain boot *last*: the marching boot (HeroArmour) shells this volume,
+  // so every bump stays inside the leather. The old heel/toe balls poked out
+  // behind the boot's heel and read as a second toe facing backwards.
   const parts: THREE.BufferGeometry[] = [];
-  const wedge = new RoundedBoxGeometry(0.092, 0.078, 0.19, 3, 0.03);
-  wedge.translate(ankle.x, 0.052, ankle.z + 0.055);
+  const wedge = new RoundedBoxGeometry(0.086, 0.068, 0.165, 3, 0.028);
+  wedge.translate(ankle.x, 0.056, ankle.z + 0.06);
   parts.push(wedge);
-  const toe = ball(0.046, [1, 0.72, 1.1]);
-  toe.translate(ankle.x, 0.042, ankle.z + 0.155);
+  const toe = ball(0.036, [1, 0.68, 1.0]);
+  toe.translate(ankle.x, 0.05, ankle.z + 0.125);
   parts.push(toe);
-  const heel = ball(0.042, [1, 1, 1]);
-  heel.translate(ankle.x, 0.055, ankle.z - 0.045);
+  const heel = ball(0.032, [1, 0.9, 0.9]);
+  heel.translate(ankle.x, 0.058, ankle.z + 0.008);
   parts.push(heel);
   const geo = mergeParts(parts);
   return { geo, slot: 'foot', rule: rigidRule(boneIndex(`Foot${s}` as BoneName)) };

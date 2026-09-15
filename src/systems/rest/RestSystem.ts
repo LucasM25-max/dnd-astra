@@ -76,6 +76,7 @@ export class RestSystem {
         'The road ahead is long, and the shadows grow deeper. Best to rest while you can.',
         null,
         4.0,
+        { heading: 'Make camp', chapter: 'THE CAMPFIRE' },
       );
     }
     // Hold a static wide shot of the whole campsite behind the menu.
@@ -110,6 +111,7 @@ export class RestSystem {
           "You're well-rested already. The night won't make you any readier.",
           null,
           3.5,
+          { heading: 'Make camp', chapter: 'THE CAMPFIRE' },
         );
       }
       const fire = this.deps.firePosition();
@@ -124,7 +126,7 @@ export class RestSystem {
         diceSfx.startNightAmbience();
         await this.deps.cinematic.holdNight();
         await this.deps.hero.playOneShot('stand_up');
-        await this.deps.narrator.narrate('something_stirs', 'Something stirs in the darkness…', null, 2.5);
+        await this.deps.narrator.narrate('something_stirs', 'Something stirs in the darkness…', null, 2.5, { heading: 'Deep night', chapter: 'DEEP NIGHT' });
         const perceptionMod = activePerceptionModifier(c, this.deps.clock.epochMinutes);
         const check = await roll({ die: 20, modifier: perceptionMod, label: 'Perception Check', dc: REST_CONFIG.perceptionDC });
         c.alertForFutureCombat = check.success === true;
@@ -139,6 +141,7 @@ export class RestSystem {
           'Whatever lurked in the shadows has retreated… for now. You sleep uneasily for the rest of the night.',
           null,
           4.5,
+          { heading: 'Deep night', chapter: 'DEEP NIGHT' },
         );
         const resumeSit = this.deps.hero.playOneShot('long_rest_sit');
         diceSfx.stopNightAmbience();
@@ -174,7 +177,7 @@ export class RestSystem {
           ? `${this.deps.clock.dateLabel()} — dawn of a new day on the road.`
           : `Dawn, ${this.deps.clock.dateLabel()} — an early start.`,
       );
-      await this.deps.narrator.narrate('dawn_breaks', 'Dawn breaks. You feel renewed.', null, 2.5);
+      await this.deps.narrator.narrate('dawn_breaks', 'Dawn breaks. You feel renewed.', null, 2.5, { heading: 'Dawn', chapter: 'THE CAMPFIRE' });
     } finally {
       diceSfx.stopNightAmbience();
       this.resting = false;

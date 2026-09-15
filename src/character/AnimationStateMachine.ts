@@ -13,6 +13,7 @@ import type { WeaponSet } from './CharacterModel';
  */
 export type OneShotName =
   | 'interact'
+  | 'tie_knot'
   | 'second_wind'
   | 'long_rest_sit'
   | 'stand_up'
@@ -24,6 +25,7 @@ export type OneShotName =
 
 export const ONESHOT_CLIP: Record<OneShotName, ClipName> = {
   interact: 'interact',
+  tie_knot: 'tie_knot',
   second_wind: 'second_wind',
   long_rest_sit: 'long_rest_sit',
   stand_up: 'stand_up',

@@ -132,11 +132,11 @@ function buildLongbow(m: WeaponMats): THREE.Group {
 function buildQuiver(m: WeaponMats): THREE.Group {
   const g = new THREE.Group();
   g.name = 'quiver';
-  g.add(mesh(new THREE.CylinderGeometry(0.052, 0.042, 0.6, 14), m.leather, 0, 0, 0));
-  const lip = mesh(new THREE.TorusGeometry(0.05, 0.012, 8, 16), m.leather, 0, 0.3, 0);
+  g.add(mesh(new THREE.CylinderGeometry(0.046, 0.036, 0.6, 14), m.leather, 0, 0, 0));
+  const lip = mesh(new THREE.TorusGeometry(0.044, 0.011, 8, 16), m.leather, 0, 0.3, 0);
   lip.rotation.x = Math.PI / 2;
   g.add(lip);
-  g.add(mesh(new THREE.CylinderGeometry(0.046, 0.046, 0.02, 14), m.iron, 0, -0.3, 0));
+  g.add(mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.02, 14), m.iron, 0, -0.3, 0));
   // Six arrows at varied heights, fletching up.
   const heights = [0.42, 0.47, 0.39, 0.45, 0.5, 0.43];
   const ring: [number, number][] = [[0.02, 0.01], [-0.015, 0.02], [0.005, -0.022], [-0.024, -0.008], [0.024, -0.016], [-0.002, 0.026]];

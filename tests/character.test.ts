@@ -14,6 +14,8 @@ import {
   recommendedDraft,
   skillModifier,
   validateCharacter,
+  grantXp,
+  xpProgress,
 } from '../src/game/character';
 
 describe('point buy', () => {
@@ -93,5 +95,44 @@ describe('draft to character', () => {
     expect(validateCharacter({ ...c, hp: { max: 14, current: 99 } })).toBe(false);
     expect(validateCharacter({ ...c, originFeat: 'lucky' })).toBe(false);
     expect(validateCharacter(null)).toBe(false);
+  });
+});
+
+describe('experience', () => {
+  it('starts a forged hero at level 1 with zero XP', () => {
+    const c = defaultCharacter();
+    expect(c.level).toBe(1);
+    expect(c.xp).toBe(0);
+    const p = xpProgress(c);
+    expect(p.needed).toBe(300);
+    expect(p.fraction).toBe(0);
+    expect(p.nextLevel).toBe(2);
+  });
+  it('needs 300 XP to reach level 2 and levels up on the way past', () => {
+    const c = defaultCharacter();
+    expect(grantXp(c, 299)).toBe(0);
+    expect(c.level).toBe(1);
+    expect(xpProgress(c).intoLevel).toBe(299);
+    expect(grantXp(c, 1)).toBe(1);
+    expect(c.level).toBe(2);
+    expect(c.xp).toBe(300);
+    expect(xpProgress(c).nextLevel).toBe(3);
+  });
+  it('grants a Hit Die, max HP, and a Second Wind use per level', () => {
+    const c = defaultCharacter();
+    const hp = c.hp.max, dice = c.hitDice.max, wind = c.features.secondWind.usesMax;
+    grantXp(c, 300);
+    expect(c.hitDice.max).toBe(dice + 1);
+    expect(c.hp.max).toBe(hp + 6 + c.abilityScores.CON.modifier);
+    expect(c.features.secondWind.usesMax).toBe(wind + 1);
+  });
+  it('ignores non-positive grants and validates the xp field', () => {
+    const c = defaultCharacter();
+    expect(grantXp(c, 0)).toBe(0);
+    expect(grantXp(c, -50)).toBe(0);
+    expect(c.xp).toBe(0);
+    expect(validateCharacter({ ...c, xp: 120 })).toBe(true);
+    expect(validateCharacter({ ...c, xp: -3 })).toBe(false);
+    expect(validateCharacter({ ...c, level: 9 })).toBe(false);
   });
 });

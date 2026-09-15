@@ -81,11 +81,11 @@ export class SkyboxManager {
   }
 
   /** Night falls: the painted starfield fades in over the camp. */
-  lapseStart(): void { this.lapseTo(0.94, 0, 1500); }
+  lapseStart(): void { this.lapseTo(0.94, 0, 2600); }
   /** The long sweep toward morning: night art gives way to warm dawn. */
-  lapseDawn(): void { this.lapseTo(0.28, 0.94, 2400); }
+  lapseDawn(): void { this.lapseTo(0.28, 0.94, 5600); }
   /** Dawn is here: hand the sky back to the live, procedural world. */
-  lapseEnd(): void { this.lapseTo(0, 0, 950); }
+  lapseEnd(): void { this.lapseTo(0, 0, 1500); }
 
   // --- Fade + clock chrome ---
 

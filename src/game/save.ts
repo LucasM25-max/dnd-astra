@@ -66,6 +66,8 @@ export class InventoryStore {
           }
           if (!this.data.inspected) this.data.inspected = [];
           if (this.data.character === undefined) this.data.character = null;
+          // Saves forged before XP existed start a fresh level-1 track.
+          if (this.data.character && typeof this.data.character.xp !== 'number') this.data.character.xp = 0;
         }
         else { this.recoveredInvalidSave = true; storage?.setItem(`${SAVE_KEY}-recovery`, text); }
       }

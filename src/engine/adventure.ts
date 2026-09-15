@@ -9,6 +9,7 @@ import { PlayerController } from './controller';
 import { loadAdventureMaterials, type AdventureMaterials } from './actors/materials';
 import { AnimalFactory, type LivingAnimal } from './actors/animals';
 import { SupplyWagon } from './actors/wagon';
+import { FlexibleRope } from './actors/geometry';
 
 export interface Interaction { kind: 'cargo' | 'horses'; id: string; label: string }
 const HANDS_LEFT = new THREE.Vector3(), HANDS_RIGHT = new THREE.Vector3();
@@ -34,13 +35,20 @@ export class Adventure {
   private previouslyPaused = false;
   private cinematicProgress = 0;
   private disposed = false;
+  /** Roadside hitching stakes the horses are tied to once calmed. */
+  readonly tiePoints = [new THREE.Vector3(6.6, 0, 3.4), new THREE.Vector3(7.9, 0, 3.65)];
+  private stakeTops: THREE.Vector3[] = [];
+  private leadRopes: FlexibleRope[] = [];
+  private tie: { t: number; from: THREE.Vector3[] } | null = null;
+  private tied = false;
   mounted = true;
   onHandoff = () => {};
   onNotice: (message: string) => void = () => {};
-  private constructor(scene: THREE.Scene, private camera: THREE.PerspectiveCamera, private controller: PlayerController, private collision: CollisionField, private factory: AnimalFactory, readonly materials: AdventureMaterials) {
+  private constructor(private scene: THREE.Scene, private camera: THREE.PerspectiveCamera, private controller: PlayerController, private collision: CollisionField, private factory: AnimalFactory, readonly materials: AdventureMaterials) {
     this.wagon = new SupplyWagon(factory, this.inventory); this.wagon.addTo(scene);
     this.horses = [factory.create('horse', '#765339', 2), factory.create('horse', '#b0aca0', 7)];
     this.horses.forEach(h => scene.add(h.root));
+    this.buildStakes(scene);
     const saved = this.inventory.snapshot(), pose = saved.arrived && saved.wagon ? saved.wagon : journeyPose(saved.arrived ? 1 : 0);
     if (saved.time) this.clock.restore(saved.time.month, saved.time.day, saved.time.minuteOfDay);
     this.wagon.setPose(pose.x, pose.z, pose.yaw); this.lastWagonPosition.copy(this.wagon.root.position);
@@ -52,7 +60,7 @@ export class Adventure {
     this.updateCamera(true); this.updateCollision();
   }
   static async create(scene: THREE.Scene, camera: THREE.PerspectiveCamera, controller: PlayerController, collision: CollisionField, renderer: THREE.WebGLRenderer) {
-    const materials = await loadAdventureMaterials(renderer), factory = await AnimalFactory.load(materials, camera);
+    const materials = await loadAdventureMaterials(renderer), factory = await AnimalFactory.load(materials);
     const adventure = new Adventure(scene, camera, controller, collision, factory, materials);
     await adventure.narrator.initialize(); return adventure;
   }
@@ -107,6 +115,7 @@ export class Adventure {
       : null;
     this.wagon.update(dt, paused ? 0 : distance, paused, hands);
     if (!paused) this.updateHorses(dt);
+    if (this.leadRopes.length) this.updateRopes();
     this.updateCollision();
     if (phase === 'title' || phase === 'journey') this.updateCamera(phase === 'title');
     else if (Math.abs(this.camera.fov - (this.controller.mode === 'first' ? 72 : 59)) > .1) {
@@ -201,7 +210,84 @@ export class Adventure {
     // The ransacked belongings are a cinematic world interaction now (InteractionManager).
     return null;
   }
+  private buildStakes(scene: THREE.Scene) {
+    for (const p of this.tiePoints) {
+      const y = terrainHeight(p.x, p.z);
+      const stake = new THREE.Group();
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(.045, .06, 1.0, 8), this.materials.woodDark);
+      post.position.y = .42; post.rotation.set(.06, 0, .09);
+      post.castShadow = true;
+      const cap = new THREE.Mesh(new THREE.SphereGeometry(.05, 8, 6), this.materials.woodEnd);
+      cap.position.y = .92;
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(.05, .012, 6, 12), this.materials.iron);
+      ring.position.y = .8; ring.rotation.x = Math.PI / 2;
+      stake.add(post, cap, ring);
+      stake.position.set(p.x, y, p.z);
+      scene.add(stake);
+      this.stakeTops.push(new THREE.Vector3(p.x, y + .8, p.z));
+    }
+  }
+  get horsesTied(): boolean { return this.tied; }
+  /** Begin the tie-off: the horses lead themselves to the stakes. */
+  beginTie(): void {
+    if (this.tied || this.tie) return;
+    this.tie = { t: 0, from: this.horses.map(h => h.root.position.clone()) };
+    for (const h of this.horses) h.actor.playOneShot('tie_react');
+  }
+  /** A botched check: the horses spook and can be tried again. */
+  startleHorses(): void {
+    for (const h of this.horses) h.actor.playOneShot('startle');
+  }
+  /** Restore the tied state from a save: horses already at the stakes. */
+  restoreTied(): void {
+    this.tied = true; this.tie = null;
+    this.horses.forEach((h, i) => {
+      const p = this.tiePoints[i];
+      h.root.position.set(p.x, terrainHeight(p.x, p.z) + .02, p.z);
+      h.root.rotation.y = i === 0 ? .25 : -.2;
+      h.setGait('tied');
+    });
+    this.buildRopes();
+  }
+  private buildRopes() {
+    if (this.leadRopes.length) return;
+    for (let i = 0; i < this.horses.length; i++) {
+      const rope = new FlexibleRope(this.materials.rope, .014);
+      this.scene.add(rope.mesh);
+      this.leadRopes.push(rope);
+    }
+    this.updateRopes();
+  }
+  private updateRopes() {
+    for (let i = 0; i < this.leadRopes.length; i++) {
+      this.leadRopes[i].update(this.stakeTops[i], this.horses[i].bitPosition(), .12, this.runClock);
+    }
+  }
   private updateHorses(dt: number) {
+    if (this.tied) {
+      for (const h of this.horses) h.update(dt, 0, false);
+      this.updateRopes();
+      return;
+    }
+    if (this.tie) {
+      this.tie.t += dt;
+      const k = THREE.MathUtils.smoothstep(Math.min(1, this.tie.t / 4.5), 0, 1);
+      for (let i = 0; i < this.horses.length; i++) {
+        const horse = this.horses[i], old = horse.root.position.clone();
+        const target = this.tiePoints[i].clone(); target.y = terrainHeight(target.x, target.z) + .02;
+        const next = this.tie.from[i].clone().lerp(target, k);
+        next.y = target.y;
+        const moved = Math.hypot(next.x - old.x, next.z - old.z);
+        if (k < 1 && moved > .0004) {
+          const angle = Math.atan2(-(next.x - old.x), -(next.z - old.z));
+          horse.root.rotation.y += Math.atan2(Math.sin(angle - horse.root.rotation.y), Math.cos(angle - horse.root.rotation.y)) * Math.min(1, dt * 3);
+        }
+        horse.root.position.copy(next);
+        horse.update(dt, k < 1 ? moved : 0, false);
+      }
+      if (this.tie.t >= 4.5) { this.tied = true; this.tie = null; this.buildRopes(); }
+      return;
+    }
     for (let i = 0; i < this.horses.length; i++) {
       const horse = this.horses[i], old = horse.root.position.clone();
       const cycle = (this.runClock + i * 12) % 34;

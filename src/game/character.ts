@@ -26,7 +26,9 @@ export type FightingStyleId = 'defense' | 'dueling' | 'great_weapon' | 'two_weap
 export type OriginFeatId = 'alert' | 'tough' | 'savage_attacker';
 
 export interface PlayerCharacter {
-  name: string; species: 'Human'; class: 'Fighter'; level: 1; background: 'Soldier';
+  name: string; species: 'Human'; class: 'Fighter'; level: number; background: 'Soldier';
+  /** Lifetime experience points. Level 2 arrives at 300 XP. */
+  xp: number;
   abilityScores: AbilityScores;
   hp: { max: number; current: number };
   hitDice: { max: number; current: number; die: 10 };
@@ -37,7 +39,7 @@ export interface PlayerCharacter {
   };
   fightingStyle: FightingStyleId;
   features: {
-    secondWind: { usesMax: 1; usesCurrent: number; healDie: 10; healBonus: 1 };
+    secondWind: { usesMax: number; usesCurrent: number; healDie: 10; healBonus: 1 };
     heroicInspiration: { available: boolean };
   };
   originFeat: OriginFeatId; backgroundFeat: 'savage_attacker';
@@ -122,6 +124,63 @@ export const portraitDef = (id: string): PortraitPreset => PORTRAITS.find(p => p
 // --- Derivations (pure, unit-tested) ---
 
 export const abilityModifier = (total: number): number => Math.floor((total - 10) / 2);
+
+/**
+ * Cumulative XP needed to *reach* each level. The chapter starts at level 1
+ * with no XP sources yet; 300 XP carries a hero to level 2 (XPHB milestones).
+ */
+export const XP_THRESHOLDS: Record<number, number> = { 1: 0, 2: 300, 3: 900, 4: 2700 };
+export const MAX_LEVEL = 4;
+
+export function xpThresholdFor(level: number): number {
+  return XP_THRESHOLDS[level] ?? XP_THRESHOLDS[MAX_LEVEL];
+}
+
+export interface XpProgress {
+  level: number;
+  /** XP earned past the current level's threshold. */
+  intoLevel: number;
+  /** XP span of the current level (0 at the cap). */
+  needed: number;
+  /** 0..1 fill for the HUD bar (1 at the cap). */
+  fraction: number;
+  nextLevel: number | null;
+}
+
+/** Where a hero sits inside their current level, for the XP bar. */
+export function xpProgress(c: Pick<PlayerCharacter, 'level' | 'xp'>): XpProgress {
+  const level = Math.max(1, Math.min(MAX_LEVEL, Math.round(c.level)));
+  const base = xpThresholdFor(level);
+  const next = level < MAX_LEVEL ? level + 1 : null;
+  if (next === null) return { level, intoLevel: c.xp - base, needed: 0, fraction: 1, nextLevel: null };
+  const span = xpThresholdFor(next) - base;
+  const into = Math.max(0, Math.min(span, c.xp - base));
+  return { level, intoLevel: into, needed: span, fraction: span > 0 ? into / span : 1, nextLevel: next };
+}
+
+/**
+ * Grant XP and apply every level-up it earns (video-game-ified XPHB):
+ * +1 Hit Die, +6 + CON mod max HP (and the same to current HP), and one more
+ * Second Wind use per level. Returns the levels gained.
+ */
+export function grantXp(c: PlayerCharacter, amount: number): number {
+  if (!Number.isFinite(amount) || amount <= 0) return 0;
+  c.xp = Math.max(0, Math.round((c.xp ?? 0) + amount));
+  let gained = 0;
+  while (c.level < MAX_LEVEL && c.xp >= xpThresholdFor(c.level + 1)) {
+    c.level += 1;
+    gained += 1;
+    const conMod = c.abilityScores.CON.modifier;
+    c.hitDice.max += 1;
+    c.hitDice.current = Math.min(c.hitDice.max, c.hitDice.current + 1);
+    const hpGain = 6 + conMod;
+    c.hp.max += hpGain;
+    c.hp.current = Math.min(c.hp.max, c.hp.current + hpGain);
+    c.features.secondWind.usesMax += 1;
+    c.features.secondWind.usesCurrent = c.features.secondWind.usesMax;
+  }
+  return gained;
+}
 
 /** Point-buy cost to reach `score` from 8 (spec table: every step 1, except 14→15 costs 2). */
 export function pointBuyCost(score: number): number {
@@ -237,7 +296,7 @@ export function draftToCharacter(d: CharacterDraft): PlayerCharacter {
   const skills = [...soldier.skills, ...d.classSkills, ...(d.skillful ? [d.skillful] : [])];
   const portrait = portraitDef(d.portrait);
   return {
-    name: d.name.trim(), species: 'Human', class: 'Fighter', level: 1, background: 'Soldier',
+    name: d.name.trim(), species: 'Human', class: 'Fighter', level: 1, xp: 0, background: 'Soldier',
     abilityScores: scores,
     hp: { max, current: max },
     hitDice: { max: 1, current: 1, die: 10 },
@@ -278,7 +337,10 @@ const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v =
 export function validateCharacter(v: unknown): v is PlayerCharacter {
   if (!isRecord(v)) return false;
   if (typeof v.name !== 'string' || v.name.length < 1 || v.name.length > 32) return false;
-  if (v.species !== 'Human' || v.class !== 'Fighter' || v.level !== 1 || v.background !== 'Soldier') return false;
+  if (v.species !== 'Human' || v.class !== 'Fighter' || v.background !== 'Soldier') return false;
+  const level = Number(v.level);
+  if (!Number.isInteger(level) || level < 1 || level > MAX_LEVEL) return false;
+  if ('xp' in v && !(Number.isFinite(v.xp) && Number(v.xp) >= 0 && Number(v.xp) < 1e7)) return false;
   if (!isRecord(v.abilityScores)) return false;
   for (const k of ABILITY_KEYS) {
     const s = v.abilityScores[k];
@@ -292,6 +354,7 @@ export function validateCharacter(v: unknown): v is PlayerCharacter {
   if (typeof v.ac !== 'number' || v.ac < 10 || v.ac > 25) return false;
   if (!isRecord(v.proficiencies) || !Array.isArray(v.proficiencies.skills)) return false;
   if (!isRecord(v.features) || !isRecord(v.features.secondWind) || !isRecord(v.features.heroicInspiration)) return false;
+  if (typeof v.features.secondWind.usesMax !== 'number' || typeof v.features.secondWind.usesCurrent !== 'number') return false;
   if (!['alert', 'tough', 'savage_attacker'].includes(v.originFeat as string)) return false;
   if (!isRecord(v.equipment) || typeof v.equipment.mainHand !== 'string') return false;
   if (!isRecord(v.personality) || !isRecord(v.portrait)) return false;

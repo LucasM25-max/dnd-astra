@@ -72,8 +72,8 @@ const WIELD_FRAMES: Record<WeaponId, ItemFrame> = {
   warhammer: { socket: 'mainhand', pos: [0, 0, 0], rot: [0.32, 0, -0.08] },
   shortsword: { socket: 'offhand', pos: [0, 0, 0], rot: [0.36, 0, 0.1] },
   shield: { socket: 'offhand', pos: [0.045, -0.005, 0], rot: [0, Math.PI / 2, 0] },
-  longbow: { socket: 'back', pos: [0.15, 0.14, -0.17], rot: [-0.1, -0.1, 0.72] },
-  quiver: { socket: 'quiver', pos: [-0.17, 0.05, -0.13], rot: [-0.3, 0, 0.15] },
+  longbow: { socket: 'back', pos: [0.13, -0.02, -0.14], rot: [-0.05, -0.08, 0.62] },
+  quiver: { socket: 'quiver', pos: [-0.145, -0.18, -0.13], rot: [-0.2, 0, 0.16] },
 };
 
 /**
@@ -234,10 +234,10 @@ export class SkeletalHero {
     // Fixed Fighter kit.
     this.attachArmour(buildMailShirt(this.armourMats));
     this.attachArmour([buildPauldron(this.armourMats, -1), buildPauldron(this.armourMats, 1)]);
-    this.attachArmour([buildGauntlet(this.armourMats, -1), buildGauntlet(this.armourMats, 1)]);
+    this.attachArmour([...buildGauntlet(this.armourMats, -1), ...buildGauntlet(this.armourMats, 1)]);
     this.attachArmour([buildBelt(this.armourMats)]);
     this.attachArmour([buildGreave(this.armourMats, -1), buildGreave(this.armourMats, 1)]);
-    this.attachArmour([buildBoot(this.armourMats, -1), buildBoot(this.armourMats, 1)]);
+    this.attachArmour([...buildBoot(this.armourMats, -1), ...buildBoot(this.armourMats, 1)]);
     this.applyPortraitPieces();
 
     // Bone sockets. The fist frames are fixed (reins and glove anchors read
@@ -340,19 +340,19 @@ export class SkeletalHero {
     // positions expressed in Hips bone space.
     const hips = this.rig.bones.Hips;
     if (mainHand === 'longsword') {
-      const { object, mouth } = buildScabbard(this.weaponMats, { length: 0.95, width: 0.075 });
+      const { object, mouth } = buildScabbard(this.weaponMats, { length: 0.86, width: 0.068 });
       object.name = 'swordScabbard';
-      object.position.set(0.262, 0.09, 0);
-      object.rotation.set(0.34, 0, 0.13); // hilt forward, mouth out past the skirt
+      object.position.set(0.245, 0.075, -0.02);
+      object.rotation.set(0.5, 0, 0.14); // hilt forward, tip following the thigh back
       hips.add(object);
       rig.scabbard = mouth;
       rig.extra.push(object);
     }
     if (offHand === 'shortsword') {
-      const { object, mouth } = buildScabbard(this.weaponMats, { length: 0.5, width: 0.058 });
+      const { object, mouth } = buildScabbard(this.weaponMats, { length: 0.46, width: 0.054 });
       object.name = 'daggerSheath';
-      object.position.set(-0.252, 0.082, 0.03);
-      object.rotation.set(0.38, 0, -0.2);
+      object.position.set(-0.24, 0.07, 0.01);
+      object.rotation.set(0.52, 0, -0.22);
       hips.add(object);
       rig.dagger = mouth;
       rig.extra.push(object);
