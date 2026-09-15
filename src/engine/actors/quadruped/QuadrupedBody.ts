@@ -447,11 +447,11 @@ function buildLeg(rig: QuadRig, mats: QuadMats, hard: Rigidity, leg: LegId): voi
     return stops[stops.length - 1].y;
   };
   /** Centre a muscle mass so its crown just touches the crest line. */
+  // The margin is bigger than the section's own half-height on purpose: a
+  // Catmull-Rom resample bulges *above* its control points, so clamping a mass's
+  // centre to the crest still lets its surface break the topline as a plank.
   const underCrest = (z: number, hh: number, floor: number): number =>
-    Math.min(floor, crestAt(z) - hh * 0.94);
-  // Kept a hand's breadth under the crest: the blade is filler that shapes the
-  // shoulder, not a plate laid on top of the animal.
-  const bladeTop = underCrest(P[0].z - 0.06, R[0][1] * 2.2, P[0].y + R[0][1] * 0.06);
+    Math.min(floor, crestAt(z) - hh * 1.5);
   const hipTop = underCrest(P[0].z, R[0][1], P[0].y + R[0][1] * 0.3);
   // A knob at every hinge: a rigid segment meeting another one at a joint needs
   // a rounded collar there, or the limb reads as stacked boxes at the knee.
@@ -464,19 +464,13 @@ function buildLeg(rig: QuadRig, mats: QuadMats, hard: Rigidity, leg: LegId): voi
   };
 
   if (fore) {
-    // Scapula: a flat blade under the withers, angled back over the ribs.
-    hard.add(rootBone, mats.coat, loftGeometry(skirted([
-      { at: [P[0].x * 0.78, bladeTop, P[0].z - 0.12], hw: R[0][0] * 0.82, hh: R[0][1] * 1.12 },
-      { at: [P[0].x * 0.84, underCrest(P[0].z - 0.01, R[0][1] * 1.06, P[0].y - 0.07), P[0].z - 0.01], hw: R[0][0] * 0.92, hh: R[0][1] * 1.06 },
-      { at: [P[1].x * 0.94, P[1].y + 0.03, P[1].z + 0.02], hw: R[1][0] * 1.0, hh: R[1][1] * 1.12 },
-    ], 0.04, 0.02), { seg: 16, capFront: 0.22, capBack: 0.18, uv: legUv(0, 1), sub: 3 }));
     // Shoulder column: the triceps mass from withers to elbow. Without it a
     // foreleg looks like a strut leaning against a sack.
     hard.add(rootBone, mats.coat, loftGeometry(skirted([
-      { at: [P[1].x * 0.78, underCrest(P[0].z - 0.05, R[1][1] * 1.42, P[1].y + (P[0].y - P[1].y) * 0.72), P[0].z - 0.05], hw: R[1][0] * 1.26, hh: R[1][1] * 1.42 },
-      { at: [P[1].x * 0.9, underCrest(P[1].z + 0.07, R[1][1] * 1.24, P[1].y + 0.06), P[1].z + 0.07], hw: R[1][0] * 1.22, hh: R[1][1] * 1.24 },
+      { at: [P[1].x * 0.82, underCrest(P[0].z - 0.05, R[1][1] * 1.3, P[1].y + (P[0].y - P[1].y) * 0.66), P[0].z - 0.02], hw: R[1][0] * 1.16, hh: R[1][1] * 1.3 },
+      { at: [P[1].x * 0.92, underCrest(P[1].z + 0.06, R[1][1] * 1.18, P[1].y + 0.05), P[1].z + 0.06], hw: R[1][0] * 1.14, hh: R[1][1] * 1.18 },
       { at: [P[2].x, P[2].y + (P[1].y - P[2].y) * 0.42, P[2].z - 0.012], hw: R[1][0] * 1.02, hh: R[1][1] * 1.05 },
-    ], 0.04, 0.02), { seg: 16, capFront: 0.3, capBack: 0.28, uv: legUv(0, 2), sub: 3 }));
+    ], 0.04, 0.02), { seg: 16, capFront: 0.3, capBack: 0.28, sub: 3 }));
     // Humerus down to the elbow, then forearm and cannon in one rigid run.
     hard.add(upper, mats.coat, loftGeometry(skirted(sec(1, 2), 0.02, 0.03), { seg: 14, capFront: 0.3, capBack: 0.3, uv: legUv(1, 2), sub: 2 }));
     hard.add(lower, mats.coat, loftGeometry(skirted(sec(2, 4), 0.03, 0.02), { seg: 14, capFront: 0.3, capBack: 0.25, uv: legUv(2, 4), sub: 2 }));
@@ -495,15 +489,15 @@ function buildLeg(rig: QuadRig, mats: QuadMats, hard: Rigidity, leg: LegId): voi
     hard.add(rootBone, mats.coat, loftGeometry(skirted([
       // Tall enough to run into the barrel: a shallow ring here leaves a rim
       // that reads as a hanging flap whenever the beast is seen from behind.
-      { at: [P[0].x, hipTop, P[0].z - 0.06], hw: R[0][0] * 1.12, hh: R[0][1] * 1.34 },
+      { at: [P[0].x, hipTop, P[0].z - 0.05], hw: R[0][0] * 0.94, hh: R[0][1] * 1.02 },
       ...sec(0, 1).slice(1),
-    ], 0.02, 0.02), { seg: 18, capFront: 0.5, capBack: 0.34, uv: legUv(0, 1), sub: 2 }));
+    ], 0.02, 0.02), { seg: 18, capFront: 0.5, capBack: 0.34, sub: 2 }));
     // The quarter: gluteal mass over the croup flowing into the thigh.
     hard.add(rootBone, mats.coat, loftGeometry([
       { at: [P[0].x + Math.sign(P[0].x) * 0.01, hipTop, P[0].z - 0.03], hw: R[0][0] * 1.08, hh: R[0][1] * 0.98 },
       { at: [P[1].x, Math.min(P[1].y + 0.04, underCrest(P[1].z, R[1][1] * 1.1, P[1].y + 0.04)), P[1].z + 0.05], hw: R[1][0] * 1.14, hh: R[1][1] * 1.1 },
-      { at: [P[2].x, P[2].y + R[2][1] * 0.3, P[2].z - R[2][0] * 0.26], hw: R[2][0] * 1.2, hh: R[2][1] * 1.14 },
-    ], { seg: 16, capFront: 0.34, capBack: 0.52, uv: legUv(0, 2), sub: 3 }));
+      { at: [P[2].x, P[2].y + R[2][1] * 0.24, P[2].z - R[2][0] * 0.22], hw: R[2][0] * 1.14, hh: R[2][1] * 1.08 },
+    ], { seg: 16, capFront: 0.26, capBack: 0.38, sub: 3 }));
     hard.add(upper, mats.coat, loftGeometry(skirted(sec(1, 2), 0.03, 0.03), { seg: 14, capFront: 0.3, capBack: 0.3, uv: legUv(1, 2), sub: 2 }));
     knob(rootBone, 1, 1.1);
     knob(foot, 2, 1.05);
@@ -598,8 +592,8 @@ function buildTail(rig: QuadRig, mats: QuadMats, hard: Rigidity): void {
     // Each band carries only its OWN slice of the curtain: authoring the whole
     // tail here and parenting it to all three bones made three copies that fanned
     // apart on a swat, which read as a flat ribbon with a dark inside.
-    const flare = horse ? [2.1, 2.4, 2.2][i] : [1.2, 1.5, 1.7][i];
-    const drop = horse ? [0.01, 0.07, 0.17][i] : [0.0, 0.02, 0.05][i];
+    const flare = horse ? [2.1, 2.4, 2.2][i] : [1.05, 1.2, 1.35][i];
+    const drop = horse ? [0.01, 0.07, 0.17][i] : [0.01, 0.05, 0.11][i];
     const [a, b] = pair;
     const hair: LoftSection[] = [
       { at: [a.at[0], a.at[1] - drop * 0.35, a.at[2] - 0.008], hw: a.hw * flare, hh: a.hh * flare * 0.8 },
@@ -632,13 +626,16 @@ function buildTack(rig: QuadRig, mats: QuadMats, hard: Rigidity): Record<string,
     // sits *around* the neck, while a flat disc of the wrong proportion reads as
     // a sheet stabbed through the shoulders.
     const neckRings = spec.neck1;
-    const pad: LoftSection[] = neckRings.map((t, i) => ({
-      at: [0, t.at[1] - 0.05 - i * 0.012, t.at[2] - 0.02 + i * 0.02] as [number, number, number],
-      hw: t.hw + 0.05,
-      hh: t.hh * (i === 0 ? 0.92 : 0.78),
+    // Only the two root rings: the collar is rigid on the withers, so anything
+    // reaching far down the neck stops fitting the moment the animal flexes and
+    // the band looms off the hide like a hoop.
+    const pad: LoftSection[] = [neckRings[1], neckRings[0]].map((t, i) => ({
+      at: [0, t.at[1] - 0.045 - i * 0.008, t.at[2] - 0.015 + i * 0.03] as [number, number, number],
+      hw: t.hw + 0.022,
+      hh: t.hh * (i === 0 ? 0.9 : 0.78),
     }));
     // The boss: the padded crown the yoke pole actually rests on.
-    pad.push({ at: [0, neckRings[0].at[1] + neckRings[0].hh * 0.5, neckRings[0].at[2] - 0.16], hw: 0.19, hh: 0.05 });
+    pad.push({ at: [0, neckRings[0].at[1] + neckRings[0].hh * 0.34, neckRings[0].at[2] - 0.13], hw: 0.15, hh: 0.055 });
     hard.add('Withers', mats.leather, loftGeometry(pad, { seg: 20, capFront: 0.3, capBack: 0.34, uv: [1.5, 0.9, 0, 0.05] }));
     // Hames: the leather-covered bows the traces hook to, split at the throat.
     for (const side of [1, -1] as const) {
@@ -806,16 +803,19 @@ export function buildQuadrupedBody(rig: QuadRig, mats: QuadMats): QuadBody {
   if (spec.mane) {
     const crest = spec.mane.crest;
     const along = [...spec.neck2.slice().reverse(), ...spec.neck1.slice()];
+    // The crest ridge is mostly *inside* the neck: only a knuckle of it should
+    // break the silhouette, or it reads as a board laid along the topline.
     const strip: LoftSection[] = along.map((s, i) => ({
-      at: [0, s.at[1] + s.hh * 0.88, s.at[2] - 0.006],
-      hw: crest * (1 - i / along.length * 0.3), hh: crest * 0.66,
+      at: [0, s.at[1] + s.hh * 0.74, s.at[2] - 0.006],
+      hw: crest * (0.86 - i / along.length * 0.3), hh: crest * 0.4,
     }));
-    hard.add('Neck1', mats.hair, loftGeometry(strip, { seg: 12, capFront: 0.45, capBack: 0.45, sub: 3 }));
-    // The fall of mane hanging down the crest's left side.
+    hard.add('Neck1', mats.hair, loftGeometry(strip, { seg: 12, capFront: 0.3, capBack: 0.3, sub: 3 }));
+    // The fall of mane: hair lying over to one side of the crest, drooping down
+    // the neck as it goes. This is what makes a horse read as a horse in profile.
     hard.add('Neck1', mats.hair, loftGeometry(strip.map((s, i) => ({
-      at: [0.022, s.at[1] - crest * (0.55 + (i % 3) * 0.4), s.at[2] - 0.014],
-      hw: crest * 0.85, hh: crest * (0.8 + (i % 2) * 0.35),
-    })), { seg: 10, capFront: 0.5, capBack: 0.5, uv: [1, 0.7, 0, 0.15] }));
+      at: [crest * 0.34, s.at[1] - crest * (0.3 + (i % 4) * 0.5), s.at[2] - 0.012],
+      hw: crest * 0.6, hh: crest * (0.95 + (i % 3) * 0.5),
+    })), { seg: 10, capFront: 0.36, capBack: 0.42, uv: [1, 0.7, 0, 0.15] }));
   }
   if (spec.dewlap) {
     const throat = spec.neck2[0].at;

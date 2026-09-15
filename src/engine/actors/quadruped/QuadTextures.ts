@@ -343,14 +343,16 @@ export function paintHead(ctx: Ctx, w: number, h: number, p: QuadPaint, mode: 'a
   // Facial marking down the bridge (u = 0.25 is the front of the face).
   if (!height && p.marking !== 'plain' && p.marking !== 'patched') {
     const cx = 0.25 * w;
-    const half = p.marking === 'blaze' ? w * 0.055 : p.marking === 'stripe' ? w * 0.016 : w * 0.03;
+    // Narrow enough that coat shows on either side of the bridge — a band that
+    // covers the whole face reads as a mask, not a marking.
+    const half = p.marking === 'blaze' ? w * 0.04 : p.marking === 'stripe' ? w * 0.014 : w * 0.024;
     const v0 = p.marking === 'snip' ? 0.6 : 0.05;
     const v1 = p.marking === 'star' ? 0.24 : p.marking === 'snip' ? 0.78 : 0.68;
     const g = ctx.createLinearGradient(cx - half * 2.1, 0, cx + half * 2.1, 0);
     g.addColorStop(0, 'rgba(246,240,226,0)');
-    g.addColorStop(0.32, 'rgba(246,240,226,0.9)');
-    g.addColorStop(0.5, 'rgba(252,249,240,0.96)');
-    g.addColorStop(0.68, 'rgba(246,240,226,0.9)');
+    g.addColorStop(0.32, 'rgba(246,240,226,0.78)');
+    g.addColorStop(0.5, 'rgba(252,249,240,0.88)');
+    g.addColorStop(0.68, 'rgba(246,240,226,0.78)');
     g.addColorStop(1, 'rgba(246,240,226,0)');
     ctx.fillStyle = g;
     ctx.fillRect(cx - half * 2.1, h * v0, half * 4.2, h * (v1 - v0));
@@ -382,7 +384,7 @@ export function paintHead(ctx: Ctx, w: number, h: number, p: QuadPaint, mode: 'a
   if (height && p.marking !== 'plain') {
     // A wide white blaze sits level with the coat; a star is a shallow dip.
     ctx.fillStyle = 'rgba(150,150,150,0.5)';
-    ctx.fillRect(0.25 * w - w * 0.045, h * 0.06, w * 0.09, h * 0.6);
+    ctx.fillRect(0.25 * w - w * 0.034, h * 0.06, w * 0.068, h * 0.6);
   }
 
   // Muzzle: the nose leather darkens and the planum (mirror) catches light.

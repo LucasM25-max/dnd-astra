@@ -21,7 +21,9 @@ import type { QuadSpecies } from './quadruped/QuadrupedRig';
 
 export type AnimalSpecies = QuadSpecies;
 
-export const OX_COLORS = ['#cfbfa0', '#a99676', '#8d7a5e', '#b7a68b'];
+// Dun and grey-brown draught hides: pale enough to read as cattle, dark enough
+// to separate from the limestone trail they haul the wagon along.
+export const OX_COLORS = ['#8f7c60', '#6f5c46', '#a08a70', '#7b6650'];
 export const HORSE_COLORS = ['#765339', '#b0aca0', '#4a3527', '#8a6a45'];
 
 export interface AnimalUpdate {
