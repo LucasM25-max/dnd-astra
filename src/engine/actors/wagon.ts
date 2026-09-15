@@ -11,6 +11,7 @@ export class SupplyWagon {
   readonly root = new THREE.Group();
   readonly seat = new THREE.Object3D();
   readonly oxen: LivingAnimal[];
+  private readonly traceScratch = new THREE.Vector3();
   readonly cargo: CargoVisual[] = [];
   readonly wheels: { mount: THREE.Group; spin: THREE.Group; front: boolean }[] = [];
   private reins: FlexibleRope[] = [];
@@ -21,6 +22,8 @@ export class SupplyWagon {
   private cargoDirty = false;
   private mat: AdventureMaterials;
   mounted = true;
+  /** Where the reins are coming from, so the team can glance at the driver. */
+  driverHead: THREE.Vector3 | null = null;
   visualAnimating = false;
   speed = 0;
   steering = 0;
@@ -90,14 +93,19 @@ export class SupplyWagon {
       if (!paused) {
         const world = this.root.localToWorld(new THREE.Vector3(i === 0 ? -.73 : .73, 0, -4.96));
         ox.root.position.y = this.heightAt(world.x, world.z) - world.y + .015;
-        ox.update(dt, distance, false);
+        // A yoked team never gets to graze: they walk when the wagon rolls and
+        // stand the moment it stops, and they watch whoever is holding the reins.
+        ox.update(dt, { distance, gait: this.speed > .02 ? null : 'idle', lookAt: this.driverHead ?? undefined });
       }
       // When the Wanderer is in the seat the reins run from their hands to the bits.
       const start = hands ? (i === 0 ? hands.left : hands.right)
         : this.root.localToWorld(new THREE.Vector3(i === 0 ? -.24 : .24, this.mounted ? 1.80 : 1.25, this.mounted ? -1.84 : -1.75));
       const bit = ox.bitPosition(); this.reins[i]?.update(start, bit, this.mounted ? .19 : .42, this.clock);
-      const traceA = this.root.localToWorld(new THREE.Vector3(i === 0 ? -.83 : .83, .81, -1.39));
-      const traceB = this.root.localToWorld(new THREE.Vector3(i === 0 ? -.96 : .96, 1.24, -5.37));
+      // The trace runs from the wagon's reach — at hames height, not through the
+      // cargo bed — to the collar on the ox's own withers, so it stays attached
+      // to the animal as the team moves over the ground.
+      const traceA = this.root.localToWorld(new THREE.Vector3(i === 0 ? -.83 : .83, 1.02, -1.39));
+      const traceB = ox.collarPosition(this.traceScratch);
       this.traceRopes[i]?.update(traceA, traceB, .10, this.clock * .65);
     });
   }

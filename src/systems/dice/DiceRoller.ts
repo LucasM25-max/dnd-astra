@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { cryptoRandomFloat, cryptoRandomInt, resolveRoll, type DiceRollRequest, type DiceRollResult, type DieType } from './DiceResultResolver';
 import { createDieMesh, disposeDieMesh, getFaceUpQuaternion, preloadDiceMaps } from './DieMeshFactory';
 import { DicePhysicsScene } from './DicePhysicsScene';
-import { diceStage, hideDiceOverlay, reducedMotion, showDiceOverlay, showDiceResult, waitForDiceDismiss } from './DiceOverlayUI';
+import { diceStage, hideDiceOverlay, reducedMotion, showDiceOverlay, showDiceResult, waitForDiceContinue, waitForRoll } from './DiceOverlayUI';
 import { diceSfx } from './DiceSfx';
 import { DICE_TIMING, waitMs } from './DiceAnimationController';
 import { gameState } from '../../game/state';
@@ -26,12 +26,16 @@ export function initializeDiceRoller(deps: DicePauseDeps): void {
   void preloadDiceMaps();
 }
 
+/**
+ * The throw's flavour. `DicePhysicsScene` clamps this into the visible tray
+ * (`cappedToss`), so the numbers can stay punchy without risking an escape.
+ */
 function randomToss(): { velocity: THREE.Vector3; angular: THREE.Vector3 } {
   return {
     velocity: new THREE.Vector3(
-      2.1 + cryptoRandomFloat() * 1.4,
-      1.6 + cryptoRandomFloat() * 1.6,
-      (cryptoRandomFloat() - 0.5) * 1.8,
+      (cryptoRandomFloat() < 0.5 ? -1 : 1) * (1.2 + cryptoRandomFloat() * 1.1),
+      2.2 + cryptoRandomFloat() * 1.3,
+      (cryptoRandomFloat() - 0.5) * 1.3,
     ),
     angular: new THREE.Vector3(
       (cryptoRandomFloat() - 0.5) * 22,
@@ -65,16 +69,29 @@ async function doRoll(req: DiceRollRequest): Promise<DiceRollResult> {
   try {
     // 4–5. Toss + guided settle (or a single static frame when reduced motion
     // is preferred — the die is still visible, it simply never tumbles).
-    const size = Math.min(460, Math.floor(Math.min(window.innerWidth, window.innerHeight) * 0.52));
+    // The panel also carries the readout and the two buttons, so the stage is
+    // sized against the leftover height — otherwise a short window clips the
+    // Continue button off the bottom of the panel.
+    const budget = Math.floor(Math.min(window.innerWidth * 0.82, (window.innerHeight - 250) * 0.95));
+    const size = Math.max(220, Math.min(460, budget));
     try {
       physics = new DicePhysicsScene(diceStage(), Math.max(280, size));
     } catch {
       physics = null; // No WebGL context: the numeric readout still carries the roll.
     }
-    if (physics && !reduced) {
+    // 4. Settle the die into the tray and WAIT. Nothing is thrown until the
+    //    player presses Roll — no auto-roll, no timed sequence.
+    if (physics) {
       physics.onBounce = strength => diceSfx.bounce(strength);
+      if (!reduced) physics.arm(mesh);
+      else mesh.group.position.set(0, mesh.radius * 0.72, 0);
+    }
+    await waitForRoll();
+
+    // 5. Throw it (or place it, when the player asked for reduced motion).
+    if (physics && !reduced) {
       diceSfx.throwDie();
-      physics.spawn(mesh, randomToss());
+      physics.toss(randomToss());
       physics.guideTo(targetQuat, DICE_TIMING.guideBeginSec);
       await physics.untilSettled(DICE_TIMING.physicsTimeoutMs);
       diceSfx.land();
@@ -90,8 +107,8 @@ async function doRoll(req: DiceRollRequest): Promise<DiceRollResult> {
     }
     // 6. Readout sequence.
     showDiceResult(result);
-    // 7. Dismiss.
-    await waitForDiceDismiss(reduced ? DICE_TIMING.reduced.dismissMs : DICE_TIMING.dismissMs);
+    // 7. Hold the result on screen until the player presses Continue.
+    await waitForDiceContinue();
   } finally {
     physics?.dispose();
     disposeDieMesh(mesh);

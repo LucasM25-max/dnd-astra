@@ -27,12 +27,14 @@ const browser = await playwright.launch({
   env: { ...process.env, LD_LIBRARY_PATH: `${path.join(libs, 'lib')}:${process.env.LD_LIBRARY_PATH ?? ''}` },
   headless: true,
 });
-const page = await browser.newPage({ viewport: { width: 1100, height: 800 }, deviceScaleFactor: 1 });
+const [vw, vh] = (process.env.ASTRA_VIEWPORT ?? '1100x800').split('x').map(Number);
+const page = await browser.newPage({ viewport: { width: vw, height: vh }, deviceScaleFactor: 1 });
 page.setDefaultTimeout(120000);
 const errors = [];
 page.on('pageerror', e => errors.push(e.message));
 page.on('console', m => { if (m.type() === 'error' && !m.text().toLowerCase().includes('pointer lock')) errors.push(m.text()); });
 
+const t0 = Date.now();
 const QUALITY = process.env.ASTRA_QUALITY ?? 'performance';
 await page.addInitScript(q => localStorage.setItem('astra-preferences-v1', JSON.stringify({ quality: q, atmosphere: 'golden', volume: .35, sensitivity: 1, invertY: false })), QUALITY);
 await page.goto('http://localhost:5173', { waitUntil: 'domcontentloaded' });
@@ -45,7 +47,7 @@ await page.waitForSelector('[data-forge]:visible');
 await page.click('[data-forge]');
 await page.waitForSelector('[data-ready="true"]', { timeout: 240000 });
 await page.waitForSelector('#loading', { state: 'detached' });
-console.log('world ready');
+console.log('world ready', Date.now() - t0, 'ms');
 
 await page.click('#journey-skip');
 await page.waitForFunction(() => window.__astra.getState().story.phase === 'arrival');
@@ -85,6 +87,8 @@ for (const s of SHOTS) {
       animalRoot = animal.root;
       if (a.yaw !== undefined) animal.root.rotation.y = a.yaw;
       if (a.worldYaw !== undefined) animal.root.rotation.y = a.worldYaw - (a.kind === 'ox' ? world.adventure.wagon.root.rotation.y : 0);
+      if (a.solo) list.forEach((other, j) => { if (j !== (a.index ?? 0)) other.root.visible = false; });
+      if (a.hide) animalRoot.traverse(o => { if (a.hide.some(h => o.name === h || o.name.startsWith(h))) o.visible = false; });
       if (a.gait) animal.actor.freezeAt(a.gait, a.t ?? 0);
     }
     let camBase = null;
@@ -117,6 +121,12 @@ for (const s of SHOTS) {
     camera.updateProjectionMatrix();
     world.renderer.info.reset();
     world.composer.render();
+    const stats = {
+      tris: world.renderer.info.render.triangles, calls: world.renderer.info.render.calls,
+      animals: [...world.adventure.horses, ...world.adventure.wagon.oxen].map(a => `${a.species}:${a.actor.triangles}`),
+      tex: world.renderer.info.memory.textures, geo: world.renderer.info.memory.geometries,
+    };
+    if (spec.stats !== false) console.log('   stats', JSON.stringify(stats));
   }, s);
   const dataUrl = await page.evaluate(() => document.getElementById('world-canvas').toDataURL('image/png'));
   const buf = Buffer.from(dataUrl.split(',')[1], 'base64');

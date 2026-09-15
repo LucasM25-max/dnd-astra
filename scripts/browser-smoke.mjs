@@ -20,6 +20,18 @@ const state = () => page.evaluate(() => window.__astra.getState());
 const inventory = () => page.evaluate(() => window.__astra.getInventory());
 const character = () => page.evaluate(() => window.__astra.getCharacter());
 const wait = predicate => page.waitForFunction(predicate, undefined, { timeout: 90000, polling: 100 });
+// The dice overlay is player-gated: press Roll, read the result, press Continue.
+// Anything that spends a die in the world has to walk through both buttons.
+async function playDiceRoll(timeoutMs = 20000) {
+  const opened = await page.waitForSelector('#dice-overlay.visible #dice-roll:not([disabled])', { timeout: timeoutMs }).catch(() => null);
+  if (!opened) return null;
+  await opened.click();
+  await page.waitForSelector('#dice-continue:not([hidden])', { timeout: 30000 });
+  const natural = (await page.locator('#dice-natural').innerText()).trim();
+  await page.click('#dice-continue');
+  await page.waitForSelector('#dice-overlay.visible', { state: 'hidden', timeout: 15000 });
+  return natural;
+}
 try {
   await page.goto(process.env.BASE_URL ?? 'http://localhost:5173', { waitUntil: 'domcontentloaded' });
   // Title first: the world only loads once the player presses Begin.
@@ -128,6 +140,44 @@ try {
   assert((await page.locator('#dialog').innerText()).includes('LEVEL 1 HUMAN FIGHTER'));
   assert((await page.locator('#dialog').innerText()).includes('Second Wind'));
   await page.keyboard.press('Escape');
+  // The character sheet is still fading; wait it out before the dice block clicks.
+  await page.waitForSelector('#dialog-backdrop', { state: 'hidden' });
+  // Dice overlay contract (System 4): nothing rolls and nothing closes until the
+  // player presses Roll, then Continue — no auto-roll, no auto-dismiss.
+  await page.evaluate(() => { window.__astra.previewRoll(20, 2, 'Smoke Check', 10); return true; });
+  await page.waitForSelector('#dice-overlay.visible #dice-roll');
+  assert.equal(await page.locator('#dice-continue').isHidden(), true);
+  assert.equal((await page.locator('#dice-natural').innerText()).trim(), '');
+  // A stray key press and a click on the backdrop must not start or skip the
+  // roll. (Enter/Space are still allowed — they activate the focused button.)
+  await page.keyboard.press('KeyA');
+  await page.keyboard.press('Escape');
+  await page.mouse.click(12, 12);
+  await page.waitForTimeout(900);
+  assert.equal(await page.locator('#dice-roll').isDisabled(), false, 'the die must still be waiting for the Roll button');
+  const beforeGate = (await character()).hp.current;
+  await page.click('#dice-roll');
+  await page.waitForSelector('#dice-continue:not([hidden])', { timeout: 30000 });
+  const natural = (await page.locator('#dice-natural').innerText()).trim();
+  assert(Number(natural) >= 1 && Number(natural) <= 20, `expected a d20 result, saw "${natural}"`);
+  assert((await page.locator('#dice-banner').innerText()).length > 0, 'the verdict should be on screen');
+  // The die has to be inside the tray view: compare its drawn bounds with the canvas.
+  const framing = await page.evaluate(() => {
+    const canvas = document.querySelector('#dice-stage canvas');
+    if (!canvas) return null;
+    const r = canvas.getBoundingClientRect();
+    return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height), vw: innerWidth, vh: innerHeight };
+  });
+  assert(framing !== null && framing.x >= 0 && framing.y >= 0 && framing.x + framing.w <= framing.vw && framing.y + framing.h <= framing.vh, `dice canvas must be on screen: ${JSON.stringify(framing)}`);
+  const containment = await page.evaluate(() => window.__astra.getDiceContainment());
+  assert(containment.rescues === 0, `the die needed ${containment.rescues} frame rescues; the tray walls should hold it alone`);
+  await page.mouse.click(12, 12);
+  await page.waitForTimeout(400);
+  assert.equal(await page.locator('#dice-overlay.visible').count(), 1, 'a background click must not dismiss the result');
+  await page.click('#dice-continue');
+  await page.waitForSelector('#dice-overlay.visible', { state: 'hidden' });
+  assert.equal((await character()).hp.current, beforeGate, 'a preview roll must not touch the hero');
+  console.log(`✓ Dice overlay waits for Roll (${natural} on the d20), then for Continue`);
   // Short rest: damage the hero, spend a hit die, heal by the roll (System 5).
   const hpBeforeDamage = (await character()).hp.current;
   await page.evaluate(() => window.__astra.debugDamage(4));
@@ -141,6 +191,8 @@ try {
   const spendButton = page.locator('[data-camp="short-spend"]');
   assert.equal(await spendButton.isDisabled(), false);
   await spendButton.click();
+  const hitDie = await playDiceRoll();
+  assert(hitDie !== null && Number(hitDie) >= 1 && Number(hitDie) <= 10, `short rest should roll a visible d10, saw ${hitDie}`);
   await page.waitForFunction(before => window.__astra.getCharacter().hitDice.current === before - 1, diceBeforeRest, { timeout: 90000, polling: 100 });
   const afterRest = await character();
   assert.equal(afterRest.hitDice.current, diceBeforeRest - 1);
@@ -149,6 +201,12 @@ try {
   await page.click('[data-camp="close"]');
   await page.waitForSelector('#camp-menu', { state: 'hidden' });
   console.log('✓ Character sheet, the make-camp menu, and a short rest that spends a hit die all work');
+  // A story dialog can surface again as the world resumes behind a finished
+  // roll; clear it before poking at the HUD, and prove it is still closable.
+  if (await page.locator('#dialog-backdrop:not([hidden])').count()) {
+    await page.click('#dialog [data-action=\"close\"]');
+    await page.waitForFunction(() => document.querySelector('#dialog-backdrop')?.hidden === true, null, { timeout: 10000 });
+  }
   await page.click('#settings-toggle');
   await page.click('[data-weather="rain"]'); assert.equal(await page.locator('[data-weather="rain"]').getAttribute('aria-pressed'), 'true');
   await page.click('[data-weather="auto"]'); assert.equal(await page.locator('[data-weather="auto"]').getAttribute('aria-pressed'), 'true');

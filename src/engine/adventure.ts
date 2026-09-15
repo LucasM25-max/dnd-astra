@@ -7,7 +7,7 @@ import { CONTAINERS, emptyStock, type ContainerId, type ItemId } from '../game/i
 import { CollisionField, WORLD_LIMIT, pathDistance, terrainHeight } from './landscape';
 import { PlayerController } from './controller';
 import { loadAdventureMaterials, type AdventureMaterials } from './actors/materials';
-import { AnimalFactory, type LivingAnimal } from './actors/animals';
+import { AnimalFactory, type AnimalUpdate, type LivingAnimal } from './actors/animals';
 import { SupplyWagon } from './actors/wagon';
 import { FlexibleRope } from './actors/geometry';
 
@@ -46,7 +46,7 @@ export class Adventure {
   onNotice: (message: string) => void = () => {};
   private constructor(private scene: THREE.Scene, private camera: THREE.PerspectiveCamera, private controller: PlayerController, private collision: CollisionField, private factory: AnimalFactory, readonly materials: AdventureMaterials) {
     this.wagon = new SupplyWagon(factory, this.inventory); this.wagon.addTo(scene);
-    this.horses = [factory.create('horse', '#765339', 2), factory.create('horse', '#b0aca0', 7)];
+    this.horses = [factory.create('horse', '#765339', 2, 'blaze'), factory.create('horse', '#b0aca0', 7, 'star')];
     this.horses.forEach(h => scene.add(h.root));
     this.buildStakes(scene);
     const saved = this.inventory.snapshot(), pose = saved.arrived && saved.wagon ? saved.wagon : journeyPose(saved.arrived ? 1 : 0);
@@ -59,8 +59,12 @@ export class Adventure {
     this.updateHorses(.001); this.wagon.update(.001, 0, false);
     this.updateCamera(true); this.updateCollision();
   }
-  static async create(scene: THREE.Scene, camera: THREE.PerspectiveCamera, controller: PlayerController, collision: CollisionField, renderer: THREE.WebGLRenderer) {
-    const materials = await loadAdventureMaterials(renderer), factory = await AnimalFactory.load(materials);
+  static async create(scene: THREE.Scene, camera: THREE.PerspectiveCamera, controller: PlayerController, collision: CollisionField, renderer: THREE.WebGLRenderer, quality: 'performance' | 'balanced' | 'high' = 'high') {
+    const materials = await loadAdventureMaterials(renderer);
+    // Coats are painted on canvas at world load; the performance tier halves
+    // every map, which is the single biggest texture-memory saving available.
+    const domCanvas = (w: number, h: number) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+    const factory = AnimalFactory.load(materials, domCanvas, quality === 'performance' ? .5 : 1);
     const adventure = new Adventure(scene, camera, controller, collision, factory, materials);
     await adventure.narrator.initialize(); return adventure;
   }
@@ -113,6 +117,8 @@ export class Adventure {
     const hands: { left: THREE.Vector3; right: THREE.Vector3 } | null = this.mounted
       ? { left: this.controller.handPosition('left', HANDS_LEFT), right: this.controller.handPosition('right', HANDS_RIGHT) }
       : null;
+    // The team keeps an eye on whoever is holding the reins.
+    this.wagon.driverHead = this.mounted ? this.playerHead(this.tmpHead) : null;
     this.wagon.update(dt, paused ? 0 : distance, paused, hands);
     if (!paused) this.updateHorses(dt);
     if (this.leadRopes.length) this.updateRopes();
@@ -263,9 +269,18 @@ export class Adventure {
       this.leadRopes[i].update(this.stakeTops[i], this.horses[i].bitPosition(), .12, this.runClock);
     }
   }
+  /** Whoever is near the animals watches them back: the hero's head, at eye height. */
+  private animalSample(distance: number, extra: Partial<AnimalUpdate> = {}): AnimalUpdate {
+    const head = this.playerHead(this.tmpHead);
+    return { distance, lookAt: head, paused: this.controller.paused, ...extra };
+  }
+  private readonly tmpHead = new THREE.Vector3();
+  private playerHead(target: THREE.Vector3): THREE.Vector3 {
+    return target.copy(this.controller.position).add(new THREE.Vector3(0, 1.55, 0));
+  }
   private updateHorses(dt: number) {
     if (this.tied) {
-      for (const h of this.horses) h.update(dt, 0, false);
+      for (const h of this.horses) h.update(dt, this.animalSample(0, { gait: 'tied' }));
       this.updateRopes();
       return;
     }
@@ -283,7 +298,7 @@ export class Adventure {
           horse.root.rotation.y += Math.atan2(Math.sin(angle - horse.root.rotation.y), Math.cos(angle - horse.root.rotation.y)) * Math.min(1, dt * 3);
         }
         horse.root.position.copy(next);
-        horse.update(dt, k < 1 ? moved : 0, false);
+        horse.update(dt, this.animalSample(k < 1 ? moved : 0, { gait: k < 1 ? null : 'tied', forage: false }));
       }
       if (this.tie.t >= 4.5) { this.tied = true; this.tie = null; this.buildRopes(); }
       return;
@@ -308,7 +323,13 @@ export class Adventure {
         const angle = Math.atan2(-(next.x - old.x), -(next.z - old.z));
         horse.root.rotation.y += Math.atan2(Math.sin(angle - horse.root.rotation.y), Math.cos(angle - horse.root.rotation.y)) * Math.min(1, dt * 3);
       } else if (sniffing) horse.root.rotation.y = THREE.MathUtils.damp(horse.root.rotation.y, i === 0 ? -.85 : 1.4, .7, dt);
-      horse.root.position.copy(next); horse.update(dt, horizontalDistance < 1 ? horizontalDistance : 0, sniffing);
+      horse.root.position.copy(next);
+      // Sniffing at the ransacked kit is a story beat; everything else the
+      // animal decides for itself (forage, rest, watch the player).
+      horse.update(dt, this.animalSample(horizontalDistance < 1 ? horizontalDistance : 0, {
+        gait: sniffing && horizontalDistance < .004 ? 'sniff' : null,
+        forage: !sniffing,
+      }));
     }
   }
   private updateCollision() {

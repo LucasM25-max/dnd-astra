@@ -33,6 +33,12 @@
   border-radius: 9px;
   box-shadow: 0 20px 90px #050e0999;
   pointer-events: none;
+  /* Scroll rather than clip: the roll/continue buttons must survive a short
+     window, and a hidden control the player cannot reach is a dead end. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #d0b78155 transparent;
 }
 .dice-eyebrow {
   font-size: 7px;
@@ -136,6 +142,60 @@
 }
 #dice-overlay.success .dice-backdrop { box-shadow: inset 0 0 180px rgba(143, 209, 143, 0.22); }
 #dice-overlay.failure .dice-backdrop { box-shadow: inset 0 0 180px rgba(224, 138, 126, 0.28); }
+/* ── Player-driven actions: roll, then continue. The panel is pointer-inert so
+   the dice stage can be seen through it; the buttons opt back in. ── */
+.dice-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 10px;
+  min-height: 30px;
+  pointer-events: none;
+}
+#dice-overlay .dice-action {
+  pointer-events: auto;
+  appearance: none;
+  font: inherit;
+  font-size: 9px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  padding: 9px 22px;
+  border-radius: 2px;
+  cursor: pointer;
+  color: #f2e6c8;
+  background: rgba(24, 19, 12, 0.72);
+  border: 1px solid rgba(214, 178, 96, 0.55);
+  box-shadow: 0 0 0 0 rgba(214, 178, 96, 0.45);
+  transition: transform 0.14s ease-out, box-shadow 0.2s ease-out, border-color 0.2s ease-out, background 0.2s ease-out;
+}
+#dice-overlay .dice-action:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(240, 208, 128, 0.95);
+  background: rgba(44, 33, 18, 0.85);
+}
+#dice-overlay .dice-action:focus-visible {
+  outline: 2px solid #f0d080;
+  outline-offset: 2px;
+  box-shadow: 0 0 22px 2px rgba(214, 178, 96, 0.35);
+}
+#dice-overlay .dice-action[hidden] { display: none; }
+#dice-overlay .dice-action:disabled {
+  cursor: progress;
+  opacity: 0.5;
+  border-color: rgba(214, 178, 96, 0.25);
+}
+#dice-overlay .dice-action.primary {
+  border-color: rgba(240, 208, 128, 0.95);
+  background: rgba(74, 54, 24, 0.8);
+  animation: dice-action-pulse 2.4s ease-in-out infinite;
+}
+@keyframes dice-action-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(214, 178, 96, 0.0); }
+  50% { box-shadow: 0 0 22px 1px rgba(214, 178, 96, 0.4); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #dice-overlay .dice-action.primary { animation: none; }
+}
 .dice-hint {
   font-size: 6.5px;
   letter-spacing: 1.5px;

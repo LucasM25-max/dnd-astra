@@ -55,7 +55,7 @@ function vGradient(ctx: Ctx, w: number, h: number, top: string, bottom: string):
 }
 
 /** Tileable soft-blotch noise: warm/cool mottling for skin and cloth. */
-function blotches(ctx: Ctx, w: number, h: number, rand: () => number, colors: string[], count: number, rMin: number, rMax: number, alpha: number): void {
+export function blotches(ctx: Ctx, w: number, h: number, rand: () => number, colors: string[], count: number, rMin: number, rMax: number, alpha: number): void {
   for (let i = 0; i < count; i++) {
     const x = rand() * w;
     const y = rand() * h;
@@ -75,7 +75,7 @@ function blotches(ctx: Ctx, w: number, h: number, rand: () => number, colors: st
 }
 
 /** Fine per-pixel-ish grain (random 1–2 px rects). */
-function grain(ctx: Ctx, w: number, h: number, rand: () => number, count: number, light: string, dark: string, alpha: number): void {
+export function grain(ctx: Ctx, w: number, h: number, rand: () => number, count: number, light: string, dark: string, alpha: number): void {
   const cl = hexToRgb(light);
   const cd = hexToRgb(dark);
   for (let i = 0; i < count; i++) {

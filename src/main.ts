@@ -115,6 +115,8 @@ function ensureWorld(foreground: boolean): Promise<void> {
                 if (character) character.hp.current = Math.max(1, character.hp.current - n);
               },
               terrainAt: (x: number, z: number) => world!.terrainAt(x, z),
+              // Did the dice tray keep the die in frame on its own? (smoke harness)
+              getDiceContainment: async () => (await import('./systems/dice/DicePhysicsScene')).diceContainmentStats,
               getHeroAnim: () => {
                 const c = world!.controller, v = c.velocity, anim = c.actor.anim;
                 const speed = Math.hypot(v.x, v.z);
