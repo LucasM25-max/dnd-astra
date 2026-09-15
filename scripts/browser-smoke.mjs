@@ -140,6 +140,8 @@ try {
   assert((await page.locator('#dialog').innerText()).includes('LEVEL 1 HUMAN FIGHTER'));
   assert((await page.locator('#dialog').innerText()).includes('Second Wind'));
   await page.keyboard.press('Escape');
+  // The character sheet is still fading; wait it out before the dice block clicks.
+  await page.waitForSelector('#dialog-backdrop', { state: 'hidden' });
   // Dice overlay contract (System 4): nothing rolls and nothing closes until the
   // player presses Roll, then Continue — no auto-roll, no auto-dismiss.
   await page.evaluate(() => { window.__astra.previewRoll(20, 2, 'Smoke Check', 10); return true; });
@@ -199,6 +201,12 @@ try {
   await page.click('[data-camp="close"]');
   await page.waitForSelector('#camp-menu', { state: 'hidden' });
   console.log('✓ Character sheet, the make-camp menu, and a short rest that spends a hit die all work');
+  // A story dialog can surface again as the world resumes behind a finished
+  // roll; clear it before poking at the HUD, and prove it is still closable.
+  if (await page.locator('#dialog-backdrop:not([hidden])').count()) {
+    await page.click('#dialog [data-action=\"close\"]');
+    await page.waitForFunction(() => document.querySelector('#dialog-backdrop')?.hidden === true, null, { timeout: 10000 });
+  }
   await page.click('#settings-toggle');
   await page.click('[data-weather="rain"]'); assert.equal(await page.locator('[data-weather="rain"]').getAttribute('aria-pressed'), 'true');
   await page.click('[data-weather="auto"]'); assert.equal(await page.locator('[data-weather="auto"]').getAttribute('aria-pressed'), 'true');
