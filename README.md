@@ -175,7 +175,7 @@ src/game/music.ts                 Dramatic score: Dorian pads/bells, chord-breat
 src/game/road.ts                  Continuous wagon route and heading
 src/engine/adventure.ts           Chapter orchestration, driving, boarding, interactions, saves
 src/engine/actors/                Wagon/cargo construction, materials, skeletal quadrupeds
-src/engine/actors/quadruped/      Quadruped rig, skinned body, gait clips, living animal actor
+src/engine/actors/quadruped/      Quadruped rig, skinned body, gait clips, per-region coat textures, materials, living animal actor
 src/engine/landscape.ts           Original map curves, height field, static/dynamic collisions
 src/engine/nature.ts              Spatially instanced trees, grass, ferns, rocks, and deadwood
 src/engine/controller.ts          Foot movement, seated fighter/hands, camera and input handling
@@ -265,7 +265,11 @@ guided to it), roll serialisation and world-pause via game state during a
 `CINEMATIC`-style hold, and the lightweight custom physics sim capped at
 three bodies (die, glass plane, walls) with per-roll create/dispose and no
 persistent physics world. This already satisfies "lightest engine to add" —
-no need to pull in Cannon/Ammo/Rapier.
+no need to pull in Cannon/Ammo/Rapier. The walls are **derived from the
+camera** (`DiceContainment.trayBounds`), not from a hardcoded box: the tray's
+limits are the largest axis-aligned rectangle that is both on the leather and
+fully inside the shot, and the die's centre is additionally capped at the
+height where its own silhouette would start clipping out of frame.
 
 **Fix, to reach spec:**
 
@@ -285,8 +289,20 @@ no need to pull in Cannon/Ammo/Rapier.
   dialog language (see Style Law). Preserve the existing result beat: die
   settles (~1.5 s) → number zooms → modifier badge slides/slams in from the
   side with a thud → total pulses beneath → SUCCESS (green glow) / FAILURE
-  (red crack) banner. Auto-dismiss after 2.5 s or on click/keypress, exactly
-  as specified. Keep the reduced-motion path.
+  (red crack) banner. **Player-gated, twice:** the overlay opens with a
+  `Roll the die` button and waits — no timer, no automatic throw — and after
+  the result has finished landing it offers a separate `Continue` button.
+  Background clicks and stray key presses do neither; keys only ever activate
+  the focused button. There is deliberately no auto-dismiss constant left in
+  `DICE_TIMING`. The reduced-motion path keeps both buttons and simply skips
+  the tumble.
+- **Containment.** The die must never leave the player's view. `advanceDie`
+  (in `DiceContainment`) owns gravity, the floor bounce and the tray walls so
+  the whole flight can be replayed headlessly — `tests/dice.test.ts` throws 48
+  production-shaped tosses plus 48 absurd ones and fails if a single frame puts
+  any part of the die outside the canvas. `keepInView` stays behind it as a
+  paranoia net and counts how often it had to intervene
+  (`window.__astra.getDiceContainment()`); the smoke test asserts that stays 0.
 - **Audio.** Verify and wire the full SFX chain — throw, 2–4 bounce
   variants, land, modifier slam, success chime, failure crack — using the
   project's existing `.wav` convention; don't switch formats without cause.
@@ -601,10 +617,12 @@ toast) is already sound — the remaining work is cinematic and visual:
   preset) is the single source of truth threaded from character creation
   through the skeletal model, the HUD, and the rest system — no duplicated
   or drifting copies of derived stats.
-- **Tests.** Update `tests/dice.test.ts` and the character/animation/rest/
-  save-character suites to the new skeletal-rig and state-machine
-  expectations, and update `scripts/browser-smoke.mjs` to cover the rebuilt
-  creation flow, camp menu, and narrator-only interaction path.
+- **Tests.** `tests/dice.test.ts` covers crypto rolls, face labels, the two
+  player gates and frame-by-frame dice containment; `tests/quadruped.test.ts`
+  covers the animal rig (bone set, skinned weights, per-region texture maps,
+  silhouette bounds, gait foot planting, one-shot easing, tack anchors).
+  `scripts/browser-smoke.mjs` drives the rebuilt creation flow, camp menu,
+  dice overlay, and narrator-only interaction path in a real browser.
 
 ### Suggested build order
 

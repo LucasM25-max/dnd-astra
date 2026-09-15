@@ -157,7 +157,7 @@ export class WoodlandWorld {
     this.controller = new PlayerController(this.camera, this.renderer.domElement, this.collision, this.scene);
     progress(85, 'Harnessing the oxen and loading the wagon');
     await yieldToBrowser();
-    this.adventure = await Adventure.create(this.scene, this.camera, this.controller, this.collision, this.renderer);
+    this.adventure = await Adventure.create(this.scene, this.camera, this.controller, this.collision, this.renderer, this.quality);
     this.adventure.onNotice = message => this.onNotice(message);
     this.adventure.onHandoff = () => { this.renderer.shadowMap.needsUpdate = true; this.renderDirty = true; this.onControlHandoff(); };
     await this.initializeSystems();
