@@ -2,7 +2,8 @@ import type { WoodlandWorld, WorldState } from '../engine/world';
 import { isFormControl } from '../engine/controller';
 import { CONTAINERS, ITEMS, ITEM_IDS, countOf, formatGp, valueOf, type ContainerId, type ItemId } from '../game/items';
 import { NARRATION } from '../game/narrator';
-import { FIGHTER, skillModifier } from '../game/character';
+import { narratorBoxVisible } from '../systems/narration/NarratorBox';
+import { FIGHTER, skillModifier, xpProgress } from '../game/character';
 
 
 export type AdventureDialog = 'inventory' | 'cargo' | 'journal' | 'sheet';
@@ -148,7 +149,7 @@ export class AdventureInterface {
   }
   update(state: WorldState) {
     const story = state.story, store = this.world.adventure.inventory;
-    document.body.dataset.story = story.phase; document.body.dataset.mounted = String(state.mounted); document.body.dataset.narrating = String(story.active);
+    document.body.dataset.story = story.phase; document.body.dataset.mounted = String(state.mounted); document.body.dataset.narrating = String(story.active || narratorBoxVisible());
     $('#journey-skip').hidden = story.phase !== 'journey';
     $('#mount-toggle').hidden = !state.started || story.phase === 'journey';
     $('#mount-toggle').setAttribute('aria-label', state.mounted ? 'Dismount the wagon' : 'Board the wagon');
@@ -168,18 +169,20 @@ export class AdventureInterface {
       plate.hidden = false;
       const secondWind = hero.features.secondWind.usesCurrent > 0;
       const inspired = hero.features.heroicInspiration.available;
-      const frac = hero.hp.max > 0 ? Math.max(0, Math.min(1, hero.hp.current / hero.hp.max)) : 0;
-      const sig = `${hero.hp.current}/${hero.hp.max}/${secondWind}/${inspired}`;
+      // Hit points already float above the hero in the world, so the topbar
+      // plate carries the experience track instead: level seal, gilded bar,
+      // and the XP span of the current level.
+      const xp = xpProgress(hero);
+      const sig = `${hero.level}/${hero.xp}/${secondWind}/${inspired}`;
       if (plate.dataset.sig !== sig) {
         plate.dataset.sig = sig;
-        // Ruby pill instead of the old globe: same ember language as the
-        // floating world-space bar, compact enough for the topbar.
-        $('#hero-plate-hp').innerHTML = `<span class="plate-bar${frac <= 0.25 ? ' low' : ''}" aria-hidden="true"><i style="width:${(frac * 100).toFixed(1)}%"></i></span>`
-          + `<span class="plate-hp"><b>${hero.hp.current}</b><span>/${hero.hp.max}</span></span>`
+        $('#hero-plate-hp').innerHTML = `<span class="plate-level" aria-hidden="true">${xp.level}</span>`
+          + `<span class="plate-bar xp${xp.nextLevel === null ? ' capped' : ''}" aria-hidden="true"><i style="width:${(xp.fraction * 100).toFixed(1)}%"></i></span>`
+          + `<span class="plate-xp"><b>${xp.nextLevel === null ? xp.intoLevel : xp.intoLevel}</b><span>${xp.nextLevel === null ? ' XP · MAX' : ` / ${xp.needed} XP`}</span></span>`
           + `<span class="hero-pips" aria-hidden="true">${secondWind ? '◈' : '◇'}${inspired ? '★' : ''}</span>`;
       }
-      plate.title = `${hero.name} — Character sheet · C`;
-      plate.setAttribute('aria-label', `${hero.name}, ${hero.hp.current} of ${hero.hp.max} hit points. Open character sheet.`);
+      plate.title = `${hero.name} — Level ${hero.level} · ${xp.intoLevel}${xp.nextLevel === null ? '' : ` of ${xp.needed}`} XP · Character sheet · C`;
+      plate.setAttribute('aria-label', `${hero.name}, level ${hero.level}, ${xp.intoLevel}${xp.nextLevel === null ? '' : ` of ${xp.needed}`} experience. Open character sheet.`);
     } else { plate.hidden = true; plate.dataset.sig = ''; }
     const prompt = $('#inspect-prompt');
     const label = state.worldPrompt ?? state.interaction?.label ?? null;
@@ -244,8 +247,10 @@ export class AdventureInterface {
     const featName = c.originFeat === 'alert' ? 'Alert' : c.originFeat === 'tough' ? 'Tough' : 'Savage Attacker';
     const styleName = c.fightingStyle === 'defense' ? 'Defense' : c.fightingStyle === 'dueling' ? 'Dueling' : c.fightingStyle === 'great_weapon' ? 'Great Weapon Fighting' : 'Two-Weapon Fighting';
     const initiative = c.abilityScores.DEX.modifier + (c.originFeat === 'alert' ? 5 : 0);
+    const xp = xpProgress(c);
     return `${close}<div class="dialog-eyebrow">LEVEL ${c.level} HUMAN FIGHTER · SOLDIER</div><h2 id="dialog-title">${escape(c.name)}</h2>
       <p class="dialog-description">❤ <strong>${c.hp.current}/${c.hp.max} HP</strong> · 🛡 <strong>${c.ac} AC</strong> · ⚡ Initiative ${signed(initiative)} · 👣 ${c.speed} ft · 🎲 Hit Dice ${c.hitDice.current}d${c.hitDice.die}</p>
+      <div class="sheet-xp"><span class="sheet-xp-label">EXPERIENCE</span><div class="sheet-xp-bar" aria-hidden="true"><i style="width:${(xp.fraction * 100).toFixed(1)}%"></i></div><span class="sheet-xp-num">${xp.nextLevel === null ? `${xp.intoLevel} XP · highest level` : `${xp.intoLevel} / ${xp.needed} XP to level ${xp.nextLevel}`}</span></div>
       <div class="sheet-grid">${abilities}</div>
       <div class="sheet-section"><h4>Saving throws</h4><div>${saves}</div></div>
       <div class="sheet-section"><h4>Skills</h4><div class="sheet-skills">${skills}</div></div>

@@ -6,7 +6,7 @@ A playable **Three.js + TypeScript + Vite** fantasy RPG prototype, beginning wit
 
 Click **Begin your journey**. You begin on the wagon’s driving bench as a chain-mail fighter, holding the reins of two yoked oxen. A roughly one-minute opening follows the wagon down the road while the Narrator reads the supplied Neverwinter/Gundren introduction verbatim, in four readable pages.
 
-At the clearing, the wagon stops and **control is handed back before the arrival narration begins**. That second passage describes the recent battle and the **two living horses** wandering and sniffing around ransacked belongings. The chapter stops there narratively; you can still drive, dismount, inspect the scene, and explore.
+At the clearing, the wagon stops and **control is handed back before the arrival narration begins**. That second passage describes the recent battle and the **two living horses** wandering and sniffing around ransacked belongings. Once the ransacked saddlebags have been examined, pressing **E** near the horses offers a **DC 12 Animal Handling check** (on the usual 3D dice) to calm them and tie them off at the roadside hitching stakes — the hero knots the lead ropes while the horses lead themselves in and settle; a failed check spooks them and can be retried. The chapter stops there narratively; you can still drive, dismount, inspect the scene, and explore.
 
 - **Skip opening** immediately reaches the same handoff without duplicating cargo or progress.
 - Narration has pause/resume, repeat-passage, voice mute, and next-passage controls.
@@ -21,9 +21,28 @@ The Narrator currently delivers this **authored chapter**. It is not yet a free-
 
 The wagon includes individual weathered timber boards, iron fittings, twelve-spoke rotating wheels, a driving bench, a drawbar, a double yoke, flexible traces/reins, and six separately inspectable cargo containers. Crate/case lids open on hinges; looted supplies disappear from their physical stacks. The small oil barrel contains approximately fifty flask measures, not fifty separate bottles.
 
-The Wanderer, the two yoked oxen, and the two horses are 2.5D actors: 2D animation frames playing inside the 3D world. Each is procedurally painted onto a canvas sprite sheet as sixteen direction variants (plus idle, walk, sprint, seated, or head-down poses) and shown on an upright billboard that always faces the camera, so the side closest to the viewer is visible at any moment and neighbours crossfade instead of popping as you orbit. They read as turning, breathing, tail-wagging figures from any angle. Each sheet also derives a half-resolution normal atlas from its painted luminance, so the billboards catch the same directional sun/moonlight and hemisphere ambience as the 3D props: figures shade on their unlit side and dim naturally at night instead of glowing. The horses alternate between short walks and investigating the belongings. Moving actors and the wagon have collision volumes. Driving is constrained by terrain, obstacles, and space: the full wagon cannot simply cross steep banks or squeeze along the narrow Cragmaw trail.
+The Wanderer, the two yoked oxen, and the two horses are all **skeletal, textured, procedurally built 3D actors** — no external meshes. The hero uses the 22-bone rig with painted canvas skin/gambeson/trouser/foot and rigid armour layers; the animals use a shared 19-bone quadruped rig (`src/engine/actors/quadruped/`) with a blended skinned barrel/neck/chest, rigid limbs, manes, tails, horns and halters, textured with the procedural animal-coat map tinted per individual. Oxen play idle and walk gaits under the yoke (hooves plant flat through a world-pitch ankle compensation, exactly like the hero gait); the horses alternate idle, walk and a head-low sniffing loop while they wander the clearing, and stand calmed in a tied loop once hitched. Every Narrator line — opening, arrival, inspections, rest, dawn — is presented in the same story box layout with heading, chapter rule, progress bar and voice toggle. Moving actors and the wagon have collision volumes. Driving is constrained by terrain, obstacles, and space: the full wagon cannot simply cross steep banks or squeeze along the narrow Cragmaw trail.
 
-**Art scope:** this remains a realism-focused browser prototype. The wagon/cargo geometry is procedural; the characters and animals are procedurally painted canvas sprite sheets (no image-generated sprites, no external meshes or rigs), supersampled with photographic grain so they sit next to the image-based terrain/plant textures and their derived normal maps. The forest floor is bare soil; the trail and stony banks blend over it. This is not a production photogrammetry set: a finished AAA-photorealistic art pass and broader hardware profiling remain future work.
+**Art scope:** this remains a realism-focused browser prototype. The wagon/cargo geometry, the hero rig and the quadruped rigs are all procedural (no image-generated sprites, no external meshes or rigs); skins, cloth, armour, animal coats and the terrain/plant textures are painted or derived canvas/WebP maps with normal maps, supersampled with photographic grain so everything sits together. The forest floor is bare soil; the trail and stony banks blend over it. This is not a production photogrammetry set: a finished AAA-photorealistic art pass and broader hardware profiling remain future work.
+
+## The forest itself
+
+Everywhere outside the worn road/trail corridors, the camp terrace and the
+ambush clearing is **dense, walkable woodland**: three Poisson-spaced density
+zones of oaks (tight around the play area, easing out to a horizon backdrop so
+the canopy never ends abruptly), closed overhead by the leaf-card canopy, with
+an understorey carpet of shrubs, ferns and individual grass blades, scattered
+mossy boulders, path-edge stones, pebbles and fallen deadwood — all instanced
+from the same procedural models and textures, batched into spatial buckets so
+the frustum discards whole patches.
+
+Walkability is preserved by construction: trunk spacing always leaves
+corridors wider than the player capsule, boulders only gain colliders above a
+size threshold and keep a walkable gap from every other blocker (trunks,
+logs), and the road, trail, camp and clearing stay clear of growth. Quality
+settings scale the understorey and tree instance counts (nearest-path growth
+survives first), and sun shadows are limited to the framing around the road,
+clearing and camp so the deep woods stay cheap.
 
 ## Inventory and gold pieces
 
@@ -155,7 +174,8 @@ src/game/time.ts                  Calendar of Harptos, game clock, sun geometry,
 src/game/music.ts                 Dramatic score: Dorian pads/bells, chord-breathing sub-bass, storm pulse, wind bed
 src/game/road.ts                  Continuous wagon route and heading
 src/engine/adventure.ts           Chapter orchestration, driving, boarding, interactions, saves
-src/engine/actors/                Wagon/cargo construction, materials, and painted sprite actors
+src/engine/actors/                Wagon/cargo construction, materials, skeletal quadrupeds
+src/engine/actors/quadruped/      Quadruped rig, skinned body, gait clips, living animal actor
 src/engine/landscape.ts           Original map curves, height field, static/dynamic collisions
 src/engine/nature.ts              Spatially instanced trees, grass, ferns, rocks, and deadwood
 src/engine/controller.ts          Foot movement, seated fighter/hands, camera and input handling
@@ -165,7 +185,7 @@ src/engine/world.ts               Renderer, clock-driven atmosphere, quality, wo
 src/character/skeletal/           Skeletal hero rig: procedural geometry, painted materials, clip library
 src/character/AnimationStateMachine.ts  Clip selection, crossfades, holds, seat/weapon transitions
 src/systems/dice/                 3D dice roll: scene, physics, roller, SFX
-src/systems/narration/            Narrator camera + story transport, subtitles, handoff
+src/systems/narration/            Narrator camera + story transport, story box, handoff
 src/systems/rest/                 Camp menu, rest resolver, long/short rest cinematic
 src/systems/interaction/          World interaction manager (cargo, ransacked belongings, campfire)
 src/ui/                           HUD, Narrator panel, inventory/cargo, dialogs, cartography, calendar
@@ -547,7 +567,9 @@ toast) is already sound — the remaining work is cinematic and visual:
   currently equipped weapon set.
 - **Ambient audio.** Campfire crackle loop under the whole sequence,
   crickets/owl at night fading into dawn birds at the transition.
-- **HUD integration.** A compact ruby-bar `hero-plate` (HP numbers + Second
+- **HUD integration.** A compact `hero-plate` (level + XP progress toward the
+  next level — the character starts at level 1 needing 300 XP for level 2 —
+  plus Second
   Wind/Inspiration pips) lives in the topbar world-tools chrome with
   plain-language tooltips, and a matching **health bar floats above the hero
   in the world** (`hero-health.ts`): gold-rimmed channel, ember-ruby fill,

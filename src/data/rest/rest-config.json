@@ -13,9 +13,11 @@
     "durationHours": 1
   },
   "cinematicMs": {
-    "dollyOut": 900,
-    "nightHold": 1400,
-    "dawnHold": 1200,
-    "fadeMs": 600
+    "dollyOut": 1500,
+    "nightHold": 6200,
+    "dawnHold": 3000,
+    "fadeMs": 900,
+    "sweepNightMs": 9000,
+    "sweepDawnMs": 8000
   }
 }

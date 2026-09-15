@@ -1,18 +1,21 @@
 /* Shared chrome for the five video-game systems: camp, rest, subtitles, hero plate.
    Woodland dialog language throughout; tokens live on :root in styles.css.
-   Layer order: HUD < camp menu (110) < cinematic subtitles (115) < dice overlay (120). */
+   Layer order: HUD < camp menu (110) < narrator box (HUD layer) < dice overlay (120). */
 
-/* --- Cinematic subtitles (bottom-centre, warm white on shadow, no box) --- */
-#cinematic-subtitles {
-  position: fixed; left: 0; right: 0; bottom: 9%; z-index: 115;
-  display: none; justify-content: center; pointer-events: none; padding: 0 24px;
-}
-#cinematic-subtitles.visible { display: flex; }
-#cinematic-subtitles-text {
-  max-width: 760px; text-align: center; color: #f3eee0;
-  font-family: var(--serif); font-size: clamp(19px, 2.4vw, 25px); line-height: 1.5;
-  text-shadow: 0 1px 3px #000, 0 0 12px rgba(0, 0, 0, .9), 0 2px 8px #000;
-}
+/* --- One-shot Narrator box (same panel as the opening chapter) ---
+   Later Narrator lines (interactions, camp, rest, the horses) read from the
+   very same boxed panel as the opening pages. While it holds the stage the
+   journey panel steps aside so two boxes never stack. */
+.narrator-panel--oneshot { pointer-events: none; }
+body[data-onenarrating="true"] .narrator-panel--oneshot { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
+body[data-onenarrating="true"] .narrator-panel:not(.narrator-panel--oneshot) { opacity: 0; visibility: hidden; transform: translate(-50%, 12px); }
+body[data-onenarrating="true"] .discovery { display: none; }
+body[data-onenarrating="true"] .toast { bottom: auto; top: 112px; max-width: 530px; }
+body[data-onenarrating="true"] .inspect-prompt { bottom: 68px; padding: 7px 12px; font-size: 8px; }
+body[data-modal="true"] .narrator-panel--oneshot { opacity: .28; }
+#narrator-box-voice { width: 27px; height: 27px; display: flex; align-items: center; justify-content: center; border-radius: 3px; color: #bbc3a8; pointer-events: auto; }
+#narrator-box-voice:hover { background: #dcd2a61a; color: #e9d4a7; }
+#narrator-box-voice svg { width: 12px; height: 12px; }
 
 /* --- Camp menu --- */
 #camp-menu {
@@ -186,3 +189,20 @@ body[data-creating="true"] .journey-status { visibility: hidden; }
 .plate-hp b{color:#ffe0cf;font-size:11.5px;font-weight:700}
 .plate-hp span:last-child{opacity:.66}
 .hero-pips{font-size:10px;letter-spacing:1px;color:#e3cea1cc;line-height:1}
+
+/* ── Experience track (topbar plate + character sheet) ───────────────────
+   Hit points live above the hero in the world, so the topbar plate carries
+   XP instead: a gilded leaf-gold bar with a level seal, distinct from the
+   ruby health language but cut from the same cloth. */
+.plate-level{display:flex;align-items:center;justify-content:center;min-width:17px;height:17px;padding:0 4px;border-radius:999px;border:1px solid #d8c0884d;background:radial-gradient(circle at 35% 30%,#3a341f,#1d2a1c);color:#e8d49b;font:600 9px/1 Manrope,Arial,sans-serif;letter-spacing:.4px;box-shadow:inset 0 1px 0 #ffffff22,0 0 10px #c8a86420}
+.plate-bar.xp{background:#141008}
+.plate-bar.xp i{background:linear-gradient(180deg,#f4e3ae,#cfa84e 55%,#8a6a24);box-shadow:0 0 8px #d9b45f59}
+.plate-bar.xp.capped i{background:linear-gradient(180deg,#eaf0d2,#9fb573 55%,#5c7040);box-shadow:0 0 8px #b9cf8a59}
+.plate-xp{font-size:9px;color:#d9d4bd;letter-spacing:.3px;white-space:nowrap}
+.plate-xp b{color:#f4e6bd;font-size:11.5px;font-weight:700}
+.plate-xp span:last-child{opacity:.66}
+.sheet-xp{display:flex;align-items:center;gap:12px;margin:2px 0 4px;padding:10px 14px;border:1px solid #ccbd8d2e;border-radius:5px;background:linear-gradient(110deg,#b7a1680e,#14221952)}
+.sheet-xp-label{font-size:7px;letter-spacing:2px;color:#c0b18c;white-space:nowrap}
+.sheet-xp-bar{position:relative;flex:1;height:8px;border-radius:99px;background:#141008;box-shadow:inset 0 0 0 1px #00000080,inset 0 1px 3px #000b,0 0 0 1px #f2e2b614;overflow:hidden}
+.sheet-xp-bar i{position:absolute;inset:1px;right:auto;border-radius:99px;background:linear-gradient(180deg,#f4e3ae,#cfa84e 55%,#8a6a24);box-shadow:0 0 10px #d9b45f4d;transition:width .5s cubic-bezier(.25,1,.32,1)}
+.sheet-xp-num{font-size:9px;color:#cfc7a8;white-space:nowrap}

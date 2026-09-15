@@ -35,6 +35,7 @@ export type ClipName =
   | 'hit_react'
   | 'death'
   | 'interact'
+  | 'tie_knot'
   | 'second_wind'
   | 'long_rest_sit'
   | 'stand_up'
@@ -168,13 +169,16 @@ interface GaitConfig {
   rise: number;
   /** Extra flight bounce (run), added where the legs exchange. */
   hop: number;
+  /** Lateral pelvis sway onto the stance leg, metres. */
+  hipSway: number;
   thigh: number;
   kneeLoad: number;
   kneeSwing: number;
-  /** Peak plantarflexion (toe-off push), degrees. */
+  /** World-space foot pitch (toe-down +) at toe-off / heel strike. */
   toeOff: number;
-  /** Mid-swing dorsiflexion dip (toe clearance), degrees. */
-  heelOut: number;
+  strikeToe: number;
+  /** World-space foot pitch held through mid-swing (toe-up clearance). */
+  swingLevel: number;
   splay: number;
   armSwing: number;
   elbowBase: number;
@@ -201,13 +205,21 @@ function legPose(a: number, cfg: GaitConfig, side: -1 | 1): Pose {
   const knee = stance
     ? cfg.kneeLoad * Math.sin(a)
     : cfg.kneeSwing * Math.pow(Math.sin(Math.PI * q), 0.82);
-  // Ankle rocker, continuous across the whole cycle so foot(0) === foot(2π)
-  // (no heel-strike snap): stance rolls from a neutral heel strike to full
-  // plantarflexion at toe-off; the swing releases that, dorsiflexes (toe up)
-  // mid-swing to clear the ground, and lands back on a neutral heel.
-  const foot = stance
-    ? cfg.toeOff * smoothstep01(0.3, 1, q)
-    : cfg.toeOff * (1 - q) - cfg.heelOut * Math.sin(Math.PI * q);
+  // The ankle is authored in WORLD pitch, then the thigh/knee chain is
+  // subtracted out. Stance: toe-up at heel strike, flat through mid-stance
+  // (the planted sole stays on the ground), heel lifting into toe-off.
+  // Swing: the toe-off pitch releases quickly to a level, slightly toe-up
+  // carriage that reaches for the next heel strike. Because the chain is
+  // compensated, a flexed swing knee can never leave the foot trailing
+  // backwards — the old bug that read as feet facing the wrong way.
+  const world = stance
+    ? -cfg.strikeToe
+      + cfg.strikeToe * smoothstep01(0.02, 0.34, q)
+      + cfg.toeOff * smoothstep01(0.3, 1, q)
+    : cfg.toeOff
+      + (cfg.swingLevel - cfg.toeOff) * smoothstep01(0.0, 0.34, q)
+      + (-cfg.strikeToe - cfg.swingLevel) * smoothstep01(0.62, 1, q);
+  const foot = world - thigh - knee;
   const leg = side < 0 ? 'L' : 'R';
   return {
     [`UpperLeg${leg}`]: [thigh, 0, side * cfg.splay],
@@ -240,26 +252,27 @@ function gaitKeys(cfg: GaitConfig): ClipKey[] {
       Hips: [1.5 * Math.abs(Math.sin(a)), cfg.hipYaw * Math.cos(a), cfg.hipRoll * Math.sin(a)],
       Spine: [cfg.lean * 0.4 + 0.6, 0, 0],
       Chest: [cfg.lean * 0.6, -cfg.shoulder * Math.cos(a), 0],
-      Head: [-cfg.headPitch * cfg.lean + 1.5 * Math.sin(a * 2), cfg.shoulder * 0.5 * Math.cos(a), 0],
+      Head: [-cfg.headPitch * cfg.lean + 0.8 * Math.sin(a * 2), cfg.shoulder * 0.4 * Math.cos(a), 0],
     };
     const dip = cfg.dip - cfg.rise * Math.abs(Math.sin(a)) + cfg.hop * Math.pow(Math.cos(a), 2);
-    keys.push({ t: +(p * cfg.duration).toFixed(4), ease: 'linear', root: [0, -dip, 0], pose });
+    // Weight shifts onto the stance leg; continuous over the cycle.
+    keys.push({ t: +(p * cfg.duration).toFixed(4), ease: 'linear', root: [cfg.hipSway * Math.sin(a), -dip, 0], pose });
   }
   return keys;
 }
 
 const WALK_CYCLE: ClipKey[] = gaitKeys({
-  duration: 1, samples: 16, dip: 0.026, rise: 0.016, hop: 0,
-  thigh: 30, kneeLoad: 9, kneeSwing: 38, toeOff: 24, heelOut: 22, splay: 5,
-  armSwing: 19, elbowBase: 21, elbowBack: 7, lean: 2.5,
-  hipYaw: 3, hipRoll: 1.6, shoulder: 3.5, headPitch: 0.35,
+  duration: 1.06, samples: 20, dip: 0.024, rise: 0.015, hop: 0, hipSway: 0.014,
+  thigh: 28, kneeLoad: 8, kneeSwing: 34, toeOff: 26, strikeToe: 12, swingLevel: -6, splay: 4.5,
+  armSwing: 18, elbowBase: 22, elbowBack: 8, lean: 2.5,
+  hipYaw: 2.4, hipRoll: 1.4, shoulder: 3, headPitch: 0.3,
 });
 
 const RUN_CYCLE: ClipKey[] = gaitKeys({
-  duration: 0.62, samples: 16, dip: 0.046, rise: 0.026, hop: 0.03,
-  thigh: 47, kneeLoad: 16, kneeSwing: 78, toeOff: 44, heelOut: 38, splay: 6,
-  armSwing: 34, elbowBase: 56, elbowBack: 14, lean: 10,
-  hipYaw: 5, hipRoll: 2.4, shoulder: 5.5, headPitch: 0.7,
+  duration: 0.64, samples: 20, dip: 0.044, rise: 0.025, hop: 0.028, hipSway: 0.02,
+  thigh: 46, kneeLoad: 15, kneeSwing: 72, toeOff: 40, strikeToe: 14, swingLevel: -8, splay: 5.5,
+  armSwing: 33, elbowBase: 58, elbowBack: 14, lean: 10,
+  hipYaw: 4, hipRoll: 2.2, shoulder: 5, headPitch: 0.6,
 });
 
 /** Low guard: sword presented off the forearm, shield hand covering the chest. */
@@ -297,8 +310,8 @@ export const CLIP_DEFS: Record<ClipName, ClipDef> = {
   idle_dual: idleClip('idle_dual', DUAL_ARMS, 1.25, 0.7),
   idle_bow: idleClip('idle_bow', RELAXED_ARMS, 0.9, 1.3),
 
-  walk: { name: 'walk', duration: 1, loop: true, previewOnly: false, keys: WALK_CYCLE },
-  run: { name: 'run', duration: 0.62, loop: true, previewOnly: false, keys: RUN_CYCLE },
+  walk: { name: 'walk', duration: 1.06, loop: true, previewOnly: false, keys: WALK_CYCLE },
+  run: { name: 'run', duration: 0.64, loop: true, previewOnly: false, keys: RUN_CYCLE },
 
   attack_slash_1h: {
     name: 'attack_slash_1h',
@@ -722,6 +735,67 @@ export const CLIP_DEFS: Record<ClipName, ClipDef> = {
           UpperLegR: [-78, 0, -6], LowerLegR: [98, 0, 0], FootR: [44, 0, 0],
         },
       },
+    ],
+  },
+
+  // Kneel and work a knot at knee height: both hands turn over each other
+  // while the head follows them — used for tying the horses off at the road.
+  tie_knot: {
+    name: 'tie_knot',
+    duration: 2.4,
+    loop: false,
+    previewOnly: false,
+    keys: [
+      { t: 0, pose: { ...RELAXED_ARMS } },
+      {
+        t: 0.5,
+        ease: 'inout',
+        root: [-0.02, -0.44, 0.1],
+        pose: {
+          Chest: [22, 6, 0], Spine: [13, 3, 0], Head: [24, 4, 0],
+          UpperArmR: [-58, 0, -10], LowerArmR: [-46, 0, 0], HandR: [10, 0, -6],
+          UpperArmL: [-52, 0, 10], LowerArmL: [-50, 0, 0], HandL: [10, 0, 6],
+          UpperLegL: [-52, 0, 4], LowerLegL: [62, 0, 0], FootL: [18, 0, 0],
+          UpperLegR: [-78, 0, -6], LowerLegR: [98, 0, 0], FootR: [44, 0, 0],
+        },
+      },
+      {
+        t: 1.1,
+        ease: 'smooth',
+        root: [-0.02, -0.45, 0.11],
+        pose: {
+          Chest: [24, -4, 0], Spine: [14, -2, 0], Head: [26, -6, 0],
+          UpperArmR: [-64, 0, -4], LowerArmR: [-38, 0, 0], HandR: [-14, 0, -4],
+          UpperArmL: [-46, 0, 14], LowerArmL: [-58, 0, 0], HandL: [16, 0, 4],
+          UpperLegL: [-52, 0, 4], LowerLegL: [62, 0, 0], FootL: [18, 0, 0],
+          UpperLegR: [-78, 0, -6], LowerLegR: [98, 0, 0], FootR: [44, 0, 0],
+        },
+      },
+      {
+        t: 1.7,
+        ease: 'smooth',
+        root: [-0.02, -0.44, 0.1],
+        pose: {
+          Chest: [23, 5, 0], Spine: [13, 2, 0], Head: [25, 6, 0],
+          UpperArmR: [-56, 0, -12], LowerArmR: [-50, 0, 0], HandR: [12, 0, -6],
+          UpperArmL: [-54, 0, 8], LowerArmL: [-44, 0, 0], HandL: [-10, 0, 6],
+          UpperLegL: [-52, 0, 4], LowerLegL: [62, 0, 0], FootL: [18, 0, 0],
+          UpperLegR: [-78, 0, -6], LowerLegR: [98, 0, 0], FootR: [44, 0, 0],
+        },
+      },
+      {
+        t: 2.05,
+        ease: 'inout',
+        root: [-0.02, -0.42, 0.09],
+        pose: {
+          Chest: [18, 0, 0], Spine: [10, 0, 0], Head: [16, 0, 0],
+          UpperArmR: [-40, 0, -8], LowerArmR: [-30, 0, 0],
+          UpperArmL: [-36, 0, 8], LowerArmL: [-32, 0, 0],
+          UpperLegL: [-52, 0, 4], LowerLegL: [62, 0, 0], FootL: [18, 0, 0],
+          UpperLegR: [-78, 0, -6], LowerLegR: [98, 0, 0], FootR: [44, 0, 0],
+        },
+      },
+      { t: 2.4, ease: 'out', pose: { ...RELAXED_ARMS } },
     ],
   },
 

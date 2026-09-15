@@ -80,15 +80,22 @@ export class RestCinematic {
       this.fogBackup = this.getFogDensity();
       this.setFogDensity(this.fogBackup * 0.16);
     }
-    void this.tweenNight(1, 1800);
+    void this.tweenNight(1, 2600);
     await this.narratorCamera.dollyTo(wide, REST_CONFIG.cinematicMs.dollyOut);
     this.startOrbit();
     this.sky.showClock('Night falls…');
     this.sky.lapseStart(); // Painted starfield fades in as night falls.
   }
 
+  /**
+   * Dusk → deep night. The clock sweep is long, and the lens rises toward the
+   * open sky *while* it runs, so the falling night is watched from the first
+   * star to the full starfield instead of being skipped over.
+   */
   sweepToNight(): Promise<void> {
-    return this.sky.sweepClock(this.getMinute(), 1410, 2200, this.setMinute);
+    const ms = REST_CONFIG.cinematicMs.sweepNightMs;
+    void this.tweenTilt(0.55, ms * 0.85);
+    return this.sky.sweepClock(this.getMinute(), 1410, ms, this.setMinute);
   }
 
   /**
@@ -99,11 +106,12 @@ export class RestCinematic {
   async holdNight(): Promise<void> {
     this.sky.showClock('☾ Deep night');
     const hold = REST_CONFIG.cinematicMs.nightHold;
-    await this.tweenTilt(1, Math.min(2600, hold * 0.35));   // look up at the stars
-    await this.wait(hold * 0.35);                            // hold on the sky
+    await this.tweenTilt(1, hold * 0.42);      // slow look-up into the stars
+    await this.wait(hold * 0.3);               // hold on the open sky
     this.sky.showClock('☾ Deep night · the stars turn slowly');
-    await this.wait(hold * 0.2);
-    await this.tweenTilt(0, 1500);                           // back down to the fire
+    await this.wait(hold * 0.28);
+    // Ease down only partway: the sky stays framed for the dawn sweep.
+    await this.tweenTilt(0.62, hold * 0.3);
   }
 
   private wait(ms: number): Promise<void> {
@@ -127,17 +135,26 @@ export class RestCinematic {
     });
   }
 
+  /**
+   * Night → dawn. The painted starfield gives way to warm dawn over the whole
+   * sweep while the lens stays raised on the sky, then settles partway back
+   * toward the fire as the first light lands.
+   */
   sweepToDawn(): Promise<void> {
     this.sky.showClock('Dawn approaches…');
     this.sky.lapseDawn(); // Painted sky crossfades from starfield to warm dawn.
-    return this.sky.sweepClock(this.getMinute(), 360, 2200, this.setMinute);
+    const ms = REST_CONFIG.cinematicMs.sweepDawnMs;
+    void this.tweenTilt(0.9, ms * 0.45).then(() => this.tweenTilt(0.5, ms * 0.5));
+    return this.sky.sweepClock(this.getMinute(), 360, ms, this.setMinute);
   }
 
   async end(): Promise<void> {
-    this.stopOrbit();
-    this.setFogDensity?.(this.fogBackup); // The fade covers the fog restoring.
     this.sky.showClock('☀ 6:00 am');
     await this.sky.fadeToBlack(true, REST_CONFIG.cinematicMs.fadeMs);
+    // Behind the black, the lens settles from the sky back down to the fire.
+    await this.tweenTilt(0, 1100);
+    this.stopOrbit();
+    this.setFogDensity?.(this.fogBackup); // The fade covers the fog restoring.
     await Promise.all([
       this.narratorCamera.restore(10),
       this.tweenNight(0, 900), // Dawn light returns with the fade.
@@ -161,7 +178,7 @@ export class RestCinematic {
     const tmp = new THREE.Vector3();
     const frame = (): void => {
       if (!this.orbiting) return;
-      if (!reduced) this.orbitAngle += 0.0035;
+      if (!reduced) this.orbitAngle += 0.0016;
       const tilt = this.tilt;
       // Tilted up: draw close beside the fire and lift above the smoke, so
       // the clearing opens into a full bowl of sky (no trees cut the stars).

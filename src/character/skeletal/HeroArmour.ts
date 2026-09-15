@@ -62,15 +62,15 @@ export function buildHelmet(mats: ArmourMats): ArmourPiece {
 /** Mail coif drape under the helm, flaring onto the shoulders. */
 export function buildCoif(mats: ArmourMats): ArmourPiece {
   const profile: [number, number][] = [
-    [0.098, 1.62],
-    [0.112, 1.56],
-    [0.14, 1.5],
-    [0.175, 1.45],
-    [0.2, 1.4],
-    [0.205, 1.375],
+    [0.094, 1.6],
+    [0.106, 1.55],
+    [0.128, 1.5],
+    [0.155, 1.46],
+    [0.176, 1.425],
+    [0.182, 1.405],
   ];
   const geo = new THREE.LatheGeometry(profile.map(([x, y]) => new THREE.Vector2(x, y)), 20);
-  geo.scale(1, 1, 0.94);
+  geo.scale(1, 1, 0.92);
   const mesh = new THREE.Mesh(geo, mats.mail);
   mesh.name = 'coif';
   return { object: mesh, bone: 'Chest' };
@@ -117,19 +117,22 @@ export function buildMailShirt(mats: ArmourMats): ArmourPiece[] {
 export function buildPauldron(mats: ArmourMats, side: -1 | 1): ArmourPiece {
   const group = new THREE.Group();
   group.name = side < 0 ? 'pauldron_R' : 'pauldron_L';
-  const cx = side * 0.262;
-  const main = new THREE.Mesh(new THREE.SphereGeometry(0.098, 18, 12, 0, Math.PI * 2, 0, Math.PI * 0.55), mats.plate);
-  main.position.set(cx, 1.474, 0);
-  main.scale.set(1, 0.9, 1);
+  // Seated inboard and low so the dome caps the deltoid and overlaps the
+  // torso's shoulder blend — an outboard dome reads as a ball floating off
+  // the arm whenever the walk cycle swings it.
+  const cx = side * 0.243;
+  const main = new THREE.Mesh(new THREE.SphereGeometry(0.104, 18, 12, 0, Math.PI * 2, 0, Math.PI * 0.58), mats.plate);
+  main.position.set(cx, 1.462, 0);
+  main.scale.set(1, 0.92, 1.02);
   group.add(main);
   for (let i = 0; i < 2; i++) {
-    const lame = new THREE.Mesh(new THREE.CylinderGeometry(0.098 - i * 0.004, 0.102 - i * 0.004, 0.035, 18, 1, true), mats.plate);
-    lame.position.set(cx + side * (0.008 + i * 0.012), 1.452 - i * 0.034, 0);
-    lame.rotation.z = side * -0.16;
+    const lame = new THREE.Mesh(new THREE.CylinderGeometry(0.102 - i * 0.005, 0.106 - i * 0.005, 0.04, 18, 1, true), mats.plate);
+    lame.position.set(cx + side * (0.007 + i * 0.011), 1.44 - i * 0.036, 0);
+    lame.rotation.z = side * -0.17;
     group.add(lame);
   }
-  const trim = new THREE.Mesh(new THREE.TorusGeometry(0.096, 0.006, 8, 24, Math.PI), mats.brass);
-  trim.position.set(cx, 1.472, 0);
+  const trim = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.006, 8, 24, Math.PI), mats.brass);
+  trim.position.set(cx, 1.46, 0);
   trim.rotation.y = Math.PI / 2;
   trim.rotation.z = 0;
   group.add(trim);
@@ -137,23 +140,40 @@ export function buildPauldron(mats: ArmourMats, side: -1 | 1): ArmourPiece {
 }
 
 /** Gauntlet: flared cuff + metacarpal plate + knuckle ridge. */
-export function buildGauntlet(mats: ArmourMats, side: -1 | 1): ArmourPiece {
-  const group = new THREE.Group();
-  group.name = side < 0 ? 'gauntlet_R' : 'gauntlet_L';
+export function buildGauntlet(mats: ArmourMats, side: -1 | 1): ArmourPiece[] {
   const hx = side * 0.33;
-  const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.066, 0.1, 14, 1, true), mats.leather);
-  cuff.position.set(hx - side * 0.008, 0.945, 0.018);
-  cuff.rotation.z = side * 0.1;
-  group.add(cuff);
-  const plate = new THREE.Mesh(new RoundedBoxGeometry(0.02, 0.075, 0.062, 2, 0.008), mats.plate);
+  // Cuff on the forearm bone: it covers the wrist crease, so it must follow
+  // the elbow, not the fist (a cuff parented to the hand floated off the
+  // forearm skin the moment the arm bent).
+  const cuff = new THREE.Group();
+  cuff.name = side < 0 ? 'gauntlet_cuff_R' : 'gauntlet_cuff_L';
+  const cuffMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.054, 0.068, 0.13, 14, 1, true), mats.leather);
+  cuffMesh.position.set(hx - side * 0.006, 0.965, 0.016);
+  cuffMesh.rotation.z = side * 0.08;
+  cuff.add(cuffMesh);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.055, 0.007, 8, 16), mats.brass);
+  rim.position.set(hx - side * 0.002, 1.026, 0.014);
+  rim.rotation.x = Math.PI / 2;
+  cuff.add(rim);
+  // Hand plate + knuckle ridges ride the fist.
+  const hand = new THREE.Group();
+  hand.name = side < 0 ? 'gauntlet_R' : 'gauntlet_L';
+  const plate = new THREE.Mesh(new RoundedBoxGeometry(0.022, 0.082, 0.066, 2, 0.008), mats.plate);
   plate.position.set(hx + side * 0.033, 0.845, 0.028);
-  group.add(plate);
+  hand.add(plate);
   for (let k = 0; k < 3; k++) {
-    const ridge = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.008, 0.06), mats.plate);
+    const ridge = new THREE.Mesh(new THREE.BoxGeometry(0.024, 0.008, 0.062), mats.plate);
     ridge.position.set(hx + side * 0.033, 0.868 - k * 0.02, 0.028);
-    group.add(ridge);
+    hand.add(ridge);
   }
-  return { object: group, bone: side < 0 ? 'HandR' : 'HandL' };
+  const finger = new THREE.Mesh(new THREE.CylinderGeometry(0.049, 0.045, 0.055, 12, 1, true), mats.leather);
+  finger.position.set(hx, 0.878, 0.012);
+  hand.add(finger);
+  const arm = side < 0 ? 'LowerArmR' : 'LowerArmL';
+  return [
+    { object: cuff, bone: arm as BoneName },
+    { object: hand, bone: side < 0 ? 'HandR' : 'HandL' },
+  ];
 }
 
 /**
@@ -196,10 +216,10 @@ export function buildGreave(mats: ArmourMats, side: -1 | 1): ArmourPiece {
   group.name = side < 0 ? 'greave_R' : 'greave_L';
   const kx = side * 0.12;
   const shell = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.076, 0.057, 0.36, 14, 1, true, -Math.PI / 2, Math.PI),
+    new THREE.CylinderGeometry(0.079, 0.057, 0.42, 14, 1, true, -Math.PI / 2, Math.PI),
     mats.plate,
   );
-  shell.position.set(kx, 0.31, 0.012);
+  shell.position.set(kx, 0.33, 0.012);
   group.add(shell);
   const cop = new THREE.Mesh(new THREE.SphereGeometry(0.072, 14, 10), mats.plate);
   cop.scale.set(1, 0.9, 0.75);
@@ -214,25 +234,37 @@ export function buildGreave(mats: ArmourMats, side: -1 | 1): ArmourPiece {
 }
 
 /** Marching boot: foot shell, toe cap, heel, cuff. */
-export function buildBoot(mats: ArmourMats, side: -1 | 1): ArmourPiece {
-  const group = new THREE.Group();
-  group.name = side < 0 ? 'boot_R' : 'boot_L';
+export function buildBoot(mats: ArmourMats, side: -1 | 1): ArmourPiece[] {
   const fx = side * 0.12;
-  const shell = new THREE.Mesh(new RoundedBoxGeometry(0.104, 0.09, 0.21, 3, 0.035), mats.leather);
-  shell.position.set(fx, 0.058, 0.115);
-  group.add(shell);
+  // Shell, toe and heel ride the foot bone…
+  const foot = new THREE.Group();
+  foot.name = side < 0 ? 'boot_R' : 'boot_L';
+  const shell = new THREE.Mesh(new RoundedBoxGeometry(0.104, 0.09, 0.215, 3, 0.035), mats.leather);
+  shell.position.set(fx, 0.058, 0.112);
+  foot.add(shell);
   const toe = new THREE.Mesh(new THREE.SphereGeometry(0.052, 12, 10), mats.leather);
   toe.scale.set(1, 0.66, 1.1);
-  toe.position.set(fx, 0.045, 0.215);
-  group.add(toe);
-  const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.066, 0.06, 0.12, 14, 1, true), mats.leather);
-  cuff.position.set(fx, 0.14, 0.045);
-  group.add(cuff);
-  const strap = new THREE.Mesh(new THREE.TorusGeometry(0.062, 0.008, 8, 18), mats.brass);
-  strap.position.set(fx, 0.185, 0.045);
+  toe.position.set(fx, 0.045, 0.212);
+  foot.add(toe);
+  const heel = new THREE.Mesh(new THREE.SphereGeometry(0.045, 12, 10), mats.leather);
+  heel.scale.set(1, 0.9, 0.9);
+  heel.position.set(fx, 0.052, 0.012);
+  foot.add(heel);
+  // …while the ankle cuff and its brass strap ride the shin, so a rocking
+  // ankle can never tear the cuff away from the leg.
+  const shin = new THREE.Group();
+  shin.name = side < 0 ? 'boot_cuff_R' : 'boot_cuff_L';
+  const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.068, 0.062, 0.14, 14, 1, true), mats.leather);
+  cuff.position.set(fx, 0.15, 0.035);
+  shin.add(cuff);
+  const strap = new THREE.Mesh(new THREE.TorusGeometry(0.064, 0.008, 8, 18), mats.brass);
+  strap.position.set(fx, 0.2, 0.035);
   strap.rotation.x = Math.PI / 2;
-  group.add(strap);
-  return { object: group, bone: side < 0 ? 'FootR' : 'FootL' };
+  shin.add(strap);
+  return [
+    { object: foot, bone: side < 0 ? 'FootR' : 'FootL' },
+    { object: shin, bone: side < 0 ? 'LowerLegR' : 'LowerLegL' },
+  ];
 }
 
 export type HairStyle = 'short' | 'long' | 'braid' | 'bald';

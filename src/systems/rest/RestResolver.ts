@@ -11,7 +11,7 @@ export interface RestConfig {
   perceptionDC: number;
   partialHealFraction: number;
   poorlyRested: { name: string; effect: string; value: number; durationHours: number };
-  cinematicMs: { dollyOut: number; nightHold: number; dawnHold: number; fadeMs: number };
+  cinematicMs: { dollyOut: number; nightHold: number; dawnHold: number; fadeMs: number; sweepNightMs: number; sweepDawnMs: number };
 }
 export const REST_CONFIG = restConfigJson as unknown as RestConfig;
 

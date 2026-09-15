@@ -18,6 +18,7 @@ import { gameState } from '../game/state';
 import { spriteLightUniforms } from './actors/sprites';
 import { InteractionManager } from '../systems/interaction/InteractionManager';
 import { createRansackedBelongingsInteraction } from '../systems/interaction/interactions/RansackedBelongingsInteraction';
+import { createTieHorsesInteraction } from '../systems/interaction/interactions/TieHorsesInteraction';
 import { NarratorCamera } from '../systems/narration/NarratorCamera';
 import { NarratorSystem } from '../systems/narration/NarratorSystem';
 import { PlayerCharacterController } from '../character/PlayerCharacterController';
@@ -234,16 +235,19 @@ export class WoodlandWorld {
     });
     this.registerWorldInteractions();
     this.syncHeroFromSave();
+    if (this.adventure.inventory.isInspected('horses_tied')) this.adventure.restoreTied();
   }
   private registerWorldInteractions() {
     const onFoot = () =>
       this.adventure.inventory.arrived && this.controller.started &&
       !this.adventure.mounted && this.adventure.narrator.state.phase !== 'journey';
     const bags = new THREE.Vector3(8.9, terrainHeight(8.9, 1.9), 1.9);
-    const focusPos = new THREE.Vector3(6.2, terrainHeight(6.2, 4.8) + 2.3, 4.8);
+    // A close, low lens: the dolly settles barely two metres from the looted
+    // saddlebags, just above the spilled canvas, and reads the map case too.
+    const focusPos = new THREE.Vector3(7.55, terrainHeight(7.55, 3.35) + 1.12, 3.35);
     this.interactions.register(createRansackedBelongingsInteraction({
       position: bags,
-      focus: { position: focusPos, lookAt: bags.clone().add(new THREE.Vector3(0, .45, 0)) },
+      focus: { position: focusPos, lookAt: bags.clone().add(new THREE.Vector3(0, .34, 0)) },
       isInspected: () => this.adventure.inventory.isInspected('ransacked_belongings'),
       setInspected: () => this.adventure.inventory.markInspected('ransacked_belongings'),
       dustBurst: position => this.fx.dustBurst(position.clone().add(new THREE.Vector3(0, .5, 0))),
@@ -253,6 +257,19 @@ export class WoodlandWorld {
       position: this.campfirePos,
       canInteract: onFoot,
       onOpenCamp: () => this.restSystem.openCamp(),
+    }));
+    // Once the looted saddlebags have been examined, the loose horses can be
+    // calmed and tied to the roadside stakes (DC 12 Animal Handling).
+    this.interactions.register(createTieHorsesInteraction({
+      position: new THREE.Vector3(9.7, terrainHeight(9.7, 3.0), 3.0),
+      radius: 3.6,
+      adventure: this.adventure,
+      inventory: this.adventure.inventory,
+      canInteract: () =>
+        onFoot() &&
+        this.adventure.inventory.isInspected('ransacked_belongings') &&
+        !this.adventure.inventory.isInspected('horses_tied'),
+      setTied: () => this.adventure.inventory.markInspected('horses_tied'),
     }));
   }
   /** Repaint the hero from the saved character record (creation, load, restore). */
@@ -458,6 +475,7 @@ export class WoodlandWorld {
     a.href = url; a.download = `astra-triboar-trail-${Date.now()}.png`; a.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 2000);
   }
+  terrainAt(x: number, z: number) { return terrainHeight(x, z); }
   get diagnostics() { return { ...this.renderer.info.render, quality: this.quality, trees: this.nature?.trees ?? 0 }; }
   stop() { this.running = false; cancelAnimationFrame(this.raf); this.controller?.setPaused(true); this.adventure?.narrator.setPaused(true); }
   dispose() {
