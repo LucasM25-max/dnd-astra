@@ -66,18 +66,30 @@ function ensure(): HTMLElement {
   continueBtn = root.querySelector('#dice-continue');
   rollBtn!.addEventListener('click', () => { if (phase === 'armed') confirmRoll(); });
   continueBtn!.addEventListener('click', () => { if (phase === 'result') confirmContinue(); });
-  // Deliberately narrow: a key only ever activates the button the player is on,
-  // and only once the result is on screen. The old blanket listener dismissed the
-  // whole overlay on any keystroke and swallowed both buttons' clicks.
+  // The roll is modal: the world's own key and pointer bindings must not react
+  // while it is up (Escape used to open the camp menu over the result). Input
+  // aimed at the overlay's own buttons is left alone, so the gate still works
+  // with a keyboard — and a stray key no longer dismisses anything.
   window.addEventListener('keydown', onKey, true);
+  window.addEventListener('pointerdown', swallowOutside, true);
+  window.addEventListener('click', swallowOutside, true);
   return root;
+}
+
+/** Ignore world-level input while the overlay is visible, unless it targets the overlay. */
+function swallowOutside(e: Event): void {
+  if (!root?.classList.contains('visible')) return;
+  if (e.target instanceof Element && root.contains(e.target)) return;
+  e.stopPropagation();
 }
 
 function onKey(e: KeyboardEvent): void {
   if (!root?.classList.contains('visible')) return;
-  if (e.code === 'Tab') return;
+  // Focus traversal stays available inside the panel; nothing else reaches the game.
+  if (e.code === 'Tab') { e.stopPropagation(); return; }
+  if (e.target instanceof Element && root.contains(e.target)) return;
+  e.stopPropagation();
   if (phase === 'result' && (e.code === 'Enter' || e.code === 'Space' || e.code === 'Escape')) {
-    e.stopPropagation();
     e.preventDefault();
     confirmContinue();
   }

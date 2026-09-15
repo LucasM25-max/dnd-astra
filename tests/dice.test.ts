@@ -224,6 +224,9 @@ describe('player-gated dice overlay', () => {
     expect(roller).not.toContain('waitForDiceDismiss(');
     expect(timing).not.toContain('dismissMs');
     expect(ui).toContain('export function waitForDiceContinue');
+    // …and the roll stays modal: the world must not see input behind it.
+    expect(ui).toContain("window.addEventListener('pointerdown', swallowOutside, true)");
+    expect(ui).toContain('if (e.target instanceof Element && root.contains(e.target)) return;');
   });
 
   it('rolls only after the button, and holds the result until the next one', () => {
