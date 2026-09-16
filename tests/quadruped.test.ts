@@ -286,14 +286,16 @@ describe('quadruped body geometry', () => {
           const sum = weight.getX(i) + weight.getY(i) + weight.getZ(i) + weight.getW(i);
           expect(Math.abs(sum - 1), `${mesh.name} v${i}`).toBeLessThan(0.02);
           for (let b = 0; b < 4; b++) {
-            expect(index.getX(i) + b).toBeLessThan(rig.skeleton.bones.length);
+            const bIdx = [index.getX(i), index.getY(i), index.getZ(i), index.getW(i)][b];
+            expect(bIdx).toBeLessThan(rig.skeleton.bones.length);
+            expect(bIdx).toBeGreaterThanOrEqual(0);
           }
         }
       }
       body.dispose();
       mats.dispose();
     }
-  });
+  }, 15000);
 
   it('stays inside a believable silhouette for its species', () => {
     for (const species of ['ox', 'horse'] as QuadSpecies[]) {

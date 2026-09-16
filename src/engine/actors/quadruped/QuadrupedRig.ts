@@ -343,7 +343,7 @@ const PARENT: Partial<Record<QuadBoneName, QuadBoneName>> = {
   PelvisRL: 'Hips', PelvisRR: 'Hips',
   UpperLegRL: 'PelvisRL', UpperLegRR: 'PelvisRR',
   LowerLegRL: 'UpperLegRL', LowerLegRR: 'UpperLegRR',
-  FootRL: 'LowerLegRL', FootRR: 'UpperLegRR',
+  FootRL: 'LowerLegRL', FootRR: 'LowerLegRR',
 };
 
 export interface QuadRig {

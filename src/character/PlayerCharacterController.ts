@@ -20,7 +20,7 @@ export class PlayerCharacterController {
   readonly model: SkeletalCharacterModel;
   private loader: CharacterModelLoader;
 
-  constructor(controller: PlayerController, scene: THREE.Scene) {
+  constructor(private readonly controller: PlayerController, scene: THREE.Scene) {
     this.animation = controller.actor.anim;
     this.model = new SkeletalCharacterModel(controller.actor.hero, this.animation, controller, scene);
     this.loader = new CharacterModelLoader(controller.actor.hero);
@@ -59,6 +59,10 @@ export class PlayerCharacterController {
 
   faceTowards(worldPos: THREE.Vector3): void {
     this.model.faceTowards(worldPos);
+  }
+
+  walkTo(target: THREE.Vector3, speed?: number): Promise<void> {
+    return this.controller.walkTo(target, speed);
   }
 
   anchorPosition(name: SocketName, target: THREE.Vector3): THREE.Vector3 {

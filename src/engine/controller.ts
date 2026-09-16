@@ -142,6 +142,57 @@ export class PlayerController {
     this.position.set(SPAWN.x, terrainHeight(SPAWN.x, SPAWN.z), SPAWN.z); this.yaw = SPAWN.yaw; this.pitch = .17;
     this.verticalVelocity = 0; this.grounded = true; this.clearInput(); this.avatar.position.copy(this.position); this.updateCamera(1);
   }
+  /** Scripted walk to a target point (used for tying horses, cutscenes, interactions). */
+  walkTo(target: THREE.Vector3, speed = 2.25): Promise<void> {
+    const prevMode = this.controlMode;
+    this.controlMode = 'cinematic';
+    this.clearInput();
+
+    return new Promise(resolve => {
+      let lastTime = performance.now();
+      const step = (now: number): void => {
+        const rawDt = (now - lastTime) / 1000;
+        lastTime = now;
+        const dt = Math.max(0.001, Math.min(0.05, rawDt));
+
+        const dx = target.x - this.position.x;
+        const dz = target.z - this.position.z;
+        const dist = Math.hypot(dx, dz);
+
+        if (dist <= 0.08) {
+          this.position.x = target.x;
+          this.position.z = target.z;
+          this.position.y = terrainHeight(target.x, target.z);
+          this.avatar.position.copy(this.position);
+          this.actor.update({ dt, speed: 0, sprint: false, seated: false, seat: 'ground', paused: false });
+          this.controlMode = prevMode;
+          this.updateCamera(dt);
+          resolve();
+          return;
+        }
+
+        const dirX = dx / dist;
+        const dirZ = dz / dist;
+        const stepDist = Math.min(dist, speed * dt);
+
+        this.position.x += dirX * stepDist;
+        this.position.z += dirZ * stepDist;
+        this.position.y = terrainHeight(this.position.x, this.position.z);
+        this.avatar.position.copy(this.position);
+
+        const targetAngle = Math.atan2(-dirX, -dirZ);
+        const diff = Math.atan2(Math.sin(targetAngle - this.avatar.rotation.y), Math.cos(targetAngle - this.avatar.rotation.y));
+        this.avatar.rotation.y += diff * Math.min(1, dt * 10);
+        this.yaw = this.avatar.rotation.y;
+
+        this.actor.update({ dt, speed, sprint: false, seated: false, seat: 'ground', paused: false });
+        this.updateCamera(dt);
+
+        requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    });
+  }
   update(dt: number) {
     dt = Math.max(0, Math.min(.1, dt)); this.elapsed += dt;
     if (this.started && !this.paused && this.controlMode === 'foot') {

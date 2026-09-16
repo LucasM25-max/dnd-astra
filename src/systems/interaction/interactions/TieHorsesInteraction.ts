@@ -20,9 +20,10 @@ const CHAPTER = 'THE AMBUSH CLEARING';
 /**
  * After the ransacked belongings have been checked, the player can calm the
  * two loose horses and tie them off at the roadside stakes: a DC 12 Animal
- * Handling check on the shared dice mechanics, the hero's knot-tying one-shot,
- * and the horses leading themselves to the hitching stakes. A failed check
- * spooks them and can be retried.
+ * Handling check on the shared dice mechanics.
+ * When successful, the hero walks over to the hitching posts, knots the lead
+ * ropes while the horses lead themselves in and settle. A failed check spooks
+ * them and can be retried.
  */
 export function createTieHorsesInteraction(opts: TieHorsesOptions): InteractionDef {
   return {
@@ -41,8 +42,13 @@ export function createTieHorsesInteraction(opts: TieHorsesOptions): InteractionD
       );
       const result = await roll({ die: 20, modifier, label: 'Animal Handling', dc: 12 });
       if (result.success) {
-        const knot = ctx.hero.playOneShot('tie_knot');
+        // Walk over to the roadside hitching stakes to tie the knot
+        const postSpot = new THREE.Vector3(7.25, 0, 2.75);
+        await ctx.hero.walkTo(postSpot);
+        ctx.hero.faceTowards(new THREE.Vector3(7.25, 0, 3.55));
+
         opts.adventure.beginTie();
+        const knot = ctx.hero.playOneShot('tie_knot');
         await ctx.narrator.narrate(
           'horses_tied',
           'You knot both lead ropes to the hitching stakes. The horses blow softly through their noses and settle, heads low, finally at ease.',
