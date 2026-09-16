@@ -407,57 +407,61 @@ export class WoodlandWorld {
   }
   private frame = (now: number) => {
     if (!this.running) return;
-    const realDelta = Math.max(0, (now - this.lastFrame) / 1000);
-    const dt = Math.min(realDelta, .1); this.lastFrame = now; this.elapsed += dt;
-    this.adventure.update(dt, realDelta);
-    this.controller.update(dt);
-    this.hero?.update();
-    this.fx?.update(dt, this.elapsed);
-    this.campfireSite?.update(this.elapsed);
-    this.material.wind.value = this.elapsed;
-    const particleMat = this.particles.material as THREE.ShaderMaterial;
-    particleMat.uniforms.time.value = this.elapsed; this.shaftMaterial.uniforms.time.value = this.elapsed;
-    this.film.uniforms.time.value = this.elapsed;
-    if (!this.controller.paused && this.weather && this.adventure.clock) {
-      this.weather.tick(realDelta, this.adventure.clock);
-      this.weatherFrame = this.weather.apply(Math.min(realDelta, .25), this.adventure.clock, this.camera);
-    }
-    // Shared normal-mapped light rig for the sprite actors (sun/moon +
-    // hemisphere, normalized from scene intensities to sprite multipliers).
-    {
-      const K = .24;
-      spriteLightUniforms.uSunDir.value.copy(this.sun.position).sub(this.sun.target.position).normalize();
-      spriteLightUniforms.uSunColor.value.copy(this.sun.color).multiplyScalar(this.sun.intensity * K);
-      spriteLightUniforms.uHemiSky.value.copy(this.hemisphere.color).multiplyScalar(this.hemisphere.intensity * K);
-      spriteLightUniforms.uHemiGround.value.copy(this.hemisphere.groundColor).multiplyScalar(this.hemisphere.intensity * K);
-    }
-    for (const shaft of this.shafts) {
-      const axis = shaft.end.clone().sub(shaft.start), view = this.camera.position.clone().sub(shaft.start), side = axis.cross(view).normalize();
-      const a = shaft.mesh.geometry.getAttribute('position');
-      const vertices = [shaft.start.clone().addScaledVector(side, -shaft.width * .28), shaft.start.clone().addScaledVector(side, shaft.width * .28), shaft.end.clone().addScaledVector(side, -shaft.width), shaft.end.clone().addScaledVector(side, shaft.width)];
-      vertices.forEach((v, i) => a.setXYZ(i, v.x, v.y, v.z)); a.needsUpdate = true;
-    }
-    if (!this.controller.paused && this.elapsed - this.lastActorShadow > (this.quality === 'performance' ? .30 : .10)) {
-      this.renderer.shadowMap.needsUpdate = true; this.lastActorShadow = this.elapsed;
-    }
-    // Keep the high-resolution shadow region around the traveller.
-    const targetX = Math.round(this.controller.position.x / 4) * 4, targetZ = Math.round(this.controller.position.z / 4) * 4;
-    if (this.controller.velocity.lengthSq() > .0004 || !this.controller.grounded || this.sun.target.position.x !== targetX || this.sun.target.position.z !== targetZ) this.renderer.shadowMap.needsUpdate = true;
-    this.sun.target.position.set(targetX, terrainHeight(targetX, targetZ), targetZ);
-    this.renderer.info.reset();
-    // Camp and cinematics keep rendering every frame even while the
-    // controller is paused — the rest orbit, painted night→dawn sky, dice,
-    // and camera dollies all live behind those overlays.
-    if (!this.controller.paused || this.renderDirty || this.adventure.needsRender || gameState.inCamp || gameState.inCinematic) {
-      this.composer.render(); this.renderDirty = false;
-    }
-    this.frameCount++; this.fpsTimer += realDelta;
-    if (this.fpsTimer > 1) { this.fps = Math.round(this.frameCount / this.fpsTimer); this.frameCount = 0; this.fpsTimer = 0; }
-    if (this.frameCount % 3 === 0) {
-      const state = this.getState(); this.onUpdate(state);
-      if (state.started && state.story.phase !== 'journey' && state.landmark && !this.visited.has(state.landmark)) {
-        this.visited.add(state.landmark); this.onDiscovery(LANDMARKS.find(l => l.id === state.landmark)!.name);
+    try {
+      const realDelta = Math.max(0, (now - this.lastFrame) / 1000);
+      const dt = Math.min(realDelta, .1); this.lastFrame = now; this.elapsed += dt;
+      this.adventure.update(dt, realDelta);
+      this.controller.update(dt);
+      this.hero?.update();
+      this.fx?.update(dt, this.elapsed);
+      this.campfireSite?.update(this.elapsed);
+      this.material.wind.value = this.elapsed;
+      const particleMat = this.particles.material as THREE.ShaderMaterial;
+      particleMat.uniforms.time.value = this.elapsed; this.shaftMaterial.uniforms.time.value = this.elapsed;
+      this.film.uniforms.time.value = this.elapsed;
+      if (!this.controller.paused && this.weather && this.adventure.clock) {
+        this.weather.tick(realDelta, this.adventure.clock);
+        this.weatherFrame = this.weather.apply(Math.min(realDelta, .25), this.adventure.clock, this.camera);
       }
+      // Shared normal-mapped light rig for the sprite actors (sun/moon +
+      // hemisphere, normalized from scene intensities to sprite multipliers).
+      {
+        const K = .24;
+        spriteLightUniforms.uSunDir.value.copy(this.sun.position).sub(this.sun.target.position).normalize();
+        spriteLightUniforms.uSunColor.value.copy(this.sun.color).multiplyScalar(this.sun.intensity * K);
+        spriteLightUniforms.uHemiSky.value.copy(this.hemisphere.color).multiplyScalar(this.hemisphere.intensity * K);
+        spriteLightUniforms.uHemiGround.value.copy(this.hemisphere.groundColor).multiplyScalar(this.hemisphere.intensity * K);
+      }
+      for (const shaft of this.shafts) {
+        const axis = shaft.end.clone().sub(shaft.start), view = this.camera.position.clone().sub(shaft.start), side = axis.cross(view).normalize();
+        const a = shaft.mesh.geometry.getAttribute('position');
+        const vertices = [shaft.start.clone().addScaledVector(side, -shaft.width * .28), shaft.start.clone().addScaledVector(side, shaft.width * .28), shaft.end.clone().addScaledVector(side, -shaft.width), shaft.end.clone().addScaledVector(side, shaft.width)];
+        vertices.forEach((v, i) => a.setXYZ(i, v.x, v.y, v.z)); a.needsUpdate = true;
+      }
+      if (!this.controller.paused && this.elapsed - this.lastActorShadow > (this.quality === 'performance' ? .30 : .10)) {
+        this.renderer.shadowMap.needsUpdate = true; this.lastActorShadow = this.elapsed;
+      }
+      // Keep the high-resolution shadow region around the traveller.
+      const targetX = Math.round(this.controller.position.x / 4) * 4, targetZ = Math.round(this.controller.position.z / 4) * 4;
+      if (this.controller.velocity.lengthSq() > .0004 || !this.controller.grounded || this.sun.target.position.x !== targetX || this.sun.target.position.z !== targetZ) this.renderer.shadowMap.needsUpdate = true;
+      this.sun.target.position.set(targetX, terrainHeight(targetX, targetZ), targetZ);
+      this.renderer.info.reset();
+      // Camp and cinematics keep rendering every frame even while the
+      // controller is paused — the rest orbit, painted night→dawn sky, dice,
+      // and camera dollies all live behind those overlays.
+      if (!this.controller.paused || this.renderDirty || this.adventure.needsRender || gameState.inCamp || gameState.inCinematic) {
+        this.composer.render(); this.renderDirty = false;
+      }
+      this.frameCount++; this.fpsTimer += realDelta;
+      if (this.fpsTimer > 1) { this.fps = Math.round(this.frameCount / this.fpsTimer); this.frameCount = 0; this.fpsTimer = 0; }
+      if (this.frameCount % 3 === 0) {
+        const state = this.getState(); this.onUpdate(state);
+        if (state.started && state.story.phase !== 'journey' && state.landmark && !this.visited.has(state.landmark)) {
+          this.visited.add(state.landmark); this.onDiscovery(LANDMARKS.find(l => l.id === state.landmark)!.name);
+        }
+      }
+    } catch (err) {
+      console.error('[World] frame error:', err);
     }
     this.raf = requestAnimationFrame(this.frame);
   };

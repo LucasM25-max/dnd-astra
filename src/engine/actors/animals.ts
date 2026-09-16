@@ -103,10 +103,19 @@ export class AnimalActor implements LivingAnimal {
     const target = dt > 1e-4 ? Math.min(4.5, sample.distance / dt) : 0;
     this.speed += (target - this.speed) * Math.min(1, dt * 6);
     const moving = this.speed > 0.1 && !sample.gait;
+
+    // Watch what's nearby while standing; face where you're going otherwise.
+    const look = sample.lookAt && !moving ? sample.lookAt : null;
+    const dist = look ? this.root.position.distanceTo(look) : 0;
+    const playerClose = look && dist > 0 && dist < 3.2;
+
     // Foraging: a loose horse puts its head down for a mouthful, then lifts it
-    // again to look at you. Timed off the wander cycle so it never twitches.
+    // again to look around. If player gets close, pause grazing to watch them attentively.
     if (!moving && !sample.gait) {
-      if (this.clock > this.forageUntil) {
+      if (playerClose && dist < 2.4) {
+        this.foraging = false;
+        this.forageUntil = this.clock + 2.0;
+      } else if (this.clock > this.forageUntil) {
         this.foraging = !!sample.forage && !this.foraging;
         this.forageUntil = this.clock + (this.foraging ? 4.5 + this.rand() * 7 : 2.5 + this.rand() * 6);
       }
@@ -116,10 +125,7 @@ export class AnimalActor implements LivingAnimal {
     if (!sample.paused) {
       this.actor.setGait(gait);
       this.actor.setSpeed(sample.paused ? 0 : this.speed);
-      // Watch what's nearby while standing; face where you're going otherwise.
-      const look = sample.lookAt && !moving ? sample.lookAt : null;
-      const dist = look ? this.root.position.distanceTo(look) : 0;
-      this.actor.setLookAt(look, look ? THREE.MathUtils.clamp(1.35 - (dist - 2.2) / 6, 0, 1) : 0);
+      this.actor.setLookAt(look, look ? THREE.MathUtils.clamp(1.4 - (dist - 1.8) / 5.5, 0, 1) : 0);
       this.playFlourishes(dt, gait);
       this.actor.update(dt);
     }

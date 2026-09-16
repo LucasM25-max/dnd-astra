@@ -13,16 +13,12 @@ export interface RansackedOptions {
 }
 
 /**
- * The ransacked belongings: kneel + a slow, close camera dolly + narrator
- * voice read in the story box + dust motes. No pop-up panel. Re-press yields
- * the short line with no camera move.
- *
- * The first inspection is a lingering shot: the lens drifts in low and close
- * over the looted saddlebags, holds there for the whole line, and only eases
- * back to the follow-cam once the Narrator has finished.
+ * The ransacked belongings:
+ * Camera pan happens first, followed by a slightly longer kneel inspection
+ * animation sifting through the belongings, then pans out.
  */
-const DOLLY_IN_MS = 2600;
-const DOLLY_OUT_MS = 2200;
+const DOLLY_IN_MS = 1000;
+const DOLLY_OUT_MS = 900;
 
 export function createRansackedBelongingsInteraction(opts: RansackedOptions): InteractionDef {
   return {
@@ -33,16 +29,25 @@ export function createRansackedBelongingsInteraction(opts: RansackedOptions): In
     when: opts.canInteract,
     async onInteract(ctx) {
       if (!opts.isInspected()) {
-        const kneel = ctx.hero.playOneShot('interact');
-        opts.dustBurst(opts.position);
         await ctx.narrator.narrate(
           'ransacked_belongings',
           "The horses' saddlebags have been looted. An empty leather map case lies nearby.",
           opts.focus,
           undefined,
-          { heading: 'The ambush clearing', chapter: 'THE AMBUSH CLEARING', dollyIn: DOLLY_IN_MS, dollyOut: DOLLY_OUT_MS },
+          {
+            heading: 'The ambush clearing',
+            chapter: 'THE AMBUSH CLEARING',
+            dollyIn: DOLLY_IN_MS,
+            dollyOut: DOLLY_OUT_MS,
+            async onFocus() {
+              ctx.hero.faceTowards(opts.position);
+              const kneel = ctx.hero.playOneShot('interact');
+              window.setTimeout(() => opts.dustBurst(opts.position), 350);
+              await kneel;
+              opts.setInspected();
+            },
+          },
         );
-        await kneel;
         opts.setInspected();
       } else {
         await ctx.narrator.narrate('nothing_of_interest', 'Nothing more of interest here.', null, 2.0, {

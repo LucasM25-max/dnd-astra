@@ -18,6 +18,7 @@ interface QueuedLine {
   chapter?: string;
   dollyIn: number;
   dollyOut: number;
+  onFocus?: () => Promise<void> | void;
   resolve: () => void;
 }
 
@@ -29,6 +30,8 @@ export interface NarrateOptions {
   /** Cinematic dolly-in / dolly-out durations in ms. */
   dollyIn?: number;
   dollyOut?: number;
+  /** Callback fired once camera dolly-in finishes, executed alongside speech. */
+  onFocus?: () => Promise<void> | void;
 }
 
 export const ONE_SHOT_CLIPS = [
@@ -122,6 +125,7 @@ export class NarratorSystem {
         clipId, text, focus, duration: lineDuration,
         heading: opts.heading, chapter: opts.chapter,
         dollyIn: opts.dollyIn ?? 800, dollyOut: opts.dollyOut ?? 800,
+        onFocus: opts.onFocus,
         resolve,
       });
       void this.pump();
@@ -135,7 +139,8 @@ export class NarratorSystem {
     this.playing = true;
     try {
       if (line.focus && this.camera) await this.camera.dollyTo(line.focus, line.dollyIn);
-      await this.speak(line);
+      const onFocusPromise = line.onFocus ? Promise.resolve(line.onFocus()).catch(() => {}) : Promise.resolve();
+      await Promise.all([this.speak(line), onFocusPromise]);
       if (line.focus && this.camera) await this.camera.restore(line.dollyOut);
     } finally {
       this.playing = false;

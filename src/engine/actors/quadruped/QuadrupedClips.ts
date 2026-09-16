@@ -160,7 +160,7 @@ export function footAngles(u: number, leg: LegId, gait: GaitSpec, species: QuadS
     flex: (fore ? 5 : 10) + fold * (fore ? 34 : 31),
     sole: lerp(13, -6, s) - fold * (fore ? 8 : 12),
     lift: fold * gait.lift,
-    splay: splayBase + fold * 2.4,
+    splay: splayBase + fold * 0.8,
     planted: false,
   };
 }
@@ -172,23 +172,23 @@ function spinePose(u: number, gait: GaitSpec, spec: SpeciesSpec, species: QuadSp
   // The withers rise once per footfall pair; the head counter-rolls to hold
   // the gaze steady, which is the loudest "this is alive" cue there is.
   const bob = Math.sin(two - 0.55);
-  const roll = Math.sin(a - 0.9) * spec.gait.roll * (species === 'ox' ? 1.3 : 1);
-  const flex = Math.sin(two + 0.35) * (species === 'ox' ? 1.5 : 2.2) + (gait.duty < 0.5 ? 1.6 : 0);
+  const roll = Math.sin(a - 0.9) * spec.gait.roll * (species === 'ox' ? 1.2 : 0.85);
+  const flex = Math.sin(two + 0.35) * (species === 'ox' ? 1.4 : 1.8) + (gait.duty < 0.5 ? 1.4 : 0);
   const pose: Pose = {
-    Hips: [flex * 0.45, roll * 0.35, 0],
-    Loin: [flex * 0.3, roll * 0.62, 0],
-    Chest: [-flex * 0.26, roll * 0.46, 0],
-    Withers: [-flex * 0.2 + bob * 0.7, roll * 0.22, 0],
-    Neck1: [bob * 1.2 - flex * 0.4, -roll * 0.5, 0],
-    Neck2: [-bob * 1.6 - flex * 0.2, -roll * 0.34, 0],
-    Head: [bob * 2.1 + flex * 0.3, roll * 0.72, 0],
-    Jaw: [2 + Math.max(0, bob) * 2.2, 0, 0],
+    Hips: [flex * 0.4, roll * 0.3, 0],
+    Loin: [flex * 0.25, roll * 0.45, 0],
+    Chest: [-flex * 0.22, roll * 0.35, 0],
+    Withers: [-flex * 0.18 + bob * 0.6, roll * 0.2, 0],
+    Neck1: [bob * 0.9 - flex * 0.3, -roll * 0.35, 0],
+    Neck2: [-bob * 1.1 - flex * 0.15, -roll * 0.25, 0],
+    Head: [bob * 1.4 + flex * 0.2, roll * 0.5, 0],
+    Jaw: [1.5 + Math.max(0, bob) * 1.8, 0, 0],
   };
   const swish = species === 'ox' ? 0.85 : 0.5;
-  pose.Tail1 = [Math.sin(a * 0.5) * 2.6, 0, Math.sin(a * swish) * 6 + 2];
-  pose.Tail2 = [Math.sin(a * swish - 0.6) * 4.5, 0, Math.sin(a * swish - 0.8) * 7.5];
-  pose.Tail3 = [Math.sin(a * swish - 1.2) * 5, 0, Math.sin(a * swish - 1.5) * 9];
-  return { pose, root: [0, bob * spec.gait.bob, Math.max(0, flex) * -0.004] };
+  pose.Tail1 = [Math.sin(a * 0.5) * 2.2, 0, Math.sin(a * swish) * 5 + 1.5];
+  pose.Tail2 = [Math.sin(a * swish - 0.6) * 3.8, 0, Math.sin(a * swish - 0.8) * 6.5];
+  pose.Tail3 = [Math.sin(a * swish - 1.2) * 4.2, 0, Math.sin(a * swish - 1.5) * 7.5];
+  return { pose, root: [0, bob * spec.gait.bob, Math.max(0, flex) * -0.003] };
 }
 
 function gaitPose(u: number, gait: GaitSpec, spec: SpeciesSpec, species: QuadSpecies): { pose: Pose; root: [number, number, number] } {
@@ -199,17 +199,18 @@ function gaitPose(u: number, gait: GaitSpec, spec: SpeciesSpec, species: QuadSpe
     const f = footAngles(u, leg, gait, species);
     // Flexion pitches the distal segment backward in front, forward behind.
     const lower = fore ? f.flex : -f.flex;
-    // The ankle only carries what the chain above it has not already used, so
-    // the sole keeps the pitch `f.sole` through the whole step.
-    const foot = f.sole - (fore ? f.root + f.upper : f.root * 0.4 + f.upper) - lower;
+    // Ankle maintains ground-parallel sole in stance, natural forward reach in swing.
+    const foot = f.planted
+      ? THREE.MathUtils.clamp(f.sole - (fore ? f.root * 0.4 + f.upper : f.root * 0.3 + f.upper) - lower, -18, 18)
+      : THREE.MathUtils.clamp(lerp(12, -10, (wrap(u - gait.phases[leg]) - gait.duty) / (1 - gait.duty)), -18, 18);
     if (fore) {
-      pose[`Shoulder${leg}` as QuadBoneName] = [-f.root, 0, side * (f.splay * 0.7 + f.lift * 26)];
-      pose[`UpperLeg${leg}` as QuadBoneName] = [-f.upper, 0, side * (f.splay + f.lift * 30)];
+      pose[`Shoulder${leg}` as QuadBoneName] = [-f.root, 0, side * f.splay * 0.5];
+      pose[`UpperLeg${leg}` as QuadBoneName] = [-f.upper, 0, side * f.splay * 0.7];
       pose[`LowerLeg${leg}` as QuadBoneName] = [lower, 0, 0];
       pose[`Foot${leg}` as QuadBoneName] = [foot, 0, 0];
     } else {
-      pose[`Pelvis${leg}` as QuadBoneName] = [-f.root * 0.5, 0, side * f.splay * 0.4];
-      pose[`UpperLeg${leg}` as QuadBoneName] = [-f.upper, 0, side * (f.splay * 0.9 + f.lift * 22)];
+      pose[`Pelvis${leg}` as QuadBoneName] = [-f.root * 0.5, 0, side * f.splay * 0.3];
+      pose[`UpperLeg${leg}` as QuadBoneName] = [-f.upper, 0, side * f.splay * 0.6];
       pose[`LowerLeg${leg}` as QuadBoneName] = [lower, 0, 0];
       pose[`Foot${leg}` as QuadBoneName] = [foot, 0, 0];
     }
@@ -274,27 +275,27 @@ function idleDef(species: QuadSpecies): QuadClipDef {
     // One hind leg rests, cocked and unloaded, swapping sides mid-loop.
     const rest = Math.max(0, Math.sin(a * 0.5 - 0.4));
     const pose: Pose = {
-      Hips: [0.5 * breath, shift * 1.9, shift * 0.8],
-      Loin: [0.4 * breath, -shift * 0.9, 0],
-      Chest: [1.1 * breath, shift * 0.7, 0],
-      Withers: [0.8 * breath, 0, 0],
-      Neck1: [1.2 * head + 0.5, 2.6 * shift, 0],
-      Neck2: [0.9 * head2, 1.8 * head, 0],
-      Head: [-1.5 * head2 + Math.sin(a * 4.6) * 0.6, 5.2 * head, 0.8 * shift],
-      Jaw: [1.4 + 1.1 * Math.max(0, Math.sin(a * 1.5)), 0, 0],
-      Tail1: [1.5 * Math.sin(a * 0.6), 0, 5 * Math.sin(a * 0.9)],
-      Tail2: [2 * Math.sin(a * 0.6 - 0.5), 0, 7 * Math.sin(a * 0.9 - 0.7)],
-      Tail3: [1.4 * Math.sin(a * 0.6 - 1), 0, 9 * Math.sin(a * 0.9 - 1.4)],
+      Hips: [0.35 * breath, shift * 1.2, shift * 0.4],
+      Loin: [0.25 * breath, -shift * 0.6, 0],
+      Chest: [0.75 * breath, shift * 0.4, 0],
+      Withers: [0.5 * breath, 0, 0],
+      Neck1: [0.8 * head + 0.3, 1.6 * shift, 0],
+      Neck2: [0.6 * head2, 1.2 * head, 0],
+      Head: [-0.9 * head2 + Math.sin(a * 4.6) * 0.4, 3.2 * head, 0.5 * shift],
+      Jaw: [1.2 + 0.8 * Math.max(0, Math.sin(a * 1.5)), 0, 0],
+      Tail1: [1.2 * Math.sin(a * 0.6), 0, 3.8 * Math.sin(a * 0.9)],
+      Tail2: [1.6 * Math.sin(a * 0.6 - 0.5), 0, 5.2 * Math.sin(a * 0.9 - 0.7)],
+      Tail3: [1.2 * Math.sin(a * 0.6 - 1), 0, 6.5 * Math.sin(a * 0.9 - 1.4)],
     };
     for (const leg of LEG_IDS) {
       const fore = isForeLeg(leg);
       const side = leg === 'FL' || leg === 'RL' ? 1 : -1;
-      const relaxed = !fore && side > 0 ? rest : side < 0 ? rest * 0.35 : 0;
-      const sway = Math.sin(a * 0.5 + (fore ? 0 : 0.4)) * (leg[0] === 'F' ? 0.9 : 1.2);
-      pose[`${fore ? 'Shoulder' : 'Pelvis'}${leg}` as QuadBoneName] = [-0.4 * sway + relaxed * 3, 0, side * (0.5 + relaxed * 1.6)];
-      pose[`UpperLeg${leg}` as QuadBoneName] = [sway * 0.8 - relaxed * 9, 0, side * (0.7 + relaxed * 2.4)];
-      pose[`LowerLeg${leg}` as QuadBoneName] = [fore ? 1.4 + relaxed * 6 : -2.2 - relaxed * 12, 0, 0];
-      pose[`Foot${leg}` as QuadBoneName] = [0.4 - relaxed * 5, 0, 0];
+      const relaxed = !fore && side > 0 ? rest : side < 0 ? rest * 0.3 : 0;
+      const sway = Math.sin(a * 0.5 + (fore ? 0 : 0.4)) * (leg[0] === 'F' ? 0.5 : 0.7);
+      pose[`${fore ? 'Shoulder' : 'Pelvis'}${leg}` as QuadBoneName] = [-0.3 * sway + relaxed * 1.8, 0, side * (0.4 + relaxed * 0.8)];
+      pose[`UpperLeg${leg}` as QuadBoneName] = [sway * 0.5 - relaxed * 4.5, 0, side * (0.5 + relaxed * 1.2)];
+      pose[`LowerLeg${leg}` as QuadBoneName] = [fore ? 0.8 : -1.2 - relaxed * 5.5, 0, 0];
+      pose[`Foot${leg}` as QuadBoneName] = [fore ? 0 : 1.0 + relaxed * 2.5, 0, 0];
     }
     // Ear flicks: mostly alert-forward, occasionally one sharp swivel.
     const flick = Math.max(0, Math.sin(a * 3.1 - 1.2));

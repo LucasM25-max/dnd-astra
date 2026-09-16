@@ -294,16 +294,32 @@ export class SkeletalQuadruped {
       this.rotate(bones.PelvisRR, -shift * 1.4, 0, 0);
       this.rotate(bones.UpperLegRL, -shift * 1.9, 0, 0);
       this.rotate(bones.UpperLegRR, shift * 1.7, 0, 0);
+
+      // Bovine cud chewing when resting in place: gentle rhythmic jaw grinding
+      if (this.species === 'ox' && this.gait !== 'tied') {
+        const chew = Math.sin(t * 3.6 + this.seed);
+        if (chew > 0.05) {
+          this.rotate(bones.Jaw, chew * 2.2, Math.cos(t * 1.8) * 0.9, 0);
+        }
+      } else if (this.species === 'horse' && this.gait === 'idle') {
+        const nuzzle = Math.sin(t * 0.7 + this.seed * 1.5);
+        if (nuzzle > 0.88) {
+          this.rotate(bones.Head, (nuzzle - 0.88) * 5, 0, (nuzzle - 0.88) * 2.5);
+        }
+      }
     }
 
-    // Head tracking: yaw/pitch toward the target, damped, then split across
-    // the neck and head so the neck bends instead of the skull swivelling.
+    // Head tracking: yaw/pitch toward the target in animal local space, damped,
+    // then split across the neck and head so the neck bends instead of the skull swivelling.
     this.lookWeight = damp(this.lookWeight, this.lookWant, 2.6, dt);
     if (this.lookWeight > 0.01) {
-      const head = bones.Head.getWorldPosition(this.tmpA);
-      const toTarget = this.tmpB.copy(this.lookTarget).sub(head);
+      this.root.updateMatrixWorld(true);
+      const headWorld = bones.Head.getWorldPosition(this.tmpA);
+      const headLocal = this.root.worldToLocal(headWorld);
+      const targetLocal = this.root.worldToLocal(this.tmpB.copy(this.lookTarget));
+      const toTarget = targetLocal.sub(headLocal);
       const flat = Math.hypot(toTarget.x, toTarget.z);
-      // The rig is squared by π, so the animal's forward is −Z in world space.
+      // In avatar root space, forward is −Z.
       const yaw = Math.atan2(-toTarget.x, -toTarget.z);
       const pitch = -Math.atan2(toTarget.y - 0.1, Math.max(0.2, flat));
       const reach = THREE.MathUtils.clamp(1 - (flat - 1.2) / 7, 0.15, 1) * this.lookWeight;
@@ -312,10 +328,10 @@ export class SkeletalQuadruped {
       this.lookPitch = damp(this.lookPitch, THREE.MathUtils.clamp(pitch, -0.42, 0.5) * reach, 4.5, dt);
       const y = THREE.MathUtils.radToDeg(this.lookYaw);
       const p = THREE.MathUtils.radToDeg(this.lookPitch);
-      this.rotate(bones.Neck1, p * 0.34, y * 0.26, 0);
-      this.rotate(bones.Neck2, p * 0.42, y * 0.36, 0);
-      this.rotate(bones.Head, p * 0.5, y * 0.5, p * 0.06);
-      this.rotate(bones.Jaw, standing ? 4 + Math.abs(p) * 0.2 : 0, 0, 0);
+      this.rotate(bones.Neck1, p * 0.32, y * 0.25, 0);
+      this.rotate(bones.Neck2, p * 0.38, y * 0.35, 0);
+      this.rotate(bones.Head, p * 0.45, y * 0.45, p * 0.05);
+      this.rotate(bones.Jaw, standing ? 3 + Math.abs(p) * 0.15 : 0, 0, 0);
     }
   }
 
